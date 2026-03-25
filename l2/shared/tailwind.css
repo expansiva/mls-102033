@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@theme {
+  --color-aura-ink: #102a43;
+  --color-aura-navy: #17324d;
+  --color-aura-blue: #22496e;
+  --color-aura-sand: #fffdfa;
+  --color-aura-mist: #f7f4ea;
+}
+
+@source "../**/*.ts";
