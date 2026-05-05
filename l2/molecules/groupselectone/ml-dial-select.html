@@ -1,0 +1,277 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Dial Select Molecule</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">groupSelectOne</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"value":"","error":""},"placeholder":{"value":"","placeholder":"Choose a fruit..."},"grouped":{"value":"","error":""},"searchable":{"value":""},"disabled":{"value":""},"custom":{"value":""}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- Basic usage -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic usage</h3>
+<demo id="demo-basic">
+<groupselectone--ml-dial-select
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  is-editing="true"
+  disabled="false">
+  <Label>Favorite Color</Label>
+  <Item value="red">Red</Item>
+  <Item value="green">Green</Item>
+  <Item value="blue">Blue</Item>
+</groupselectone--ml-dial-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupselectone--ml-dial-select
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  is-editing="true"
+  disabled="false">
+  <Label>Favorite Color</Label>
+  <Item value="red">Red</Item>
+  <Item value="green">Green</Item>
+  <Item value="blue">Blue</Item>
+</groupselectone--ml-dial-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- With placeholder and required -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With placeholder and required</h3>
+<demo id="demo-placeholder">
+<groupselectone--ml-dial-select
+  value="{{playground.placeholder.value}}"
+  placeholder="{{playground.placeholder.placeholder}}"
+  required="true"
+  is-editing="true">
+  <Label>Fruit</Label>
+  <Item value="apple">Apple</Item>
+  <Item value="banana">Banana</Item>
+  <Item value="orange">Orange</Item>
+</groupselectone--ml-dial-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.placeholder.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="placeholder" value="{{playground.placeholder.placeholder}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-placeholder">
+<template>
+<groupselectone--ml-dial-select
+  value="{{playground.placeholder.value}}"
+  placeholder="{{playground.placeholder.placeholder}}"
+  required="true"
+  is-editing="true">
+  <Label>Fruit</Label>
+  <Item value="apple">Apple</Item>
+  <Item value="banana">Banana</Item>
+  <Item value="orange">Orange</Item>
+</groupselectone--ml-dial-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Grouped options -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Grouped options</h3>
+<demo id="demo-grouped">
+<groupselectone--ml-dial-select
+  value="{{playground.grouped.value}}"
+  error="{{playground.grouped.error}}"
+  is-editing="true">
+  <Label>Category</Label>
+  <Group label="Fruits">
+    <Item value="apple">Apple</Item>
+    <Item value="banana">Banana</Item>
+  </Group>
+  <Group label="Vegetables">
+    <Item value="carrot">Carrot</Item>
+    <Item value="lettuce">Lettuce</Item>
+  </Group>
+  <Empty>No categories available</Empty>
+</groupselectone--ml-dial-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.grouped.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.grouped.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-grouped">
+<template>
+<groupselectone--ml-dial-select
+  value="{{playground.grouped.value}}"
+  error="{{playground.grouped.error}}"
+  is-editing="true">
+  <Label>Category</Label>
+  <Group label="Fruits">
+    <Item value="apple">Apple</Item>
+    <Item value="banana">Banana</Item>
+  </Group>
+  <Group label="Vegetables">
+    <Item value="carrot">Carrot</Item>
+    <Item value="lettuce">Lettuce</Item>
+  </Group>
+  <Empty>No categories available</Empty>
+</groupselectone--ml-dial-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Searchable and loading -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Searchable and loading</h3>
+<demo id="demo-searchable">
+<groupselectone--ml-dial-select
+  value="{{playground.searchable.value}}"
+  searchable="true"
+  loading="true"
+  is-editing="true">
+  <Label>City</Label>
+  <Item value="ny">New York</Item>
+  <Item value="la">Los Angeles</Item>
+  <Item value="sf">San Francisco</Item>
+</groupselectone--ml-dial-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.searchable.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-searchable">
+<template>
+<groupselectone--ml-dial-select
+  value="{{playground.searchable.value}}"
+  searchable="true"
+  loading="true"
+  is-editing="true">
+  <Label>City</Label>
+  <Item value="ny">New York</Item>
+  <Item value="la">Los Angeles</Item>
+  <Item value="sf">San Francisco</Item>
+</groupselectone--ml-dial-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Disabled and readonly -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled and readonly</h3>
+<demo id="demo-disabled">
+<groupselectone--ml-dial-select
+  value="{{playground.disabled.value}}"
+  disabled="true"
+  readonly="true"
+  is-editing="true">
+  <Label>Payment Method</Label>
+  <Item value="credit">Credit Card</Item>
+  <Item value="debit">Debit Card</Item>
+  <Item value="pix">Pix</Item>
+</groupselectone--ml-dial-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.disabled.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupselectone--ml-dial-select
+  value="{{playground.disabled.value}}"
+  disabled="true"
+  readonly="true"
+  is-editing="true">
+  <Label>Payment Method</Label>
+  <Item value="credit">Credit Card</Item>
+  <Item value="debit">Debit Card</Item>
+  <Item value="pix">Pix</Item>
+</groupselectone--ml-dial-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Custom trigger and helper -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Custom trigger and helper</h3>
+<demo id="demo-custom">
+<groupselectone--ml-dial-select
+  value="{{playground.custom.value}}"
+  is-editing="true">
+  <Label>Language</Label>
+  <Trigger><span class="italic">Pick a language…</span></Trigger>
+  <Helper>Choose your preferred language for the interface.</Helper>
+  <Item value="en">English</Item>
+  <Item value="pt">Português</Item>
+  <Item value="es">Español</Item>
+</groupselectone--ml-dial-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.custom.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-custom">
+<template>
+<groupselectone--ml-dial-select
+  value="{{playground.custom.value}}"
+  is-editing="true">
+  <Label>Language</Label>
+  <Trigger><span class="italic">Pick a language…</span></Trigger>
+  <Helper>Choose your preferred language for the interface.</Helper>
+  <Item value="en">English</Item>
+  <Item value="pt">Português</Item>
+  <Item value="es">Español</Item>
+</groupselectone--ml-dial-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

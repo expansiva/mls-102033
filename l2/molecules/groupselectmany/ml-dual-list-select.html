@@ -1,0 +1,278 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">ML Dual List Select</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">select + many</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"value":"","error":"","placeholder":"Choose fruits"},"groups":{"value":""},"searchable":{"value":""},"disabled":{"value":"apple,banana"},"readonly":{"value":"banana,grape"},"empty":{"value":""}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- Basic usage -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic usage</h3>
+<demo id="demo-basic">
+<groupselectmany--ml-dual-list-select
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  placeholder="{{playground.basic.placeholder}}"
+  is-editing="true">
+  <Label>Fruits</Label>
+  <Helper>Select one or more fruits from the list.</Helper>
+  <Item value="apple">Apple</Item>
+  <Item value="banana">Banana</Item>
+  <Item value="grape">Grape</Item>
+  <Item value="orange">Orange</Item>
+</groupselectmany--ml-dual-list-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="placeholder" value="{{playground.basic.placeholder}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupselectmany--ml-dual-list-select
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  placeholder="{{playground.basic.placeholder}}"
+  is-editing="true">
+  <Label>Fruits</Label>
+  <Helper>Select one or more fruits from the list.</Helper>
+  <Item value="apple">Apple</Item>
+  <Item value="banana">Banana</Item>
+  <Item value="grape">Grape</Item>
+  <Item value="orange">Orange</Item>
+</groupselectmany--ml-dual-list-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- With groups and required -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With groups and required</h3>
+<demo id="demo-groups">
+<groupselectmany--ml-dual-list-select
+  value="{{playground.groups.value}}"
+  required="true"
+  is-editing="true">
+  <Label>Choose your toppings</Label>
+  <Group label="Vegetables">
+    <Item value="lettuce">Lettuce</Item>
+    <Item value="tomato">Tomato</Item>
+    <Item value="onion">Onion</Item>
+  </Group>
+  <Group label="Proteins">
+    <Item value="chicken">Chicken</Item>
+    <Item value="tofu">Tofu</Item>
+    <Item value="egg">Egg</Item>
+  </Group>
+</groupselectmany--ml-dual-list-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.groups.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-groups">
+<template>
+<groupselectmany--ml-dual-list-select
+  value="{{playground.groups.value}}"
+  required="true"
+  is-editing="true">
+  <Label>Choose your toppings</Label>
+  <Group label="Vegetables">
+    <Item value="lettuce">Lettuce</Item>
+    <Item value="tomato">Tomato</Item>
+    <Item value="onion">Onion</Item>
+  </Group>
+  <Group label="Proteins">
+    <Item value="chicken">Chicken</Item>
+    <Item value="tofu">Tofu</Item>
+    <Item value="egg">Egg</Item>
+  </Group>
+</groupselectmany--ml-dual-list-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Searchable with max selection -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Searchable with max selection</h3>
+<demo id="demo-searchable">
+<groupselectmany--ml-dual-list-select
+  value="{{playground.searchable.value}}"
+  searchable="true"
+  max-selection="2"
+  is-editing="true">
+  <Label>Pick up to 2 cities</Label>
+  <Item value="ny">New York</Item>
+  <Item value="la">Los Angeles</Item>
+  <Item value="sf">San Francisco</Item>
+  <Item value="chi">Chicago</Item>
+  <Item value="bos">Boston</Item>
+</groupselectmany--ml-dual-list-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.searchable.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-searchable">
+<template>
+<groupselectmany--ml-dual-list-select
+  value="{{playground.searchable.value}}"
+  searchable="true"
+  max-selection="2"
+  is-editing="true">
+  <Label>Pick up to 2 cities</Label>
+  <Item value="ny">New York</Item>
+  <Item value="la">Los Angeles</Item>
+  <Item value="sf">San Francisco</Item>
+  <Item value="chi">Chicago</Item>
+  <Item value="bos">Boston</Item>
+</groupselectmany--ml-dual-list-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Disabled state -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled state</h3>
+<demo id="demo-disabled">
+<groupselectmany--ml-dual-list-select
+  value="{{playground.disabled.value}}"
+  disabled="true"
+  is-editing="true">
+  <Label>Disabled example</Label>
+  <Item value="apple">Apple</Item>
+  <Item value="banana">Banana</Item>
+  <Item value="grape">Grape</Item>
+  <Item value="orange">Orange</Item>
+</groupselectmany--ml-dual-list-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.disabled.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupselectmany--ml-dual-list-select
+  value="{{playground.disabled.value}}"
+  disabled="true"
+  is-editing="true">
+  <Label>Disabled example</Label>
+  <Item value="apple">Apple</Item>
+  <Item value="banana">Banana</Item>
+  <Item value="grape">Grape</Item>
+  <Item value="orange">Orange</Item>
+</groupselectmany--ml-dual-list-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Readonly (view mode) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Readonly (view mode)</h3>
+<demo id="demo-readonly">
+<groupselectmany--ml-dual-list-select
+  value="{{playground.readonly.value}}"
+  is-editing="false">
+  <Label>Selected fruits</Label>
+  <Item value="apple">Apple</Item>
+  <Item value="banana">Banana</Item>
+  <Item value="grape">Grape</Item>
+  <Item value="orange">Orange</Item>
+</groupselectmany--ml-dual-list-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.readonly.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-readonly">
+<template>
+<groupselectmany--ml-dual-list-select
+  value="{{playground.readonly.value}}"
+  is-editing="false">
+  <Label>Selected fruits</Label>
+  <Item value="apple">Apple</Item>
+  <Item value="banana">Banana</Item>
+  <Item value="grape">Grape</Item>
+  <Item value="orange">Orange</Item>
+</groupselectmany--ml-dual-list-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Custom empty slot and helper -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Custom empty slot and helper</h3>
+<demo id="demo-empty">
+<groupselectmany--ml-dual-list-select
+  value="{{playground.empty.value}}"
+  is-editing="true">
+  <Label>Empty state demo</Label>
+  <Helper>You can add items later.</Helper>
+  <Empty>No options available at the moment. Please check back soon!</Empty>
+</groupselectmany--ml-dual-list-select>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.empty.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-empty">
+<template>
+<groupselectmany--ml-dual-list-select
+  value="{{playground.empty.value}}"
+  is-editing="true">
+  <Label>Empty state demo</Label>
+  <Helper>You can add items later.</Helper>
+  <Empty>No options available at the moment. Please check back soon!</Empty>
+</groupselectmany--ml-dual-list-select>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

@@ -1,0 +1,244 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Pie Chart Molecule</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">groupViewChart</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"show-legend":true,"show-values":false,"loading":false},"values":{"show-legend":true,"show-values":true,"loading":false},"nolegend":{"show-legend":false,"show-values":true,"loading":false},"series":{"show-legend":true,"show-values":true,"loading":false},"loading":{"show-legend":true,"show-values":false,"loading":true},"empty":{"show-legend":true,"show-values":false,"loading":false}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- 1. Basic Pie Chart -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic Pie Chart</h3>
+<demo id="demo-basic">
+<groupviewchart--ml-pie-chart show-legend="true" show-values="false" loading="false">
+  <Label>Market Share</Label>
+  <Point label="Product A" value="45" color="#0ea5e9" />
+  <Point label="Product B" value="30" color="#22c55e" />
+  <Point label="Product C" value="25" color="#f59e0b" />
+</groupviewchart--ml-pie-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.basic.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.basic.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.basic.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupviewchart--ml-pie-chart show-legend="true" show-values="false" loading="false">
+  <Label>Market Share</Label>
+  <Point label="Product A" value="45" color="#0ea5e9" />
+  <Point label="Product B" value="30" color="#22c55e" />
+  <Point label="Product C" value="25" color="#f59e0b" />
+</groupviewchart--ml-pie-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 2. Pie Chart with Values -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Pie Chart with Values</h3>
+<demo id="demo-values">
+<groupviewchart--ml-pie-chart show-legend="true" show-values="true" loading="false">
+  <Label>Sales Distribution</Label>
+  <Point label="North" value="120" color="#3b82f6" />
+  <Point label="South" value="80" color="#ef4444" />
+  <Point label="East" value="60" color="#f59e0b" />
+  <Point label="West" value="40" color="#14b8a6" />
+</groupviewchart--ml-pie-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.values.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.values.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.values.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-values">
+<template>
+<groupviewchart--ml-pie-chart show-legend="true" show-values="true" loading="false">
+  <Label>Sales Distribution</Label>
+  <Point label="North" value="120" color="#3b82f6" />
+  <Point label="South" value="80" color="#ef4444" />
+  <Point label="East" value="60" color="#f59e0b" />
+  <Point label="West" value="40" color="#14b8a6" />
+</groupviewchart--ml-pie-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 3. Pie Chart without Legend -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Pie Chart without Legend</h3>
+<demo id="demo-nolegend">
+<groupviewchart--ml-pie-chart show-legend="false" show-values="true" loading="false">
+  <Label>Device Usage</Label>
+  <Point label="Desktop" value="70" color="#8b5cf6" />
+  <Point label="Mobile" value="20" color="#f97316" />
+  <Point label="Tablet" value="10" color="#e11d48" />
+</groupviewchart--ml-pie-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.nolegend.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.nolegend.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.nolegend.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-nolegend">
+<template>
+<groupviewchart--ml-pie-chart show-legend="false" show-values="true" loading="false">
+  <Label>Device Usage</Label>
+  <Point label="Desktop" value="70" color="#8b5cf6" />
+  <Point label="Mobile" value="20" color="#f97316" />
+  <Point label="Tablet" value="10" color="#e11d48" />
+</groupviewchart--ml-pie-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 4. Pie Chart with Series (Advanced) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Pie Chart with Series</h3>
+<demo id="demo-series">
+<groupviewchart--ml-pie-chart show-legend="true" show-values="true" loading="false">
+  <Label>Expense Breakdown</Label>
+  <Series name="Q1" color="#0ea5e9">
+    <Point label="Rent" value="40" />
+    <Point label="Salaries" value="35" />
+    <Point label="Utilities" value="25" />
+  </Series>
+  <Series name="Q2" color="#22c55e">
+    <Point label="Rent" value="30" />
+    <Point label="Salaries" value="50" />
+    <Point label="Utilities" value="20" />
+  </Series>
+</groupviewchart--ml-pie-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.series.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.series.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.series.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-series">
+<template>
+<groupviewchart--ml-pie-chart show-legend="true" show-values="true" loading="false">
+  <Label>Expense Breakdown</Label>
+  <Series name="Q1" color="#0ea5e9">
+    <Point label="Rent" value="40" />
+    <Point label="Salaries" value="35" />
+    <Point label="Utilities" value="25" />
+  </Series>
+  <Series name="Q2" color="#22c55e">
+    <Point label="Rent" value="30" />
+    <Point label="Salaries" value="50" />
+    <Point label="Utilities" value="20" />
+  </Series>
+</groupviewchart--ml-pie-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 5. Loading State -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Loading State</h3>
+<demo id="demo-loading">
+<groupviewchart--ml-pie-chart show-legend="true" show-values="false" loading="true">
+  <Label>Loading Example</Label>
+</groupviewchart--ml-pie-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.loading.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.loading.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.loading.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-loading">
+<template>
+<groupviewchart--ml-pie-chart show-legend="true" show-values="false" loading="true">
+  <Label>Loading Example</Label>
+</groupviewchart--ml-pie-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 6. Empty State with Custom Slot -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Empty State with Custom Slot</h3>
+<demo id="demo-empty">
+<groupviewchart--ml-pie-chart show-legend="true" show-values="false" loading="false">
+  <Label>Custom Empty State</Label>
+  <Empty>
+    <div class="text-center">
+      <span class="text-2xl">🚫</span>
+      <div>No sales data for this period.</div>
+    </div>
+  </Empty>
+</groupviewchart--ml-pie-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.empty.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.empty.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.empty.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-empty">
+<template>
+<groupviewchart--ml-pie-chart show-legend="true" show-values="false" loading="false">
+  <Label>Custom Empty State</Label>
+  <Empty>
+    <div class="text-center">
+      <span class="text-2xl">🚫</span>
+      <div>No sales data for this period.</div>
+    </div>
+  </Empty>
+</groupviewchart--ml-pie-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

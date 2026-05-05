@@ -1,0 +1,292 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">File Upload Dropzone</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">select + fileForUpload</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"value":[],"error":""},"multi":{"value":[],"error":""},"disabled":{"value":[],"error":""},"loading":{"value":[],"error":""},"trigger":{"value":[],"error":""},"helper":{"value":[],"error":""}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic Single File Upload</h3>
+<demo id="demo-basic">
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  multiple="false"
+  accept=""
+  max-size-kb="0"
+  max-files="0"
+  disabled="false"
+  loading="false">
+  <Label>Upload a file</Label>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  multiple="false"
+  accept=""
+  max-size-kb="0"
+  max-files="0"
+  disabled="false"
+  loading="false">
+  <Label>Upload a file</Label>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Multi File Image Upload with Limit</h3>
+<demo id="demo-multi">
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.multi.value}}"
+  error="{{playground.multi.error}}"
+  multiple="true"
+  accept="image/*"
+  max-size-kb="2048"
+  max-files="5"
+  disabled="false"
+  loading="false">
+  <Label>Product Images</Label>
+  <Helper>Up to 5 images, max 2MB each</Helper>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="error" value="{{playground.multi.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-multi">
+<template>
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.multi.value}}"
+  error="{{playground.multi.error}}"
+  multiple="true"
+  accept="image/*"
+  max-size-kb="2048"
+  max-files="5"
+  disabled="false"
+  loading="false">
+  <Label>Product Images</Label>
+  <Helper>Up to 5 images, max 2MB each</Helper>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled Dropzone</h3>
+<demo id="demo-disabled">
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.disabled.value}}"
+  error="{{playground.disabled.error}}"
+  multiple="false"
+  accept=".pdf,.docx"
+  max-size-kb="5120"
+  max-files="0"
+  disabled="true"
+  loading="false">
+  <Label>Attachment</Label>
+  <Helper>PDF or Word, up to 5MB</Helper>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="error" value="{{playground.disabled.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.disabled.value}}"
+  error="{{playground.disabled.error}}"
+  multiple="false"
+  accept=".pdf,.docx"
+  max-size-kb="5120"
+  max-files="0"
+  disabled="true"
+  loading="false">
+  <Label>Attachment</Label>
+  <Helper>PDF or Word, up to 5MB</Helper>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Loading State (Uploading)</h3>
+<demo id="demo-loading">
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.loading.value}}"
+  error="{{playground.loading.error}}"
+  multiple="true"
+  accept="image/png,image/jpeg"
+  max-size-kb="1024"
+  max-files="3"
+  disabled="false"
+  loading="true">
+  <Label>Uploading Images</Label>
+  <Helper>Only PNG or JPEG, max 1MB each</Helper>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="error" value="{{playground.loading.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-loading">
+<template>
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.loading.value}}"
+  error="{{playground.loading.error}}"
+  multiple="true"
+  accept="image/png,image/jpeg"
+  max-size-kb="1024"
+  max-files="3"
+  disabled="false"
+  loading="true">
+  <Label>Uploading Images</Label>
+  <Helper>Only PNG or JPEG, max 1MB each</Helper>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Custom Trigger Slot</h3>
+<demo id="demo-trigger">
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.trigger.value}}"
+  error="{{playground.trigger.error}}"
+  multiple="true"
+  accept="image/*"
+  max-size-kb="4096"
+  max-files="10"
+  disabled="false"
+  loading="false">
+  <Label>Gallery Upload</Label>
+  <Trigger>
+    <div class="flex items-center gap-2">
+      <span class="font-semibold text-sky-700 dark:text-sky-300">Drop images or click</span>
+      <svg class="w-5 h-5 text-sky-500 dark:text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+    </div>
+  </Trigger>
+  <Helper>Up to 10 images, max 4MB each</Helper>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="error" value="{{playground.trigger.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-trigger">
+<template>
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.trigger.value}}"
+  error="{{playground.trigger.error}}"
+  multiple="true"
+  accept="image/*"
+  max-size-kb="4096"
+  max-files="10"
+  disabled="false"
+  loading="false">
+  <Label>Gallery Upload</Label>
+  <Trigger>
+    <div class="flex items-center gap-2">
+      <span class="font-semibold text-sky-700 dark:text-sky-300">Drop images or click</span>
+      <svg class="w-5 h-5 text-sky-500 dark:text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+    </div>
+  </Trigger>
+  <Helper>Up to 10 images, max 4MB each</Helper>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Helper and Error Slots</h3>
+<demo id="demo-helper">
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.helper.value}}"
+  error="{{playground.helper.error}}"
+  multiple="false"
+  accept=".pdf"
+  max-size-kb="10240"
+  max-files="0"
+  disabled="false"
+  loading="false">
+  <Label>PDF Upload</Label>
+  <Helper>Max 10MB, PDF only</Helper>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="error" value="{{playground.helper.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-helper">
+<template>
+<groupselectfileforupload--ml-file-upload-dropzone
+  value="{{playground.helper.value}}"
+  error="{{playground.helper.error}}"
+  multiple="false"
+  accept=".pdf"
+  max-size-kb="10240"
+  max-files="0"
+  disabled="false"
+  loading="false">
+  <Label>PDF Upload</Label>
+  <Helper>Max 10MB, PDF only</Helper>
+</groupselectfileforupload--ml-file-upload-dropzone>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

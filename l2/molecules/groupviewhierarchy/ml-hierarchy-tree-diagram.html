@@ -1,0 +1,338 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Hierarchy Tree Diagram</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">view + hierarchy</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"multiple":true,"expandAll":false,"disabled":false,"loading":false},"expandAll":{"multiple":true,"expandAll":true,"disabled":false,"loading":false},"single":{"multiple":false,"expandAll":false,"disabled":false,"loading":false},"disabled":{"multiple":true,"expandAll":false,"disabled":true,"loading":false},"loading":{"multiple":true,"expandAll":false,"disabled":false,"loading":true},"empty":{"multiple":true,"expandAll":false,"disabled":false,"loading":false}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- Basic Tree -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic Tree</h3>
+<demo id="demo-basic">
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="true"
+  expand-all="false"
+  disabled="false"
+  loading="false"
+>
+  <Label>Team Structure</Label>
+  <Node expanded>Engineering
+    <Node>Frontend
+      <Node>React</Node>
+      <Node>Vue</Node>
+    </Node>
+    <Node>Backend
+      <Node>Node.js</Node>
+      <Node>Python</Node>
+    </Node>
+  </Node>
+  <Node>Design</Node>
+  <Node>Product</Node>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="multiple" value="{{playground.basic.multiple}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="expandAll" value="{{playground.basic.expandAll}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="disabled" value="{{playground.basic.disabled}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.basic.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="true"
+  expand-all="false"
+  disabled="false"
+  loading="false"
+>
+  <Label>Team Structure</Label>
+  <Node expanded>Engineering
+    <Node>Frontend
+      <Node>React</Node>
+      <Node>Vue</Node>
+    </Node>
+    <Node>Backend
+      <Node>Node.js</Node>
+      <Node>Python</Node>
+    </Node>
+  </Node>
+  <Node>Design</Node>
+  <Node>Product</Node>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Expand All -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Expand All</h3>
+<demo id="demo-expand-all">
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="true"
+  expand-all="true"
+  disabled="false"
+  loading="false"
+>
+  <Label>Company Departments</Label>
+  <Node>Sales
+    <Node>Domestic</Node>
+    <Node>International</Node>
+  </Node>
+  <Node>Support
+    <Node>Technical</Node>
+    <Node>Customer Success</Node>
+  </Node>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="multiple" value="{{playground.expandAll.multiple}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="expandAll" value="{{playground.expandAll.expandAll}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="disabled" value="{{playground.expandAll.disabled}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.expandAll.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-expand-all">
+<template>
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="true"
+  expand-all="true"
+  disabled="false"
+  loading="false"
+>
+  <Label>Company Departments</Label>
+  <Node>Sales
+    <Node>Domestic</Node>
+    <Node>International</Node>
+  </Node>
+  <Node>Support
+    <Node>Technical</Node>
+    <Node>Customer Success</Node>
+  </Node>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Single Expand (Accordion) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Single Expand (Accordion)</h3>
+<demo id="demo-single">
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="false"
+  expand-all="false"
+  disabled="false"
+  loading="false"
+>
+  <Label>Accordion Example</Label>
+  <Node expanded>Section 1
+    <Node>Item 1.1</Node>
+    <Node>Item 1.2</Node>
+  </Node>
+  <Node>Section 2
+    <Node>Item 2.1</Node>
+    <Node>Item 2.2</Node>
+  </Node>
+  <Node>Section 3</Node>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="multiple" value="{{playground.single.multiple}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="expandAll" value="{{playground.single.expandAll}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="disabled" value="{{playground.single.disabled}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.single.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-single">
+<template>
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="false"
+  expand-all="false"
+  disabled="false"
+  loading="false"
+>
+  <Label>Accordion Example</Label>
+  <Node expanded>Section 1
+    <Node>Item 1.1</Node>
+    <Node>Item 1.2</Node>
+  </Node>
+  <Node>Section 2
+    <Node>Item 2.1</Node>
+    <Node>Item 2.2</Node>
+  </Node>
+  <Node>Section 3</Node>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Disabled Tree -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled Tree</h3>
+<demo id="demo-disabled">
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="true"
+  expand-all="false"
+  disabled="true"
+  loading="false"
+>
+  <Label>Permissions</Label>
+  <Node expanded>Admin
+    <Node>Users</Node>
+    <Node>Settings</Node>
+  </Node>
+  <Node>User</Node>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="multiple" value="{{playground.disabled.multiple}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="expandAll" value="{{playground.disabled.expandAll}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="disabled" value="{{playground.disabled.disabled}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.disabled.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="true"
+  expand-all="false"
+  disabled="true"
+  loading="false"
+>
+  <Label>Permissions</Label>
+  <Node expanded>Admin
+    <Node>Users</Node>
+    <Node>Settings</Node>
+  </Node>
+  <Node>User</Node>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Loading State -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Loading State</h3>
+<demo id="demo-loading">
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="true"
+  expand-all="false"
+  disabled="false"
+  loading="true"
+>
+  <Label>Loading Example</Label>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="multiple" value="{{playground.loading.multiple}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="expandAll" value="{{playground.loading.expandAll}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="disabled" value="{{playground.loading.disabled}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.loading.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-loading">
+<template>
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="true"
+  expand-all="false"
+  disabled="false"
+  loading="true"
+>
+  <Label>Loading Example</Label>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Custom Empty State -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Custom Empty State</h3>
+<demo id="demo-empty">
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="true"
+  expand-all="false"
+  disabled="false"
+  loading="false"
+>
+  <Label>Empty Example</Label>
+  <Empty>
+    <div class="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      No data available. Please add nodes.
+    </div>
+  </Empty>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="multiple" value="{{playground.empty.multiple}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="expandAll" value="{{playground.empty.expandAll}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="disabled" value="{{playground.empty.disabled}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.empty.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-empty">
+<template>
+<groupviewhierarchy--ml-hierarchy-tree-diagram
+  multiple="true"
+  expand-all="false"
+  disabled="false"
+  loading="false"
+>
+  <Label>Empty Example</Label>
+  <Empty>
+    <div class="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      No data available. Please add nodes.
+    </div>
+  </Empty>
+</groupviewhierarchy--ml-hierarchy-tree-diagram>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

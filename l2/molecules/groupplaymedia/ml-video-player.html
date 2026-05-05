@@ -1,0 +1,227 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+  <div class="mx-auto p-8 font-sans">
+    <header class="text-center mb-12">
+      <h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">ML Video Player</h1>
+      <span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">play + media</span>
+    </header>
+
+    <widget-playground-state-102020 state='{"playground":{"basic":{"poster":"https://images.unsplash.com/photo-1485846234645-a62644f84728?q=80&w=1200&auto=format&fit=crop","preload":"metadata"},"autoplayMuted":{"autoplay":true,"muted":true,"preload":"auto"},"looping":{"loop":true,"poster":"https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1200&auto=format&fit=crop"},"captions":{"poster":"https://images.unsplash.com/photo-1469474968028-56623f02e42e?q=80&w=1200&auto=format&fit=crop","preload":"metadata"},"disabled":{"disabled":true,"poster":"https://images.unsplash.com/photo-1498050108023-c5249f4df085?q=80&w=1200&auto=format&fit=crop","preload":"none"},"loading":{"loading":true}}}'></widget-playground-state-102020>
+
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic with poster</h3>
+        <demo id="demo-basic">
+          <groupplaymedia--ml-video-player
+            poster="{{playground.basic.poster}}"
+            preload="{{playground.basic.preload}}">
+            <Label>Product demo</Label>
+            <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm" type="video/webm"></Source>
+            <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4"></Source>
+          </groupplaymedia--ml-video-player>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-text-102020 label="poster" value="{{playground.basic.poster}}"></widget-playground-state-text-102020>
+            <widget-playground-state-text-102020 label="preload" value="{{playground.basic.preload}}"></widget-playground-state-text-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-basic">
+              <template>
+                <groupplaymedia--ml-video-player
+                  poster="{{playground.basic.poster}}"
+                  preload="{{playground.basic.preload}}">
+                  <Label>Product demo</Label>
+                  <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm" type="video/webm"></Source>
+                  <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4"></Source>
+                </groupplaymedia--ml-video-player>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Autoplay muted teaser</h3>
+        <demo id="demo-autoplay-muted">
+          <groupplaymedia--ml-video-player
+            autoplay="{{playground.autoplayMuted.autoplay}}"
+            muted="{{playground.autoplayMuted.muted}}"
+            preload="{{playground.autoplayMuted.preload}}">
+            <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm" type="video/webm"></Source>
+            <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4"></Source>
+          </groupplaymedia--ml-video-player>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="autoplay" value="{{playground.autoplayMuted.autoplay}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="muted" value="{{playground.autoplayMuted.muted}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-text-102020 label="preload" value="{{playground.autoplayMuted.preload}}"></widget-playground-state-text-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-autoplay-muted">
+              <template>
+                <groupplaymedia--ml-video-player
+                  autoplay="{{playground.autoplayMuted.autoplay}}"
+                  muted="{{playground.autoplayMuted.muted}}"
+                  preload="{{playground.autoplayMuted.preload}}">
+                  <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm" type="video/webm"></Source>
+                  <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4"></Source>
+                </groupplaymedia--ml-video-player>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Looping showcase</h3>
+        <demo id="demo-looping">
+          <groupplaymedia--ml-video-player
+            loop="{{playground.looping.loop}}"
+            poster="{{playground.looping.poster}}">
+            <Label>Highlights reel</Label>
+            <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm" type="video/webm"></Source>
+            <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4"></Source>
+          </groupplaymedia--ml-video-player>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="loop" value="{{playground.looping.loop}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-text-102020 label="poster" value="{{playground.looping.poster}}"></widget-playground-state-text-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-looping">
+              <template>
+                <groupplaymedia--ml-video-player
+                  loop="{{playground.looping.loop}}"
+                  poster="{{playground.looping.poster}}">
+                  <Label>Highlights reel</Label>
+                  <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm" type="video/webm"></Source>
+                  <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4"></Source>
+                </groupplaymedia--ml-video-player>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With captions and multiple sources</h3>
+        <demo id="demo-captions">
+          <groupplaymedia--ml-video-player
+            poster="{{playground.captions.poster}}"
+            preload="{{playground.captions.preload}}">
+            <Label><strong>Accessible training</strong> with subtitles</Label>
+            <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm" type="video/webm"></Source>
+            <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4"></Source>
+            <Track src="https://interactive-examples.mdn.mozilla.net/media/examples/fr.vtt" kind="subtitles" lang="fr" label="Français"></Track>
+            <Track src="https://interactive-examples.mdn.mozilla.net/media/examples/en.vtt" kind="subtitles" lang="en" label="English"></Track>
+          </groupplaymedia--ml-video-player>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-text-102020 label="poster" value="{{playground.captions.poster}}"></widget-playground-state-text-102020>
+            <widget-playground-state-text-102020 label="preload" value="{{playground.captions.preload}}"></widget-playground-state-text-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-captions">
+              <template>
+                <groupplaymedia--ml-video-player
+                  poster="{{playground.captions.poster}}"
+                  preload="{{playground.captions.preload}}">
+                  <Label><strong>Accessible training</strong> with subtitles</Label>
+                  <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm" type="video/webm"></Source>
+                  <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4"></Source>
+                  <Track src="https://interactive-examples.mdn.mozilla.net/media/examples/fr.vtt" kind="subtitles" lang="fr" label="Français"></Track>
+                  <Track src="https://interactive-examples.mdn.mozilla.net/media/examples/en.vtt" kind="subtitles" lang="en" label="English"></Track>
+                </groupplaymedia--ml-video-player>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled controls</h3>
+        <demo id="demo-disabled">
+          <groupplaymedia--ml-video-player
+            disabled="{{playground.disabled.disabled}}"
+            poster="{{playground.disabled.poster}}"
+            preload="{{playground.disabled.preload}}">
+            <Label>Locked preview</Label>
+            <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm" type="video/webm"></Source>
+            <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4"></Source>
+          </groupplaymedia--ml-video-player>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.disabled.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-text-102020 label="poster" value="{{playground.disabled.poster}}"></widget-playground-state-text-102020>
+            <widget-playground-state-text-102020 label="preload" value="{{playground.disabled.preload}}"></widget-playground-state-text-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-disabled">
+              <template>
+                <groupplaymedia--ml-video-player
+                  disabled="{{playground.disabled.disabled}}"
+                  poster="{{playground.disabled.poster}}"
+                  preload="{{playground.disabled.preload}}">
+                  <Label>Locked preview</Label>
+                  <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm" type="video/webm"></Source>
+                  <Source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4"></Source>
+                </groupplaymedia--ml-video-player>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Loading state</h3>
+        <demo id="demo-loading">
+          <groupplaymedia--ml-video-player loading="{{playground.loading.loading}}">
+            <Label>Preparing assets...</Label>
+          </groupplaymedia--ml-video-player>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.loading.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-loading">
+              <template>
+                <groupplaymedia--ml-video-player loading="{{playground.loading.loading}}">
+                  <Label>Preparing assets...</Label>
+                </groupplaymedia--ml-video-player>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+    </section>
+  </div>
+</div>
