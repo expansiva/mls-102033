@@ -1,0 +1,294 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Bar Chart Molecule</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">view + chart</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"show-legend":true,"show-values":false,"loading":false},"showValues":{"show-legend":true,"show-values":true,"loading":false},"singleSeries":{"show-legend":true,"show-values":true,"loading":false},"standalone":{"show-legend":false,"show-values":true,"loading":false},"loading":{"show-legend":true,"show-values":false,"loading":true},"empty":{"show-legend":true,"show-values":false,"loading":false}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- 1. Basic multi-series bar chart -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic multi-series bar chart</h3>
+<demo id="demo-basic">
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.basic.show-legend}}"
+  show-values="{{playground.basic.show-values}}"
+  loading="{{playground.basic.loading}}">
+  <Label>Monthly Revenue</Label>
+  <Series name="2024" color="#3b82f6">
+    <Point label="Jan" value="1200" />
+    <Point label="Feb" value="1800" />
+    <Point label="Mar" value="950" />
+  </Series>
+  <Series name="2025" color="#10b981">
+    <Point label="Jan" value="1500" />
+    <Point label="Feb" value="2100" />
+    <Point label="Mar" value="1300" />
+  </Series>
+</groupviewchart--ml-bar-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.basic.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.basic.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.basic.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.basic.show-legend}}"
+  show-values="{{playground.basic.show-values}}"
+  loading="{{playground.basic.loading}}">
+  <Label>Monthly Revenue</Label>
+  <Series name="2024" color="#3b82f6">
+    <Point label="Jan" value="1200" />
+    <Point label="Feb" value="1800" />
+    <Point label="Mar" value="950" />
+  </Series>
+  <Series name="2025" color="#10b981">
+    <Point label="Jan" value="1500" />
+    <Point label="Feb" value="2100" />
+    <Point label="Mar" value="1300" />
+  </Series>
+</groupviewchart--ml-bar-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 2. Show values on bars -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Show values on bars</h3>
+<demo id="demo-show-values">
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.showValues.show-legend}}"
+  show-values="{{playground.showValues.show-values}}"
+  loading="{{playground.showValues.loading}}">
+  <Label>Website Traffic</Label>
+  <Series name="Visits" color="#6366f1">
+    <Point label="Mon" value="320" />
+    <Point label="Tue" value="410" />
+    <Point label="Wed" value="380" />
+    <Point label="Thu" value="290" />
+    <Point label="Fri" value="500" />
+  </Series>
+</groupviewchart--ml-bar-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.showValues.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.showValues.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.showValues.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-show-values">
+<template>
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.showValues.show-legend}}"
+  show-values="{{playground.showValues.show-values}}"
+  loading="{{playground.showValues.loading}}">
+  <Label>Website Traffic</Label>
+  <Series name="Visits" color="#6366f1">
+    <Point label="Mon" value="320" />
+    <Point label="Tue" value="410" />
+    <Point label="Wed" value="380" />
+    <Point label="Thu" value="290" />
+    <Point label="Fri" value="500" />
+  </Series>
+</groupviewchart--ml-bar-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 3. Single series with custom bar colors -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Single series with custom bar colors</h3>
+<demo id="demo-single-series">
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.singleSeries.show-legend}}"
+  show-values="{{playground.singleSeries.show-values}}"
+  loading="{{playground.singleSeries.loading}}">
+  <Label>Quarterly Sales</Label>
+  <Series name="Q1 2026">
+    <Point label="North" value="800" color="#f59e42" />
+    <Point label="South" value="1200" color="#10b981" />
+    <Point label="East" value="950" color="#3b82f6" />
+    <Point label="West" value="700" color="#ef4444" />
+  </Series>
+</groupviewchart--ml-bar-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.singleSeries.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.singleSeries.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.singleSeries.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-single-series">
+<template>
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.singleSeries.show-legend}}"
+  show-values="{{playground.singleSeries.show-values}}"
+  loading="{{playground.singleSeries.loading}}">
+  <Label>Quarterly Sales</Label>
+  <Series name="Q1 2026">
+    <Point label="North" value="800" color="#f59e42" />
+    <Point label="South" value="1200" color="#10b981" />
+    <Point label="East" value="950" color="#3b82f6" />
+    <Point label="West" value="700" color="#ef4444" />
+  </Series>
+</groupviewchart--ml-bar-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 4. Standalone points (no series) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Standalone points (no series)</h3>
+<demo id="demo-standalone">
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.standalone.show-legend}}"
+  show-values="{{playground.standalone.show-values}}"
+  loading="{{playground.standalone.loading}}">
+  <Label>Top Products</Label>
+  <Point label="Product A" value="320" color="#6366f1" />
+  <Point label="Product B" value="410" color="#10b981" />
+  <Point label="Product C" value="380" color="#f59e42" />
+</groupviewchart--ml-bar-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.standalone.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.standalone.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.standalone.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-standalone">
+<template>
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.standalone.show-legend}}"
+  show-values="{{playground.standalone.show-values}}"
+  loading="{{playground.standalone.loading}}">
+  <Label>Top Products</Label>
+  <Point label="Product A" value="320" color="#6366f1" />
+  <Point label="Product B" value="410" color="#10b981" />
+  <Point label="Product C" value="380" color="#f59e42" />
+</groupviewchart--ml-bar-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 5. Loading state -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Loading state</h3>
+<demo id="demo-loading">
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.loading.show-legend}}"
+  show-values="{{playground.loading.show-values}}"
+  loading="{{playground.loading.loading}}">
+  <Label>Loading Example</Label>
+  <Series name="2026" color="#6366f1">
+    <Point label="Jan" value="1000" />
+    <Point label="Feb" value="1200" />
+  </Series>
+</groupviewchart--ml-bar-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.loading.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.loading.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.loading.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-loading">
+<template>
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.loading.show-legend}}"
+  show-values="{{playground.loading.show-values}}"
+  loading="{{playground.loading.loading}}">
+  <Label>Loading Example</Label>
+  <Series name="2026" color="#6366f1">
+    <Point label="Jan" value="1000" />
+    <Point label="Feb" value="1200" />
+  </Series>
+</groupviewchart--ml-bar-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 6. Empty state with custom slot -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Empty state with custom slot</h3>
+<demo id="demo-empty">
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.empty.show-legend}}"
+  show-values="{{playground.empty.show-values}}"
+  loading="{{playground.empty.loading}}">
+  <Label>Empty Chart</Label>
+  <Empty>
+    <div class="text-amber-600 dark:text-amber-400">No chart data for this period.</div>
+  </Empty>
+</groupviewchart--ml-bar-chart>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="show-legend" value="{{playground.empty.show-legend}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="show-values" value="{{playground.empty.show-values}}"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.empty.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-empty">
+<template>
+<groupviewchart--ml-bar-chart
+  show-legend="{{playground.empty.show-legend}}"
+  show-values="{{playground.empty.show-values}}"
+  loading="{{playground.empty.loading}}">
+  <Label>Empty Chart</Label>
+  <Empty>
+    <div class="text-amber-600 dark:text-amber-400">No chart data for this period.</div>
+  </Empty>
+</groupviewchart--ml-bar-chart>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

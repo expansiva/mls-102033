@@ -1,0 +1,200 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Metric Gauge Molecule</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">groupViewMetric</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"loading":false},"iconTrend":{"loading":false},"loading":{"loading":true},"helper":{"loading":false},"downTrend":{"loading":false},"minimal":{"loading":false}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- Example 1: Basic Metric Gauge -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic Metric Gauge</h3>
+<demo id="demo-basic">
+<groupviewmetric--ml-metric-gauge loading="{{playground.basic.loading}}">
+<Label>Completion Rate</Label>
+<Value>67%</Value>
+</groupviewmetric--ml-metric-gauge>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.basic.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupviewmetric--ml-metric-gauge loading="{{playground.basic.loading}}">
+<Label>Completion Rate</Label>
+<Value>67%</Value>
+</groupviewmetric--ml-metric-gauge>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Example 2: Metric Gauge with Icon and Trend -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Metric Gauge with Icon and Trend</h3>
+<demo id="demo-icon-trend">
+<groupviewmetric--ml-metric-gauge loading="{{playground.iconTrend.loading}}">
+<Icon><svg width="24" height="24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/></svg></Icon>
+<Label>Active Users</Label>
+<Value>1,245</Value>
+<Trend direction="up">↑ 8.2%</Trend>
+</groupviewmetric--ml-metric-gauge>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.iconTrend.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-icon-trend">
+<template>
+<groupviewmetric--ml-metric-gauge loading="{{playground.iconTrend.loading}}">
+<Icon><svg width="24" height="24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/></svg></Icon>
+<Label>Active Users</Label>
+<Value>1,245</Value>
+<Trend direction="up">↑ 8.2%</Trend>
+</groupviewmetric--ml-metric-gauge>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Example 3: Metric Gauge Loading State -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Metric Gauge Loading State</h3>
+<demo id="demo-loading">
+<groupviewmetric--ml-metric-gauge loading="{{playground.loading.loading}}">
+<Label>Revenue</Label>
+<Value>$12,700</Value>
+</groupviewmetric--ml-metric-gauge>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.loading.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-loading">
+<template>
+<groupviewmetric--ml-metric-gauge loading="{{playground.loading.loading}}">
+<Label>Revenue</Label>
+<Value>$12,700</Value>
+</groupviewmetric--ml-metric-gauge>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Example 4: Metric Gauge with Helper Text -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Metric Gauge with Helper Text</h3>
+<demo id="demo-helper">
+<groupviewmetric--ml-metric-gauge loading="{{playground.helper.loading}}">
+<Label>Conversion Rate</Label>
+<Value>42%</Value>
+<Helper>Compared to last week</Helper>
+</groupviewmetric--ml-metric-gauge>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.helper.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-helper">
+<template>
+<groupviewmetric--ml-metric-gauge loading="{{playground.helper.loading}}">
+<Label>Conversion Rate</Label>
+<Value>42%</Value>
+<Helper>Compared to last week</Helper>
+</groupviewmetric--ml-metric-gauge>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Example 5: Metric Gauge with Down Trend -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Metric Gauge with Down Trend</h3>
+<demo id="demo-down-trend">
+<groupviewmetric--ml-metric-gauge loading="{{playground.downTrend.loading}}">
+<Label>Churn Rate</Label>
+<Value>3.8%</Value>
+<Trend direction="down">↓ 1.2%</Trend>
+<Helper>vs previous quarter</Helper>
+</groupviewmetric--ml-metric-gauge>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.downTrend.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-down-trend">
+<template>
+<groupviewmetric--ml-metric-gauge loading="{{playground.downTrend.loading}}">
+<Label>Churn Rate</Label>
+<Value>3.8%</Value>
+<Trend direction="down">↓ 1.2%</Trend>
+<Helper>vs previous quarter</Helper>
+</groupviewmetric--ml-metric-gauge>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Example 6: Metric Gauge Minimal (Value Only) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Metric Gauge Minimal (Value Only)</h3>
+<demo id="demo-minimal">
+<groupviewmetric--ml-metric-gauge loading="{{playground.minimal.loading}}">
+<Value>98</Value>
+</groupviewmetric--ml-metric-gauge>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-boolean-102020 label="loading" value="{{playground.minimal.loading}}"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-minimal">
+<template>
+<groupviewmetric--ml-metric-gauge loading="{{playground.minimal.loading}}">
+<Value>98</Value>
+</groupviewmetric--ml-metric-gauge>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

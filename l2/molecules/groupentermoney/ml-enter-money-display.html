@@ -1,0 +1,248 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Enter Money Display Molecule</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">groupEnterMoney</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"value":0,"error":""},"readonly":{"value":1500.5},"helper":{"value":1234.567},"validation":{"value":50,"error":"Value must be between $100 and $2,000"},"disabled":{"value":null},"jpy":{"value":5000}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- Basic USD Input -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic USD Input</h3>
+<demo id="demo-basic">
+<groupentermoney--ml-enter-money-display
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  currency="USD"
+  locale="en-US"
+  is-editing="true">
+  <Label>Amount</Label>
+</groupentermoney--ml-enter-money-display>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-number-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupentermoney--ml-enter-money-display
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  currency="USD"
+  locale="en-US"
+  is-editing="true">
+  <Label>Amount</Label>
+</groupentermoney--ml-enter-money-display>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Read-only Display (BRL) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Read-only Display (BRL)</h3>
+<demo id="demo-readonly">
+<groupentermoney--ml-enter-money-display
+  value="{{playground.readonly.value}}"
+  currency="BRL"
+  locale="pt-BR"
+  is-editing="false">
+  <Label>Preço</Label>
+</groupentermoney--ml-enter-money-display>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.readonly.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-readonly">
+<template>
+<groupentermoney--ml-enter-money-display
+  value="{{playground.readonly.value}}"
+  currency="BRL"
+  locale="pt-BR"
+  is-editing="false">
+  <Label>Preço</Label>
+</groupentermoney--ml-enter-money-display>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- With Helper and Custom Decimals -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With Helper and Custom Decimals</h3>
+<demo id="demo-helper">
+<groupentermoney--ml-enter-money-display
+  value="{{playground.helper.value}}"
+  currency="EUR"
+  locale="de-DE"
+  decimals="3"
+  is-editing="true">
+  <Label>Betrag</Label>
+  <Helper>Bitte geben Sie den Betrag mit drei Dezimalstellen ein.</Helper>
+</groupentermoney--ml-enter-money-display>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.helper.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-helper">
+<template>
+<groupentermoney--ml-enter-money-display
+  value="{{playground.helper.value}}"
+  currency="EUR"
+  locale="de-DE"
+  decimals="3"
+  is-editing="true">
+  <Label>Betrag</Label>
+  <Helper>Bitte geben Sie den Betrag mit drei Dezimalstellen ein.</Helper>
+</groupentermoney--ml-enter-money-display>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Min/Max Validation with Error -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Min/Max Validation with Error</h3>
+<demo id="demo-validation">
+<groupentermoney--ml-enter-money-display
+  value="{{playground.validation.value}}"
+  min="100"
+  max="2000"
+  error="{{playground.validation.error}}"
+  currency="USD"
+  is-editing="true">
+  <Label>Amount</Label>
+</groupentermoney--ml-enter-money-display>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.validation.value}}"></widget-playground-state-number-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.validation.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-validation">
+<template>
+<groupentermoney--ml-enter-money-display
+  value="{{playground.validation.value}}"
+  min="100"
+  max="2000"
+  error="{{playground.validation.error}}"
+  currency="USD"
+  is-editing="true">
+  <Label>Amount</Label>
+</groupentermoney--ml-enter-money-display>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Disabled Input with Placeholder -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled Input with Placeholder</h3>
+<demo id="demo-disabled">
+<groupentermoney--ml-enter-money-display
+  value="{{playground.disabled.value}}"
+  disabled="true"
+  placeholder="Enter amount"
+  currency="USD"
+  is-editing="true">
+  <Label>Amount</Label>
+</groupentermoney--ml-enter-money-display>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.disabled.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupentermoney--ml-enter-money-display
+  value="{{playground.disabled.value}}"
+  disabled="true"
+  placeholder="Enter amount"
+  currency="USD"
+  is-editing="true">
+  <Label>Amount</Label>
+</groupentermoney--ml-enter-money-display>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Japanese Yen (No Decimals, Symbol Hidden) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Japanese Yen (No Decimals, Symbol Hidden)</h3>
+<demo id="demo-jpy">
+<groupentermoney--ml-enter-money-display
+  value="{{playground.jpy.value}}"
+  currency="JPY"
+  locale="ja-JP"
+  decimals="0"
+  show-symbol="false"
+  is-editing="true">
+  <Label>金額</Label>
+  <Helper>円単位で入力してください（小数点なし）。</Helper>
+</groupentermoney--ml-enter-money-display>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.jpy.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-jpy">
+<template>
+<groupentermoney--ml-enter-money-display
+  value="{{playground.jpy.value}}"
+  currency="JPY"
+  locale="ja-JP"
+  decimals="0"
+  show-symbol="false"
+  is-editing="true">
+  <Label>金額</Label>
+  <Helper>円単位で入力してください（小数点なし）。</Helper>
+</groupentermoney--ml-enter-money-display>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

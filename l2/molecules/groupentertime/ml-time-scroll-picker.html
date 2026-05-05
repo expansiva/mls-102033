@@ -1,0 +1,241 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Time Scroll Picker</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">enter + time</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"value":"","error":""},"helper":{"value":"","error":""},"ampm":{"value":"","error":""},"seconds":{"value":"","error":""},"disabled":{"value":"","error":""},"view":{"value":"14:30"}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- Basic -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic</h3>
+<demo id="demo-basic">
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  is-editing="true">
+  <Label>Time</Label>
+</groupentertime--ml-time-scroll-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  is-editing="true">
+  <Label>Time</Label>
+</groupentertime--ml-time-scroll-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- With Helper and Required -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With Helper and Required</h3>
+<demo id="demo-helper">
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.helper.value}}"
+  error="{{playground.helper.error}}"
+  required="true"
+  is-editing="true">
+  <Label>Appointment Time</Label>
+  <Helper>Please select your appointment time</Helper>
+</groupentertime--ml-time-scroll-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.helper.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.helper.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-helper">
+<template>
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.helper.value}}"
+  error="{{playground.helper.error}}"
+  required="true"
+  is-editing="true">
+  <Label>Appointment Time</Label>
+  <Helper>Please select your appointment time</Helper>
+</groupentertime--ml-time-scroll-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- AM/PM Format, 15-Minute Step, Locale -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">AM/PM Format, 15-Minute Step, Locale</h3>
+<demo id="demo-ampm">
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.ampm.value}}"
+  error="{{playground.ampm.error}}"
+  hour12="true"
+  minute-step="15"
+  locale="en-US"
+  min-time="06:00"
+  max-time="22:00"
+  is-editing="true">
+  <Label>Alarm Time</Label>
+  <Helper>Choose a time between 6:00 AM and 10:00 PM</Helper>
+</groupentertime--ml-time-scroll-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.ampm.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.ampm.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-ampm">
+<template>
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.ampm.value}}"
+  error="{{playground.ampm.error}}"
+  hour12="true"
+  minute-step="15"
+  locale="en-US"
+  min-time="06:00"
+  max-time="22:00"
+  is-editing="true">
+  <Label>Alarm Time</Label>
+  <Helper>Choose a time between 6:00 AM and 10:00 PM</Helper>
+</groupentertime--ml-time-scroll-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Show Seconds, Custom Placeholder -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Show Seconds, Custom Placeholder</h3>
+<demo id="demo-seconds">
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.seconds.value}}"
+  error="{{playground.seconds.error}}"
+  show-seconds="true"
+  placeholder="Pick a time with seconds"
+  is-editing="true">
+  <Label>Precise Time</Label>
+</groupentertime--ml-time-scroll-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.seconds.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.seconds.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-seconds">
+<template>
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.seconds.value}}"
+  error="{{playground.seconds.error}}"
+  show-seconds="true"
+  placeholder="Pick a time with seconds"
+  is-editing="true">
+  <Label>Precise Time</Label>
+</groupentertime--ml-time-scroll-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Disabled -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled</h3>
+<demo id="demo-disabled">
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.disabled.value}}"
+  error="{{playground.disabled.error}}"
+  disabled="true"
+  is-editing="true">
+  <Label>Disabled Time Picker</Label>
+</groupentertime--ml-time-scroll-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.disabled.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.disabled.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.disabled.value}}"
+  error="{{playground.disabled.error}}"
+  disabled="true"
+  is-editing="true">
+  <Label>Disabled Time Picker</Label>
+</groupentertime--ml-time-scroll-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Readonly View Mode -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Readonly View Mode</h3>
+<demo id="demo-view">
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.view.value}}"
+  is-editing="false">
+  <Label>Selected Time</Label>
+</groupentertime--ml-time-scroll-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.view.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-view">
+<template>
+<groupentertime--ml-time-scroll-picker
+  value="{{playground.view.value}}"
+  is-editing="false">
+  <Label>Selected Time</Label>
+</groupentertime--ml-time-scroll-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

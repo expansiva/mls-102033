@@ -1,0 +1,265 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+  <div class="mx-auto p-8 font-sans">
+    <header class="text-center mb-12">
+      <h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Notify Banner Molecule</h1>
+      <span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">groupNotifyUser</span>
+    </header>
+    <widget-playground-state-102020 state='{"playground":{"basicInfo":{"visible":true},"successAuto":{"visible":true},"warningAction":{"visible":true},"errorCustomIcon":{"visible":true},"inlineMessage":{"visible":true},"fullSlots":{"visible":true}}}'></widget-playground-state-102020>
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <!-- 1. Basic Info Banner -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic Info Banner</h3>
+        <demo id="demo-basic-info">
+          <groupnotifyuser--ml-notify-banner
+            type="info"
+            visible="{{playground.basicInfo.visible}}"
+            dismissible="true"
+            duration="0"
+            position="">
+            <Message>This is an informational notification.</Message>
+          </groupnotifyuser--ml-notify-banner>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="visible" value="{{playground.basicInfo.visible}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-basic-info">
+              <template>
+                <groupnotifyuser--ml-notify-banner
+                  type="info"
+                  visible="{{playground.basicInfo.visible}}"
+                  dismissible="true"
+                  duration="0"
+                  position="">
+                  <Message>This is an informational notification.</Message>
+                </groupnotifyuser--ml-notify-banner>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+      <!-- 2. Success Banner with Title and Auto-dismiss -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Success Banner with Title and Auto-dismiss</h3>
+        <demo id="demo-success-auto">
+          <groupnotifyuser--ml-notify-banner
+            type="success"
+            visible="{{playground.successAuto.visible}}"
+            dismissible="true"
+            duration="3000"
+            position="">
+            <Title>Success!</Title>
+            <Message>Your changes have been saved successfully.</Message>
+          </groupnotifyuser--ml-notify-banner>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="visible" value="{{playground.successAuto.visible}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-success-auto">
+              <template>
+                <groupnotifyuser--ml-notify-banner
+                  type="success"
+                  visible="{{playground.successAuto.visible}}"
+                  dismissible="true"
+                  duration="3000"
+                  position="">
+                  <Title>Success!</Title>
+                  <Message>Your changes have been saved successfully.</Message>
+                </groupnotifyuser--ml-notify-banner>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+      <!-- 3. Warning Banner with Action Button -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Warning Banner with Action Button</h3>
+        <demo id="demo-warning-action">
+          <groupnotifyuser--ml-notify-banner
+            type="warning"
+            visible="{{playground.warningAction.visible}}"
+            dismissible="true"
+            duration="0"
+            position="">
+            <Title>Warning</Title>
+            <Message>Your session will expire soon.</Message>
+            <Action>
+              <button class="px-2 py-1 rounded bg-amber-100 dark:bg-amber-800 text-amber-800 dark:text-amber-200">Extend Session</button>
+            </Action>
+          </groupnotifyuser--ml-notify-banner>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="visible" value="{{playground.warningAction.visible}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-warning-action">
+              <template>
+                <groupnotifyuser--ml-notify-banner
+                  type="warning"
+                  visible="{{playground.warningAction.visible}}"
+                  dismissible="true"
+                  duration="0"
+                  position="">
+                  <Title>Warning</Title>
+                  <Message>Your session will expire soon.</Message>
+                  <Action>
+                    <button class="px-2 py-1 rounded bg-amber-100 dark:bg-amber-800 text-amber-800 dark:text-amber-200">Extend Session</button>
+                  </Action>
+                </groupnotifyuser--ml-notify-banner>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+      <!-- 4. Error Banner, Not Dismissible, Custom Icon -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Error Banner, Not Dismissible, Custom Icon</h3>
+        <demo id="demo-error-custom-icon">
+          <groupnotifyuser--ml-notify-banner
+            type="error"
+            visible="{{playground.errorCustomIcon.visible}}"
+            dismissible="false"
+            duration="0"
+            position="">
+            <Icon>
+              <svg class="h-5 w-5 text-pink-600 dark:text-pink-400" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/><text x="10" y="15" text-anchor="middle" font-size="10" fill="#fff">!</text></svg>
+            </Icon>
+            <Title>Error</Title>
+            <Message>Something went wrong. Please try again.</Message>
+          </groupnotifyuser--ml-notify-banner>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="visible" value="{{playground.errorCustomIcon.visible}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-error-custom-icon">
+              <template>
+                <groupnotifyuser--ml-notify-banner
+                  type="error"
+                  visible="{{playground.errorCustomIcon.visible}}"
+                  dismissible="false"
+                  duration="0"
+                  position="">
+                  <Icon>
+                    <svg class="h-5 w-5 text-pink-600 dark:text-pink-400" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/><text x="10" y="15" text-anchor="middle" font-size="10" fill="#fff">!</text></svg>
+                  </Icon>
+                  <Title>Error</Title>
+                  <Message>Something went wrong. Please try again.</Message>
+                </groupnotifyuser--ml-notify-banner>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+      <!-- 5. Inline Info Banner with Only Message -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Inline Info Banner with Only Message</h3>
+        <demo id="demo-inline-message">
+          <groupnotifyuser--ml-notify-banner
+            type="info"
+            visible="{{playground.inlineMessage.visible}}"
+            dismissible="false"
+            duration="0"
+            position="">
+            <Message>This is an inline notification without a title or actions.</Message>
+          </groupnotifyuser--ml-notify-banner>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="visible" value="{{playground.inlineMessage.visible}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-inline-message">
+              <template>
+                <groupnotifyuser--ml-notify-banner
+                  type="info"
+                  visible="{{playground.inlineMessage.visible}}"
+                  dismissible="false"
+                  duration="0"
+                  position="">
+                  <Message>This is an inline notification without a title or actions.</Message>
+                </groupnotifyuser--ml-notify-banner>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+      <!-- 6. Success Banner with All Slots and Long Duration -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Success Banner with All Slots and Long Duration</h3>
+        <demo id="demo-full-slots">
+          <groupnotifyuser--ml-notify-banner
+            type="success"
+            visible="{{playground.fullSlots.visible}}"
+            dismissible="true"
+            duration="10000"
+            position="">
+            <Icon>
+              <svg class="h-5 w-5 text-green-600 dark:text-green-400" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/><text x="10" y="15" text-anchor="middle" font-size="10" fill="#fff">✓</text></svg>
+            </Icon>
+            <Title>All Done!</Title>
+            <Message>Your profile is now complete. Enjoy all features.</Message>
+            <Action>
+              <a href="#" class="underline text-green-700 dark:text-green-300">View Profile</a>
+            </Action>
+          </groupnotifyuser--ml-notify-banner>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="visible" value="{{playground.fullSlots.visible}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-full-slots">
+              <template>
+                <groupnotifyuser--ml-notify-banner
+                  type="success"
+                  visible="{{playground.fullSlots.visible}}"
+                  dismissible="true"
+                  duration="10000"
+                  position="">
+                  <Icon>
+                    <svg class="h-5 w-5 text-green-600 dark:text-green-400" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/><text x="10" y="15" text-anchor="middle" font-size="10" fill="#fff">✓</text></svg>
+                  </Icon>
+                  <Title>All Done!</Title>
+                  <Message>Your profile is now complete. Enjoy all features.</Message>
+                  <Action>
+                    <a href="#" class="underline text-green-700 dark:text-green-300">View Profile</a>
+                  </Action>
+                </groupnotifyuser--ml-notify-banner>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+    </section>
+  </div>
+</div>

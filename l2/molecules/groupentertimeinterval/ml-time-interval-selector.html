@@ -1,0 +1,274 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Time Interval Selector</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">enter + time-interval</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"startTime":"","endTime":"","error":""},"labels":{"startTime":"","endTime":""},"overnight":{"startTime":"","endTime":""},"seconds":{"startTime":"09:00:00","endTime":"10:00:00"},"disabled":{"startTime":"07:30","endTime":"18:30","error":"Time must be between 08:00 and 18:00"},"view":{"startTime":"22:00","endTime":"06:00"}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- Basic usage -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic usage</h3>
+<demo id="demo-basic">
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.basic.startTime}}"
+  endTime="{{playground.basic.endTime}}"
+  error="{{playground.basic.error}}"
+  is-editing="true">
+  <Label>Work Shift</Label>
+</groupentertimeinterval--ml-time-interval-selector>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="startTime" value="{{playground.basic.startTime}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="endTime" value="{{playground.basic.endTime}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.basic.startTime}}"
+  endTime="{{playground.basic.endTime}}"
+  error="{{playground.basic.error}}"
+  is-editing="true">
+  <Label>Work Shift</Label>
+</groupentertimeinterval--ml-time-interval-selector>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- With custom labels and helper -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With custom labels and helper</h3>
+<demo id="demo-labels">
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.labels.startTime}}"
+  endTime="{{playground.labels.endTime}}"
+  minute-step="15"
+  required="true"
+  is-editing="true">
+  <Label>Lunch Break</Label>
+  <LabelStart>Start</LabelStart>
+  <LabelEnd>End</LabelEnd>
+  <Helper>Choose your lunch interval (required)</Helper>
+</groupentertimeinterval--ml-time-interval-selector>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="startTime" value="{{playground.labels.startTime}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="endTime" value="{{playground.labels.endTime}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-labels">
+<template>
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.labels.startTime}}"
+  endTime="{{playground.labels.endTime}}"
+  minute-step="15"
+  required="true"
+  is-editing="true">
+  <Label>Lunch Break</Label>
+  <LabelStart>Start</LabelStart>
+  <LabelEnd>End</LabelEnd>
+  <Helper>Choose your lunch interval (required)</Helper>
+</groupentertimeinterval--ml-time-interval-selector>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- AM/PM format, overnight allowed, min duration -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">AM/PM format, overnight allowed, min duration</h3>
+<demo id="demo-overnight">
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.overnight.startTime}}"
+  endTime="{{playground.overnight.endTime}}"
+  locale="en-US"
+  hour12="true"
+  minute-step="30"
+  allow-overnight="true"
+  min-duration-minutes="60"
+  is-editing="true">
+  <Label>Night Shift</Label>
+  <LabelStart>Begins</LabelStart>
+  <LabelEnd>Ends</LabelEnd>
+  <Helper>Minimum 1 hour. Overnight allowed.</Helper>
+</groupentertimeinterval--ml-time-interval-selector>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="startTime" value="{{playground.overnight.startTime}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="endTime" value="{{playground.overnight.endTime}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-overnight">
+<template>
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.overnight.startTime}}"
+  endTime="{{playground.overnight.endTime}}"
+  locale="en-US"
+  hour12="true"
+  minute-step="30"
+  allow-overnight="true"
+  min-duration-minutes="60"
+  is-editing="true">
+  <Label>Night Shift</Label>
+  <LabelStart>Begins</LabelStart>
+  <LabelEnd>Ends</LabelEnd>
+  <Helper>Minimum 1 hour. Overnight allowed.</Helper>
+</groupentertimeinterval--ml-time-interval-selector>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Show seconds, max duration, readonly -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Show seconds, max duration, readonly</h3>
+<demo id="demo-seconds">
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.seconds.startTime}}"
+  endTime="{{playground.seconds.endTime}}"
+  show-seconds="true"
+  max-duration-minutes="90"
+  readonly="true"
+  is-editing="true">
+  <Label>Precise Interval</Label>
+  <LabelStart>From</LabelStart>
+  <LabelEnd>To</LabelEnd>
+</groupentertimeinterval--ml-time-interval-selector>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="startTime" value="{{playground.seconds.startTime}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="endTime" value="{{playground.seconds.endTime}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-seconds">
+<template>
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.seconds.startTime}}"
+  endTime="{{playground.seconds.endTime}}"
+  show-seconds="true"
+  max-duration-minutes="90"
+  readonly="true"
+  is-editing="true">
+  <Label>Precise Interval</Label>
+  <LabelStart>From</LabelStart>
+  <LabelEnd>To</LabelEnd>
+</groupentertimeinterval--ml-time-interval-selector>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Disabled, error message, min/max time -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled, error message, min/max time</h3>
+<demo id="demo-disabled">
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.disabled.startTime}}"
+  endTime="{{playground.disabled.endTime}}"
+  error="{{playground.disabled.error}}"
+  min-time="08:00"
+  max-time="18:00"
+  disabled="true"
+  is-editing="true">
+  <Label>Restricted Interval</Label>
+  <LabelStart>Start</LabelStart>
+  <LabelEnd>End</LabelEnd>
+</groupentertimeinterval--ml-time-interval-selector>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="startTime" value="{{playground.disabled.startTime}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="endTime" value="{{playground.disabled.endTime}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.disabled.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.disabled.startTime}}"
+  endTime="{{playground.disabled.endTime}}"
+  error="{{playground.disabled.error}}"
+  min-time="08:00"
+  max-time="18:00"
+  disabled="true"
+  is-editing="true">
+  <Label>Restricted Interval</Label>
+  <LabelStart>Start</LabelStart>
+  <LabelEnd>End</LabelEnd>
+</groupentertimeinterval--ml-time-interval-selector>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- View mode (read-only display) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">View mode (read-only display)</h3>
+<demo id="demo-view">
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.view.startTime}}"
+  endTime="{{playground.view.endTime}}"
+  is-editing="false">
+  <Label>Night Shift (View Only)</Label>
+</groupentertimeinterval--ml-time-interval-selector>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="startTime" value="{{playground.view.startTime}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="endTime" value="{{playground.view.endTime}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-view">
+<template>
+<groupentertimeinterval--ml-time-interval-selector
+  startTime="{{playground.view.startTime}}"
+  endTime="{{playground.view.endTime}}"
+  is-editing="false">
+  <Label>Night Shift (View Only)</Label>
+</groupentertimeinterval--ml-time-interval-selector>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

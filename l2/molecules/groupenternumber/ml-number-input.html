@@ -1,0 +1,221 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+  <div class="mx-auto p-8 font-sans">
+    <header class="text-center mb-12">
+      <h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Number Input Molecule</h1>
+      <span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">enter + number</span>
+    </header>
+    <widget-playground-state-102020 state='{"playground":{"basic":{"value":0,"error":""},"advanced":{"value":25.5},"readonly":{"value":42},"prefixSuffix":{"value":123},"disabled":{"value":77},"helperError":{"value":null,"error":"Value is required"}}}'></widget-playground-state-102020>
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <!-- Basic Usage -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic Usage</h3>
+        <demo id="demo-basic">
+          <groupenternumber--ml-number-input
+            value="{{playground.basic.value}}"
+            error="{{playground.basic.error}}"
+            is-editing="true">
+            <Label>Amount</Label>
+          </groupenternumber--ml-number-input>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-number-102020>
+            <widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-basic">
+              <template>
+                <groupenternumber--ml-number-input
+                  value="{{playground.basic.value}}"
+                  error="{{playground.basic.error}}"
+                  is-editing="true">
+                  <Label>Amount</Label>
+                </groupenternumber--ml-number-input>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+      <!-- With Min, Max, Step, and Decimals -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With Min, Max, Step, and Decimals</h3>
+        <demo id="demo-advanced">
+          <groupenternumber--ml-number-input
+            value="{{playground.advanced.value}}"
+            min="10"
+            max="100"
+            step="5"
+            decimals="2"
+            is-editing="true">
+            <Label>Price</Label>
+          </groupenternumber--ml-number-input>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.advanced.value}}"></widget-playground-state-number-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-advanced">
+              <template>
+                <groupenternumber--ml-number-input
+                  value="{{playground.advanced.value}}"
+                  min="10"
+                  max="100"
+                  step="5"
+                  decimals="2"
+                  is-editing="true">
+                  <Label>Price</Label>
+                </groupenternumber--ml-number-input>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+      <!-- Read-Only View Mode -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Read-Only View Mode</h3>
+        <demo id="demo-readonly">
+          <groupenternumber--ml-number-input
+            value="{{playground.readonly.value}}"
+            is-editing="false">
+            <Label>Score</Label>
+          </groupenternumber--ml-number-input>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.readonly.value}}"></widget-playground-state-number-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-readonly">
+              <template>
+                <groupenternumber--ml-number-input
+                  value="{{playground.readonly.value}}"
+                  is-editing="false">
+                  <Label>Score</Label>
+                </groupenternumber--ml-number-input>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+      <!-- With Prefix and Suffix Slots -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With Prefix and Suffix Slots</h3>
+        <demo id="demo-prefix-suffix">
+          <groupenternumber--ml-number-input
+            value="{{playground.prefixSuffix.value}}"
+            is-editing="true">
+            <Label>Weight</Label>
+            <Prefix>#</Prefix>
+            <Suffix>kg</Suffix>
+          </groupenternumber--ml-number-input>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.prefixSuffix.value}}"></widget-playground-state-number-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-prefix-suffix">
+              <template>
+                <groupenternumber--ml-number-input
+                  value="{{playground.prefixSuffix.value}}"
+                  is-editing="true">
+                  <Label>Weight</Label>
+                  <Prefix>#</Prefix>
+                  <Suffix>kg</Suffix>
+                </groupenternumber--ml-number-input>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+      <!-- Disabled and Loading -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled and Loading</h3>
+        <demo id="demo-disabled">
+          <groupenternumber--ml-number-input
+            value="{{playground.disabled.value}}"
+            disabled="true"
+            loading="true"
+            is-editing="true">
+            <Label>Processing</Label>
+          </groupenternumber--ml-number-input>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.disabled.value}}"></widget-playground-state-number-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-disabled">
+              <template>
+                <groupenternumber--ml-number-input
+                  value="{{playground.disabled.value}}"
+                  disabled="true"
+                  loading="true"
+                  is-editing="true">
+                  <Label>Processing</Label>
+                </groupenternumber--ml-number-input>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+      <!-- With Helper and Error -->
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With Helper and Error</h3>
+        <demo id="demo-helper-error">
+          <groupenternumber--ml-number-input
+            value="{{playground.helperError.value}}"
+            error="{{playground.helperError.error}}"
+            is-editing="true">
+            <Label>Required Field</Label>
+            <Helper>Enter a value between 1 and 10</Helper>
+          </groupenternumber--ml-number-input>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.helperError.value}}"></widget-playground-state-number-102020>
+            <widget-playground-state-text-102020 label="error" value="{{playground.helperError.error}}"></widget-playground-state-text-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-helper-error">
+              <template>
+                <groupenternumber--ml-number-input
+                  value="{{playground.helperError.value}}"
+                  error="{{playground.helperError.error}}"
+                  is-editing="true">
+                  <Label>Required Field</Label>
+                  <Helper>Enter a value between 1 and 10</Helper>
+                </groupenternumber--ml-number-input>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+    </section>
+  </div>
+</div>

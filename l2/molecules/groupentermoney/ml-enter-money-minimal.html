@@ -1,0 +1,254 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Enter Money Minimal</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">groupEnterMoney</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"value":0,"error":""},"brl":{"value":null},"jpy":{"value":5000},"eur":{"value":123.45,"error":"Invalid amount"},"view":{"value":1500.5},"advanced":{"value":0}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- 1. Basic USD Input -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic USD Input</h3>
+<demo id="demo-basic-usd">
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  currency="USD"
+  locale="en-US"
+  is-editing="true">
+  <Label>Amount</Label>
+</groupentermoney--ml-enter-money-minimal>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-number-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic-usd">
+<template>
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  currency="USD"
+  locale="en-US"
+  is-editing="true">
+  <Label>Amount</Label>
+</groupentermoney--ml-enter-money-minimal>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 2. Brazilian Real with Helper -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Brazilian Real with Helper</h3>
+<demo id="demo-brl-helper">
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.brl.value}}"
+  currency="BRL"
+  locale="pt-BR"
+  placeholder="Digite o valor"
+  is-editing="true">
+  <Label>Valor</Label>
+  <Helper>Informe o valor em reais</Helper>
+</groupentermoney--ml-enter-money-minimal>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.brl.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-brl-helper">
+<template>
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.brl.value}}"
+  currency="BRL"
+  locale="pt-BR"
+  placeholder="Digite o valor"
+  is-editing="true">
+  <Label>Valor</Label>
+  <Helper>Informe o valor em reais</Helper>
+</groupentermoney--ml-enter-money-minimal>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 3. JPY No Decimals, Readonly -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">JPY No Decimals, Readonly</h3>
+<demo id="demo-jpy-readonly">
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.jpy.value}}"
+  currency="JPY"
+  locale="ja-JP"
+  decimals="0"
+  readonly="true"
+  is-editing="true">
+  <Label>金額</Label>
+</groupentermoney--ml-enter-money-minimal>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.jpy.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-jpy-readonly">
+<template>
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.jpy.value}}"
+  currency="JPY"
+  locale="ja-JP"
+  decimals="0"
+  readonly="true"
+  is-editing="true">
+  <Label>金額</Label>
+</groupentermoney--ml-enter-money-minimal>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 4. EUR Disabled with Error -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">EUR Disabled with Error</h3>
+<demo id="demo-eur-disabled-error">
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.eur.value}}"
+  error="{{playground.eur.error}}"
+  currency="EUR"
+  locale="de-DE"
+  disabled="true"
+  is-editing="true">
+  <Label>Betrag</Label>
+</groupentermoney--ml-enter-money-minimal>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.eur.value}}"></widget-playground-state-number-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.eur.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-eur-disabled-error">
+<template>
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.eur.value}}"
+  error="{{playground.eur.error}}"
+  currency="EUR"
+  locale="de-DE"
+  disabled="true"
+  is-editing="true">
+  <Label>Betrag</Label>
+</groupentermoney--ml-enter-money-minimal>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 5. View Mode (Read-only Display) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">View Mode (Read-only Display)</h3>
+<demo id="demo-view-mode">
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.view.value}}"
+  currency="USD"
+  locale="en-US"
+  is-editing="false">
+  <Label>Amount</Label>
+</groupentermoney--ml-enter-money-minimal>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.view.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-view-mode">
+<template>
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.view.value}}"
+  currency="USD"
+  locale="en-US"
+  is-editing="false">
+  <Label>Amount</Label>
+</groupentermoney--ml-enter-money-minimal>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 6. Advanced: Min/Max, Required, Loading -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Advanced: Min/Max, Required, Loading</h3>
+<demo id="demo-advanced-minmax">
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.advanced.value}}"
+  currency="EUR"
+  locale="fr-FR"
+  min="100"
+  max="1000"
+  required="true"
+  loading="true"
+  is-editing="true">
+  <Label>Montant</Label>
+  <Helper>Entre 100€ et 1000€</Helper>
+</groupentermoney--ml-enter-money-minimal>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.advanced.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-advanced-minmax">
+<template>
+<groupentermoney--ml-enter-money-minimal
+  value="{{playground.advanced.value}}"
+  currency="EUR"
+  locale="fr-FR"
+  min="100"
+  max="1000"
+  required="true"
+  loading="true"
+  is-editing="true">
+  <Label>Montant</Label>
+  <Helper>Entre 100€ et 1000€</Helper>
+</groupentermoney--ml-enter-money-minimal>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

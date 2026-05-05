@@ -1,0 +1,240 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Date Interval Drag Molecule</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">enter + date-interval</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"startDate":"","endDate":"","error":""},"labels":{"startDate":"","endDate":""},"constraints":{"startDate":"","endDate":""},"disabled":{"startDate":"","endDate":""},"loading":{"startDate":"","endDate":""}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- Basic usage -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic usage</h3>
+<demo id="demo-basic">
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="{{playground.basic.startDate}}"
+  endDate="{{playground.basic.endDate}}"
+  error="{{playground.basic.error}}"
+  is-editing="true">
+  <Label>Date Range</Label>
+</groupenterdateinterval--ml-date-interval-drag>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="startDate" value="{{playground.basic.startDate}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="endDate" value="{{playground.basic.endDate}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="{{playground.basic.startDate}}"
+  endDate="{{playground.basic.endDate}}"
+  error="{{playground.basic.error}}"
+  is-editing="true">
+  <Label>Date Range</Label>
+</groupenterdateinterval--ml-date-interval-drag>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- With custom labels and helper -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With custom labels and helper</h3>
+<demo id="demo-labels">
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="{{playground.labels.startDate}}"
+  endDate="{{playground.labels.endDate}}"
+  locale="en-US"
+  is-editing="true">
+  <Label>Booking Window</Label>
+  <LabelStart>Check-in</LabelStart>
+  <LabelEnd>Check-out</LabelEnd>
+  <Helper>Select your stay period</Helper>
+</groupenterdateinterval--ml-date-interval-drag>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="startDate" value="{{playground.labels.startDate}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="endDate" value="{{playground.labels.endDate}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-labels">
+<template>
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="{{playground.labels.startDate}}"
+  endDate="{{playground.labels.endDate}}"
+  locale="en-US"
+  is-editing="true">
+  <Label>Booking Window</Label>
+  <LabelStart>Check-in</LabelStart>
+  <LabelEnd>Check-out</LabelEnd>
+  <Helper>Select your stay period</Helper>
+</groupenterdateinterval--ml-date-interval-drag>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- With min/max date and range constraints -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With min/max date and range constraints</h3>
+<demo id="demo-constraints">
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="{{playground.constraints.startDate}}"
+  endDate="{{playground.constraints.endDate}}"
+  minDate="2026-05-01"
+  maxDate="2026-06-30"
+  min-range-days="2"
+  max-range-days="10"
+  is-editing="true">
+  <Label>Event Period</Label>
+  <Helper>Choose a range between 2 and 10 days in May or June 2026</Helper>
+</groupenterdateinterval--ml-date-interval-drag>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="startDate" value="{{playground.constraints.startDate}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="endDate" value="{{playground.constraints.endDate}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-constraints">
+<template>
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="{{playground.constraints.startDate}}"
+  endDate="{{playground.constraints.endDate}}"
+  minDate="2026-05-01"
+  maxDate="2026-06-30"
+  min-range-days="2"
+  max-range-days="10"
+  is-editing="true">
+  <Label>Event Period</Label>
+  <Helper>Choose a range between 2 and 10 days in May or June 2026</Helper>
+</groupenterdateinterval--ml-date-interval-drag>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Read-only (formatted text) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Read-only (formatted text)</h3>
+<demo id="demo-readonly">
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="2026-05-10"
+  endDate="2026-05-15"
+  is-editing="false">
+  <Label>Selected Range</Label>
+</groupenterdateinterval--ml-date-interval-drag>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-readonly">
+<template>
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="2026-05-10"
+  endDate="2026-05-15"
+  is-editing="false">
+  <Label>Selected Range</Label>
+</groupenterdateinterval--ml-date-interval-drag>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Disabled state -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled state</h3>
+<demo id="demo-disabled">
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="{{playground.disabled.startDate}}"
+  endDate="{{playground.disabled.endDate}}"
+  disabled="true"
+  is-editing="true">
+  <Label>Unavailable</Label>
+</groupenterdateinterval--ml-date-interval-drag>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="startDate" value="{{playground.disabled.startDate}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="endDate" value="{{playground.disabled.endDate}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="{{playground.disabled.startDate}}"
+  endDate="{{playground.disabled.endDate}}"
+  disabled="true"
+  is-editing="true">
+  <Label>Unavailable</Label>
+</groupenterdateinterval--ml-date-interval-drag>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Loading indicator -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Loading indicator</h3>
+<demo id="demo-loading">
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="{{playground.loading.startDate}}"
+  endDate="{{playground.loading.endDate}}"
+  loading="true"
+  is-editing="true">
+  <Label>Loading Range</Label>
+</groupenterdateinterval--ml-date-interval-drag>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="startDate" value="{{playground.loading.startDate}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="endDate" value="{{playground.loading.endDate}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-loading">
+<template>
+<groupenterdateinterval--ml-date-interval-drag
+  startDate="{{playground.loading.startDate}}"
+  endDate="{{playground.loading.endDate}}"
+  loading="true"
+  is-editing="true">
+  <Label>Loading Range</Label>
+</groupenterdateinterval--ml-date-interval-drag>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>
