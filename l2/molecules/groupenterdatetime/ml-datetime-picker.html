@@ -1,0 +1,231 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Datetime Picker</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">enter + datetime</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"value":"","error":""},"helper":{"value":"","error":""},"view":{"value":"2026-04-29T14:30:00"},"disabled":{"value":""},"error":{"value":"","error":"This field is required"},"loading":{"value":"2026-05-01T09:00:00"}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic usage</h3>
+<demo id="demo-basic">
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  is-editing="true">
+  <Label>Date and Time</Label>
+</groupenterdatetime--ml-datetime-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  is-editing="true">
+  <Label>Date and Time</Label>
+</groupenterdatetime--ml-datetime-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With helper and minute step</h3>
+<demo id="demo-helper">
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.helper.value}}"
+  error="{{playground.helper.error}}"
+  minute-step="15"
+  min-datetime="2026-01-01T00:00:00"
+  required="true"
+  locale="pt-BR"
+  is-editing="true">
+  <Label>Início da reunião</Label>
+  <Helper>Selecione uma data e hora a partir de 1/jan/2026, de 15 em 15 minutos</Helper>
+</groupenterdatetime--ml-datetime-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.helper.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.helper.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-helper">
+<template>
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.helper.value}}"
+  error="{{playground.helper.error}}"
+  minute-step="15"
+  min-datetime="2026-01-01T00:00:00"
+  required="true"
+  locale="pt-BR"
+  is-editing="true">
+  <Label>Início da reunião</Label>
+  <Helper>Selecione uma data e hora a partir de 1/jan/2026, de 15 em 15 minutos</Helper>
+</groupenterdatetime--ml-datetime-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Read-only display (view mode)</h3>
+<demo id="demo-view">
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.view.value}}"
+  is-editing="false"
+  locale="en-US">
+  <Label>Confirmed At</Label>
+</groupenterdatetime--ml-datetime-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.view.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-view">
+<template>
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.view.value}}"
+  is-editing="false"
+  locale="en-US">
+  <Label>Confirmed At</Label>
+</groupenterdatetime--ml-datetime-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled field</h3>
+<demo id="demo-disabled">
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.disabled.value}}"
+  disabled="true"
+  locale="en-US">
+  <Label>Locked At</Label>
+</groupenterdatetime--ml-datetime-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.disabled.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.disabled.value}}"
+  disabled="true"
+  locale="en-US">
+  <Label>Locked At</Label>
+</groupenterdatetime--ml-datetime-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With error and custom placeholder</h3>
+<demo id="demo-error">
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.error.value}}"
+  error="{{playground.error.error}}"
+  placeholder="Pick a date and time..."
+  is-editing="true">
+  <Label>Appointment</Label>
+</groupenterdatetime--ml-datetime-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.error.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.error.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-error">
+<template>
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.error.value}}"
+  error="{{playground.error.error}}"
+  placeholder="Pick a date and time..."
+  is-editing="true">
+  <Label>Appointment</Label>
+</groupenterdatetime--ml-datetime-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Loading state with timezone and readonly</h3>
+<demo id="demo-loading">
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.loading.value}}"
+  loading="true"
+  readonly="true"
+  timezone="Europe/Berlin"
+  locale="de">
+  <Label>Abfahrt</Label>
+  <Helper>Wird geladen...</Helper>
+</groupenterdatetime--ml-datetime-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.loading.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-loading">
+<template>
+<groupenterdatetime--ml-datetime-picker
+  value="{{playground.loading.value}}"
+  loading="true"
+  readonly="true"
+  timezone="Europe/Berlin"
+  locale="de">
+  <Label>Abfahrt</Label>
+  <Helper>Wird geladen...</Helper>
+</groupenterdatetime--ml-datetime-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

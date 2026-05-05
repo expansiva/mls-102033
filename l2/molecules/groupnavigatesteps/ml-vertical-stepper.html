@@ -1,0 +1,264 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+  <div class="mx-auto p-8 font-sans">
+    <header class="text-center mb-12">
+      <h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Vertical Stepper</h1>
+      <span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">navigate + steps</span>
+    </header>
+    <widget-playground-state-102020 state='{"playground":{"basic":{"value":1,"linear":true,"disabled":false,"loading":false},"nonlinear":{"value":2,"linear":false,"disabled":false,"loading":false},"descriptions":{"value":0,"linear":true,"disabled":false,"loading":false},"disabled":{"value":1,"linear":true,"disabled":true,"loading":false},"loading":{"value":0,"linear":true,"disabled":false,"loading":true},"empty":{"value":0,"linear":true,"disabled":false,"loading":false}}}'></widget-playground-state-102020>
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic linear checkout</h3>
+        <demo id="demo-basic">
+          <groupnavigatesteps--ml-vertical-stepper
+            value="{{playground.basic.value}}"
+            linear="{{playground.basic.linear}}"
+            disabled="{{playground.basic.disabled}}"
+            loading="{{playground.basic.loading}}">
+            <Label>Checkout</Label>
+            <Step title="Cart" completed></Step>
+            <Step title="Shipping" completed></Step>
+            <Step title="Payment"></Step>
+            <Step title="Confirmation"></Step>
+          </groupnavigatesteps--ml-vertical-stepper>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-number-102020>
+            <widget-playground-state-boolean-102020 label="linear" value="{{playground.basic.linear}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.basic.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.basic.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-basic">
+              <template>
+<groupnavigatesteps--ml-vertical-stepper
+  value="{{playground.basic.value}}"
+  linear="{{playground.basic.linear}}"
+  disabled="{{playground.basic.disabled}}"
+  loading="{{playground.basic.loading}}">
+  <Label>Checkout</Label>
+  <Step title="Cart" completed></Step>
+  <Step title="Shipping" completed></Step>
+  <Step title="Payment"></Step>
+  <Step title="Confirmation"></Step>
+</groupnavigatesteps--ml-vertical-stepper>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Non-linear onboarding</h3>
+        <demo id="demo-nonlinear">
+          <groupnavigatesteps--ml-vertical-stepper
+            value="{{playground.nonlinear.value}}"
+            linear="{{playground.nonlinear.linear}}"
+            disabled="{{playground.nonlinear.disabled}}"
+            loading="{{playground.nonlinear.loading}}">
+            <Label>Onboarding</Label>
+            <Step title="Account" completed></Step>
+            <Step title="Profile" completed></Step>
+            <Step title="Workspace"></Step>
+            <Step title="Invite team" disabled></Step>
+          </groupnavigatesteps--ml-vertical-stepper>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.nonlinear.value}}"></widget-playground-state-number-102020>
+            <widget-playground-state-boolean-102020 label="linear" value="{{playground.nonlinear.linear}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.nonlinear.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.nonlinear.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-nonlinear">
+              <template>
+<groupnavigatesteps--ml-vertical-stepper
+  value="{{playground.nonlinear.value}}"
+  linear="{{playground.nonlinear.linear}}"
+  disabled="{{playground.nonlinear.disabled}}"
+  loading="{{playground.nonlinear.loading}}">
+  <Label>Onboarding</Label>
+  <Step title="Account" completed></Step>
+  <Step title="Profile" completed></Step>
+  <Step title="Workspace"></Step>
+  <Step title="Invite team" disabled></Step>
+</groupnavigatesteps--ml-vertical-stepper>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With descriptions</h3>
+        <demo id="demo-descriptions">
+          <groupnavigatesteps--ml-vertical-stepper
+            value="{{playground.descriptions.value}}"
+            linear="{{playground.descriptions.linear}}"
+            disabled="{{playground.descriptions.disabled}}"
+            loading="{{playground.descriptions.loading}}">
+            <Label>Profile setup</Label>
+            <Step title="Personal info" description="Name, photo, and contact"></Step>
+            <Step title="Security" description="Password and MFA"></Step>
+            <Step title="Preferences" description="Notifications and language"></Step>
+          </groupnavigatesteps--ml-vertical-stepper>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.descriptions.value}}"></widget-playground-state-number-102020>
+            <widget-playground-state-boolean-102020 label="linear" value="{{playground.descriptions.linear}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.descriptions.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.descriptions.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-descriptions">
+              <template>
+<groupnavigatesteps--ml-vertical-stepper
+  value="{{playground.descriptions.value}}"
+  linear="{{playground.descriptions.linear}}"
+  disabled="{{playground.descriptions.disabled}}"
+  loading="{{playground.descriptions.loading}}">
+  <Label>Profile setup</Label>
+  <Step title="Personal info" description="Name, photo, and contact"></Step>
+  <Step title="Security" description="Password and MFA"></Step>
+  <Step title="Preferences" description="Notifications and language"></Step>
+</groupnavigatesteps--ml-vertical-stepper>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">All disabled</h3>
+        <demo id="demo-disabled">
+          <groupnavigatesteps--ml-vertical-stepper
+            value="{{playground.disabled.value}}"
+            linear="{{playground.disabled.linear}}"
+            disabled="{{playground.disabled.disabled}}"
+            loading="{{playground.disabled.loading}}">
+            <Label>Contract signing</Label>
+            <Step title="Review"></Step>
+            <Step title="Sign"></Step>
+            <Step title="Finalize"></Step>
+          </groupnavigatesteps--ml-vertical-stepper>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.disabled.value}}"></widget-playground-state-number-102020>
+            <widget-playground-state-boolean-102020 label="linear" value="{{playground.disabled.linear}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.disabled.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.disabled.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-disabled">
+              <template>
+<groupnavigatesteps--ml-vertical-stepper
+  value="{{playground.disabled.value}}"
+  linear="{{playground.disabled.linear}}"
+  disabled="{{playground.disabled.disabled}}"
+  loading="{{playground.disabled.loading}}">
+  <Label>Contract signing</Label>
+  <Step title="Review"></Step>
+  <Step title="Sign"></Step>
+  <Step title="Finalize"></Step>
+</groupnavigatesteps--ml-vertical-stepper>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Loading state</h3>
+        <demo id="demo-loading">
+          <groupnavigatesteps--ml-vertical-stepper
+            value="{{playground.loading.value}}"
+            linear="{{playground.loading.linear}}"
+            disabled="{{playground.loading.disabled}}"
+            loading="{{playground.loading.loading}}">
+            <Label>Importing data</Label>
+          </groupnavigatesteps--ml-vertical-stepper>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.loading.value}}"></widget-playground-state-number-102020>
+            <widget-playground-state-boolean-102020 label="linear" value="{{playground.loading.linear}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.loading.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.loading.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-loading">
+              <template>
+<groupnavigatesteps--ml-vertical-stepper
+  value="{{playground.loading.value}}"
+  linear="{{playground.loading.linear}}"
+  disabled="{{playground.loading.disabled}}"
+  loading="{{playground.loading.loading}}">
+  <Label>Importing data</Label>
+</groupnavigatesteps--ml-vertical-stepper>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Empty state</h3>
+        <demo id="demo-empty">
+          <groupnavigatesteps--ml-vertical-stepper
+            value="{{playground.empty.value}}"
+            linear="{{playground.empty.linear}}"
+            disabled="{{playground.empty.disabled}}"
+            loading="{{playground.empty.loading}}">
+          </groupnavigatesteps--ml-vertical-stepper>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-number-102020 label="value" value="{{playground.empty.value}}"></widget-playground-state-number-102020>
+            <widget-playground-state-boolean-102020 label="linear" value="{{playground.empty.linear}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.empty.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.empty.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-empty">
+              <template>
+<groupnavigatesteps--ml-vertical-stepper
+  value="{{playground.empty.value}}"
+  linear="{{playground.empty.linear}}"
+  disabled="{{playground.empty.disabled}}"
+  loading="{{playground.empty.loading}}">
+</groupnavigatesteps--ml-vertical-stepper>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+    </section>
+  </div>
+</div>

@@ -1,0 +1,329 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+  <div class="mx-auto p-8 font-sans">
+    <header class="text-center mb-12">
+      <h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">ML Accordion</h1>
+      <span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">groupExpandContent</span>
+    </header>
+
+    <widget-playground-state-102020 state='{"playground":{"basic":{"multiple":true,"disabled":false,"loading":false},"accordion":{"multiple":false,"disabled":false,"loading":false},"disabledDemo":{"multiple":true,"disabled":true,"loading":false},"loadingDemo":{"multiple":true,"disabled":false,"loading":true},"rich":{"multiple":true,"disabled":false,"loading":false},"empty":{"multiple":true,"disabled":false,"loading":false}}}'>
+    </widget-playground-state-102020>
+
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic - Multiple sections</h3>
+        <demo id="demo-basic">
+          <groupexpandcontent--ml-accordion
+            multiple="{{playground.basic.multiple}}"
+            disabled="{{playground.basic.disabled}}"
+            loading="{{playground.basic.loading}}">
+            <Label>Project details</Label>
+            <Section title="Overview" expanded>
+              Share the project scope, key stakeholders, and expected outcomes.
+            </Section>
+            <Section title="Timeline">
+              Milestones are due every Friday until the end of the quarter.
+            </Section>
+            <Section title="Risks">
+              Track vendor delays and security approvals closely.
+            </Section>
+          </groupexpandcontent--ml-accordion>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="multiple" value="{{playground.basic.multiple}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.basic.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.basic.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-basic">
+              <template>
+                <groupexpandcontent--ml-accordion
+                  multiple="{{playground.basic.multiple}}"
+                  disabled="{{playground.basic.disabled}}"
+                  loading="{{playground.basic.loading}}">
+                  <Label>Project details</Label>
+                  <Section title="Overview" expanded>
+                    Share the project scope, key stakeholders, and expected outcomes.
+                  </Section>
+                  <Section title="Timeline">
+                    Milestones are due every Friday until the end of the quarter.
+                  </Section>
+                  <Section title="Risks">
+                    Track vendor delays and security approvals closely.
+                  </Section>
+                </groupexpandcontent--ml-accordion>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Accordion mode - Single open</h3>
+        <demo id="demo-accordion">
+          <groupexpandcontent--ml-accordion
+            multiple="{{playground.accordion.multiple}}"
+            disabled="{{playground.accordion.disabled}}"
+            loading="{{playground.accordion.loading}}">
+            <Label>Frequently asked questions</Label>
+            <Section title="How do I reset my password?" expanded>
+              Go to Settings &gt; Security and select Reset password.
+            </Section>
+            <Section title="Can I change my plan?">
+              Yes, update your plan in Billing at any time.
+            </Section>
+            <Section title="Where can I find invoices?">
+              Invoices are available under Billing &gt; Documents.
+            </Section>
+          </groupexpandcontent--ml-accordion>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="multiple" value="{{playground.accordion.multiple}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.accordion.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.accordion.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-accordion">
+              <template>
+                <groupexpandcontent--ml-accordion
+                  multiple="{{playground.accordion.multiple}}"
+                  disabled="{{playground.accordion.disabled}}"
+                  loading="{{playground.accordion.loading}}">
+                  <Label>Frequently asked questions</Label>
+                  <Section title="How do I reset my password?" expanded>
+                    Go to Settings &gt; Security and select Reset password.
+                  </Section>
+                  <Section title="Can I change my plan?">
+                    Yes, update your plan in Billing at any time.
+                  </Section>
+                  <Section title="Where can I find invoices?">
+                    Invoices are available under Billing &gt; Documents.
+                  </Section>
+                </groupexpandcontent--ml-accordion>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled</h3>
+        <demo id="demo-disabled">
+          <groupexpandcontent--ml-accordion
+            multiple="{{playground.disabledDemo.multiple}}"
+            disabled="{{playground.disabledDemo.disabled}}"
+            loading="{{playground.disabledDemo.loading}}">
+            <Label>Onboarding checklist</Label>
+            <Section title="Account setup" expanded>
+              Admin approval is still pending.
+            </Section>
+            <Section title="Profile completion">
+              Complete your profile once access is granted.
+            </Section>
+          </groupexpandcontent--ml-accordion>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="multiple" value="{{playground.disabledDemo.multiple}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.disabledDemo.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.disabledDemo.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-disabled">
+              <template>
+                <groupexpandcontent--ml-accordion
+                  multiple="{{playground.disabledDemo.multiple}}"
+                  disabled="{{playground.disabledDemo.disabled}}"
+                  loading="{{playground.disabledDemo.loading}}">
+                  <Label>Onboarding checklist</Label>
+                  <Section title="Account setup" expanded>
+                    Admin approval is still pending.
+                  </Section>
+                  <Section title="Profile completion">
+                    Complete your profile once access is granted.
+                  </Section>
+                </groupexpandcontent--ml-accordion>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Loading placeholder</h3>
+        <demo id="demo-loading">
+          <groupexpandcontent--ml-accordion
+            multiple="{{playground.loadingDemo.multiple}}"
+            disabled="{{playground.loadingDemo.disabled}}"
+            loading="{{playground.loadingDemo.loading}}">
+            <Label>Reports</Label>
+            <Section title="Weekly status" expanded>
+              Loading latest metrics...
+            </Section>
+            <Section title="Quarterly review">
+              Loading insights...
+            </Section>
+          </groupexpandcontent--ml-accordion>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="multiple" value="{{playground.loadingDemo.multiple}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.loadingDemo.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.loadingDemo.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-loading">
+              <template>
+                <groupexpandcontent--ml-accordion
+                  multiple="{{playground.loadingDemo.multiple}}"
+                  disabled="{{playground.loadingDemo.disabled}}"
+                  loading="{{playground.loadingDemo.loading}}">
+                  <Label>Reports</Label>
+                  <Section title="Weekly status" expanded>
+                    Loading latest metrics...
+                  </Section>
+                  <Section title="Quarterly review">
+                    Loading insights...
+                  </Section>
+                </groupexpandcontent--ml-accordion>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Rich content with disabled section</h3>
+        <demo id="demo-rich">
+          <groupexpandcontent--ml-accordion
+            multiple="{{playground.rich.multiple}}"
+            disabled="{{playground.rich.disabled}}"
+            loading="{{playground.rich.loading}}">
+            <Label>Release notes</Label>
+            <Section title="Highlights" expanded>
+              <template>
+                <ul class="list-disc pl-5 space-y-1">
+                  <li>New analytics dashboard with export options.</li>
+                  <li>Faster login with SSO improvements.</li>
+                  <li>Updated navigation for project settings.</li>
+                </ul>
+              </template>
+            </Section>
+            <Section title="Known issues" disabled>
+              <template>
+                <p class="mb-2">We are tracking the following:</p>
+                <ol class="list-decimal pl-5 space-y-1">
+                  <li>Email notifications delayed by up to 5 minutes.</li>
+                  <li>Mobile Safari scrolling bug in reports.</li>
+                </ol>
+              </template>
+            </Section>
+            <Section title="Support resources">
+              <template>
+                <p>Visit the <a class="text-sky-600 dark:text-sky-400 underline" href="https://support.example.com">support center</a> for guides.</p>
+              </template>
+            </Section>
+          </groupexpandcontent--ml-accordion>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="multiple" value="{{playground.rich.multiple}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.rich.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.rich.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-rich">
+              <template>
+                <groupexpandcontent--ml-accordion
+                  multiple="{{playground.rich.multiple}}"
+                  disabled="{{playground.rich.disabled}}"
+                  loading="{{playground.rich.loading}}">
+                  <Label>Release notes</Label>
+                  <Section title="Highlights" expanded>
+                    <template>
+                      <ul class="list-disc pl-5 space-y-1">
+                        <li>New analytics dashboard with export options.</li>
+                        <li>Faster login with SSO improvements.</li>
+                        <li>Updated navigation for project settings.</li>
+                      </ul>
+                    </template>
+                  </Section>
+                  <Section title="Known issues" disabled>
+                    <template>
+                      <p class="mb-2">We are tracking the following:</p>
+                      <ol class="list-decimal pl-5 space-y-1">
+                        <li>Email notifications delayed by up to 5 minutes.</li>
+                        <li>Mobile Safari scrolling bug in reports.</li>
+                      </ol>
+                    </template>
+                  </Section>
+                  <Section title="Support resources">
+                    <template>
+                      <p>Visit the <a class="text-sky-600 dark:text-sky-400 underline" href="https://support.example.com">support center</a> for guides.</p>
+                    </template>
+                  </Section>
+                </groupexpandcontent--ml-accordion>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+
+      <article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Empty state</h3>
+        <demo id="demo-empty">
+          <groupexpandcontent--ml-accordion
+            multiple="{{playground.empty.multiple}}"
+            disabled="{{playground.empty.disabled}}"
+            loading="{{playground.empty.loading}}">
+            <Label>Notifications</Label>
+          </groupexpandcontent--ml-accordion>
+        </demo>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+          <div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+            <widget-playground-state-boolean-102020 label="multiple" value="{{playground.empty.multiple}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="disabled" value="{{playground.empty.disabled}}"></widget-playground-state-boolean-102020>
+            <widget-playground-state-boolean-102020 label="loading" value="{{playground.empty.loading}}"></widget-playground-state-boolean-102020>
+          </div>
+        </details>
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+          <div class="mt-2">
+            <widget-playground-state-preview-code-102020 target="demo-empty">
+              <template>
+                <groupexpandcontent--ml-accordion
+                  multiple="{{playground.empty.multiple}}"
+                  disabled="{{playground.empty.disabled}}"
+                  loading="{{playground.empty.loading}}">
+                  <Label>Notifications</Label>
+                </groupexpandcontent--ml-accordion>
+              </template>
+            </widget-playground-state-preview-code-102020>
+          </div>
+        </details>
+      </article>
+    </section>
+  </div>
+</div>

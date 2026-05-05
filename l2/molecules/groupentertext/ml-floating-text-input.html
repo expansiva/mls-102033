@@ -1,0 +1,234 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Floating Text Input</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">groupEnterText</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"value":"","error":""},"helper":{"value":"","placeholder":"Type your email"},"disabled":{"value":"Disabled value"},"masked":{"value":"","mask":"(##) #####-####","placeholder":"(__) _____-____"},"textarea":{"value":""},"password":{"value":"supersecret"}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- Basic usage -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic usage</h3>
+<demo id="demo-basic">
+<groupentertext--ml-floating-text-input
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  is-editing="true">
+  <Label>Full Name</Label>
+</groupentertext--ml-floating-text-input>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupentertext--ml-floating-text-input
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  is-editing="true">
+  <Label>Full Name</Label>
+</groupentertext--ml-floating-text-input>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- With helper and placeholder -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With helper and placeholder</h3>
+<demo id="demo-helper">
+<groupentertext--ml-floating-text-input
+  value="{{playground.helper.value}}"
+  placeholder="{{playground.helper.placeholder}}"
+  is-editing="true">
+  <Label>Email</Label>
+  <Helper>We will never share your email.</Helper>
+</groupentertext--ml-floating-text-input>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.helper.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="placeholder" value="{{playground.helper.placeholder}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-helper">
+<template>
+<groupentertext--ml-floating-text-input
+  value="{{playground.helper.value}}"
+  placeholder="{{playground.helper.placeholder}}"
+  is-editing="true">
+  <Label>Email</Label>
+  <Helper>We will never share your email.</Helper>
+</groupentertext--ml-floating-text-input>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Disabled with prefix and suffix -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled with prefix and suffix</h3>
+<demo id="demo-disabled">
+<groupentertext--ml-floating-text-input
+  value="{{playground.disabled.value}}"
+  disabled="true"
+  is-editing="true">
+  <Label>Amount</Label>
+  <Prefix>R$</Prefix>
+  <Suffix>.00</Suffix>
+</groupentertext--ml-floating-text-input>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.disabled.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupentertext--ml-floating-text-input
+  value="{{playground.disabled.value}}"
+  disabled="true"
+  is-editing="true">
+  <Label>Amount</Label>
+  <Prefix>R$</Prefix>
+  <Suffix>.00</Suffix>
+</groupentertext--ml-floating-text-input>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Masked input (phone) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Masked input (phone)</h3>
+<demo id="demo-masked">
+<groupentertext--ml-floating-text-input
+  value="{{playground.masked.value}}"
+  mask="{{playground.masked.mask}}"
+  placeholder="{{playground.masked.placeholder}}"
+  is-editing="true">
+  <Label>Phone</Label>
+</groupentertext--ml-floating-text-input>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.masked.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="mask" value="{{playground.masked.mask}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="placeholder" value="{{playground.masked.placeholder}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-masked">
+<template>
+<groupentertext--ml-floating-text-input
+  value="{{playground.masked.value}}"
+  mask="{{playground.masked.mask}}"
+  placeholder="{{playground.masked.placeholder}}"
+  is-editing="true">
+  <Label>Phone</Label>
+</groupentertext--ml-floating-text-input>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Textarea (multi-line) with min/max length -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Textarea (multi-line) with min/max length</h3>
+<demo id="demo-textarea">
+<groupentertext--ml-floating-text-input
+  value="{{playground.textarea.value}}"
+  rows="4"
+  min-length="10"
+  max-length="200"
+  is-editing="true">
+  <Label>Bio</Label>
+  <Helper>Tell us about yourself (10-200 chars)</Helper>
+</groupentertext--ml-floating-text-input>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.textarea.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-textarea">
+<template>
+<groupentertext--ml-floating-text-input
+  value="{{playground.textarea.value}}"
+  rows="4"
+  min-length="10"
+  max-length="200"
+  is-editing="true">
+  <Label>Bio</Label>
+  <Helper>Tell us about yourself (10-200 chars)</Helper>
+</groupentertext--ml-floating-text-input>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- Password field (view mode) -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Password field (view mode)</h3>
+<demo id="demo-password">
+<groupentertext--ml-floating-text-input
+  value="{{playground.password.value}}"
+  input-type="password"
+  is-editing="false">
+  <Label>Password</Label>
+</groupentertext--ml-floating-text-input>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.password.value}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-password">
+<template>
+<groupentertext--ml-floating-text-input
+  value="{{playground.password.value}}"
+  input-type="password"
+  is-editing="false">
+  <Label>Password</Label>
+</groupentertext--ml-floating-text-input>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

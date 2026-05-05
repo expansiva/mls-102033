@@ -1,0 +1,281 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Clock Time Picker</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">enter + time</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"value":"","error":""},"helper":{"value":""},"ampm":{"value":""},"seconds":{"value":""},"range":{"value":""},"readonly":{"value":"14:30"},"loading":{"value":""}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic</h3>
+<demo id="demo-basic">
+<groupentertime--ml-clock-time-picker
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  is-editing="true"
+  disabled="false"
+>
+  <Label>Time</Label>
+</groupentertime--ml-clock-time-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupentertime--ml-clock-time-picker
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  is-editing="true"
+  disabled="false"
+>
+  <Label>Time</Label>
+</groupentertime--ml-clock-time-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With Helper and Required</h3>
+<demo id="demo-helper">
+<groupentertime--ml-clock-time-picker
+  value="{{playground.helper.value}}"
+  required="true"
+  is-editing="true"
+>
+  <Label>Start Time</Label>
+  <Helper>Choose the time you want to start</Helper>
+</groupentertime--ml-clock-time-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.helper.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-boolean-102020 label="required" value="true"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-helper">
+<template>
+<groupentertime--ml-clock-time-picker
+  value="{{playground.helper.value}}"
+  required="true"
+  is-editing="true"
+>
+  <Label>Start Time</Label>
+  <Helper>Choose the time you want to start</Helper>
+</groupentertime--ml-clock-time-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">12-hour Format with AM/PM</h3>
+<demo id="demo-ampm">
+<groupentertime--ml-clock-time-picker
+  value="{{playground.ampm.value}}"
+  hour12="true"
+  locale="en-US"
+  is-editing="true"
+>
+  <Label>Meeting Time</Label>
+</groupentertime--ml-clock-time-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.ampm.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-boolean-102020 label="hour12" value="true"></widget-playground-state-boolean-102020>
+<widget-playground-state-text-102020 label="locale" value="en-US"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-ampm">
+<template>
+<groupentertime--ml-clock-time-picker
+  value="{{playground.ampm.value}}"
+  hour12="true"
+  locale="en-US"
+  is-editing="true"
+>
+  <Label>Meeting Time</Label>
+</groupentertime--ml-clock-time-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With Seconds and Custom Step</h3>
+<demo id="demo-seconds">
+<groupentertime--ml-clock-time-picker
+  value="{{playground.seconds.value}}"
+  show-seconds="true"
+  minute-step="5"
+  is-editing="true"
+>
+  <Label>Precise Time</Label>
+</groupentertime--ml-clock-time-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.seconds.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-boolean-102020 label="show-seconds" value="true"></widget-playground-state-boolean-102020>
+<widget-playground-state-number-102020 label="minute-step" value="5"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-seconds">
+<template>
+<groupentertime--ml-clock-time-picker
+  value="{{playground.seconds.value}}"
+  show-seconds="true"
+  minute-step="5"
+  is-editing="true"
+>
+  <Label>Precise Time</Label>
+</groupentertime--ml-clock-time-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Min/Max Time and Placeholder</h3>
+<demo id="demo-range">
+<groupentertime--ml-clock-time-picker
+  value="{{playground.range.value}}"
+  min-time="09:00"
+  max-time="18:00"
+  placeholder="Pick a time between 9 and 18h"
+  is-editing="true"
+>
+  <Label>Work Hours</Label>
+</groupentertime--ml-clock-time-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.range.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="min-time" value="09:00"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="max-time" value="18:00"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="placeholder" value="Pick a time between 9 and 18h"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-range">
+<template>
+<groupentertime--ml-clock-time-picker
+  value="{{playground.range.value}}"
+  min-time="09:00"
+  max-time="18:00"
+  placeholder="Pick a time between 9 and 18h"
+  is-editing="true"
+>
+  <Label>Work Hours</Label>
+</groupentertime--ml-clock-time-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Read-only (Display Mode)</h3>
+<demo id="demo-readonly">
+<groupentertime--ml-clock-time-picker
+  value="{{playground.readonly.value}}"
+  is-editing="false"
+>
+  <Label>Selected Time</Label>
+</groupentertime--ml-clock-time-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.readonly.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-boolean-102020 label="is-editing" value="false"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-readonly">
+<template>
+<groupentertime--ml-clock-time-picker
+  value="{{playground.readonly.value}}"
+  is-editing="false"
+>
+  <Label>Selected Time</Label>
+</groupentertime--ml-clock-time-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled and Loading</h3>
+<demo id="demo-loading">
+<groupentertime--ml-clock-time-picker
+  value="{{playground.loading.value}}"
+  disabled="true"
+  loading="true"
+  is-editing="true"
+>
+  <Label>Loading Time</Label>
+</groupentertime--ml-clock-time-picker>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.loading.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-boolean-102020 label="disabled" value="true"></widget-playground-state-boolean-102020>
+<widget-playground-state-boolean-102020 label="loading" value="true"></widget-playground-state-boolean-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-loading">
+<template>
+<groupentertime--ml-clock-time-picker
+  value="{{playground.loading.value}}"
+  disabled="true"
+  loading="true"
+  is-editing="true"
+>
+  <Label>Loading Time</Label>
+</groupentertime--ml-clock-time-picker>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

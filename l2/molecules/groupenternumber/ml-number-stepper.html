@@ -1,0 +1,232 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Number Stepper Molecule</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">enter + number</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"value":1,"error":""},"prefixSuffix":{"value":25},"decimalLocale":{"value":12.5},"disabled":{"value":10},"readonly":{"value":42},"helperError":{"value":null,"error":"Please enter a value between 10 and 50"}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- 1. Basic Quantity Input -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic Quantity Input</h3>
+<demo id="demo-basic">
+<groupenternumber--ml-number-stepper
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  min="1"
+  max="99"
+  step="1"
+  required>
+  <Label>Quantity</Label>
+</groupenternumber--ml-number-stepper>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-number-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupenternumber--ml-number-stepper
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  min="1"
+  max="99"
+  step="1"
+  required>
+  <Label>Quantity</Label>
+</groupenternumber--ml-number-stepper>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 2. With Prefix and Suffix -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With Prefix and Suffix</h3>
+<demo id="demo-prefix-suffix">
+<groupenternumber--ml-number-stepper
+  value="{{playground.prefixSuffix.value}}"
+  min="0"
+  max="100"
+  step="5">
+  <Label>Score</Label>
+  <Prefix>#</Prefix>
+  <Suffix>pts</Suffix>
+</groupenternumber--ml-number-stepper>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.prefixSuffix.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-prefix-suffix">
+<template>
+<groupenternumber--ml-number-stepper
+  value="{{playground.prefixSuffix.value}}"
+  min="0"
+  max="100"
+  step="5">
+  <Label>Score</Label>
+  <Prefix>#</Prefix>
+  <Suffix>pts</Suffix>
+</groupenternumber--ml-number-stepper>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 3. Decimals and Locale -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Decimals and Locale</h3>
+<demo id="demo-decimal-locale">
+<groupenternumber--ml-number-stepper
+  value="{{playground.decimalLocale.value}}"
+  decimals="2"
+  locale="de-DE"
+  step="0.25">
+  <Label>Weight</Label>
+  <Suffix>kg</Suffix>
+</groupenternumber--ml-number-stepper>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.decimalLocale.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-decimal-locale">
+<template>
+<groupenternumber--ml-number-stepper
+  value="{{playground.decimalLocale.value}}"
+  decimals="2"
+  locale="de-DE"
+  step="0.25">
+  <Label>Weight</Label>
+  <Suffix>kg</Suffix>
+</groupenternumber--ml-number-stepper>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 4. Disabled State -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Disabled State</h3>
+<demo id="demo-disabled">
+<groupenternumber--ml-number-stepper
+  value="{{playground.disabled.value}}"
+  disabled="true">
+  <Label>Disabled Field</Label>
+</groupenternumber--ml-number-stepper>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.disabled.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupenternumber--ml-number-stepper
+  value="{{playground.disabled.value}}"
+  disabled="true">
+  <Label>Disabled Field</Label>
+</groupenternumber--ml-number-stepper>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 5. Read-only View Mode -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Read-only View Mode</h3>
+<demo id="demo-readonly">
+<groupenternumber--ml-number-stepper
+  value="{{playground.readonly.value}}"
+  is-editing="false">
+  <Label>Read-only Value</Label>
+</groupenternumber--ml-number-stepper>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.readonly.value}}"></widget-playground-state-number-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-readonly">
+<template>
+<groupenternumber--ml-number-stepper
+  value="{{playground.readonly.value}}"
+  is-editing="false">
+  <Label>Read-only Value</Label>
+</groupenternumber--ml-number-stepper>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 6. With Helper and Error -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With Helper and Error</h3>
+<demo id="demo-helper-error">
+<groupenternumber--ml-number-stepper
+  value="{{playground.helperError.value}}"
+  error="{{playground.helperError.error}}"
+  required>
+  <Label>Range</Label>
+  <Helper>Enter a value between 10 and 50</Helper>
+</groupenternumber--ml-number-stepper>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-number-102020 label="value" value="{{playground.helperError.value}}"></widget-playground-state-number-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.helperError.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-helper-error">
+<template>
+<groupenternumber--ml-number-stepper
+  value="{{playground.helperError.value}}"
+  error="{{playground.helperError.error}}"
+  required>
+  <Label>Range</Label>
+  <Helper>Enter a value between 10 and 50</Helper>
+</groupenternumber--ml-number-stepper>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>

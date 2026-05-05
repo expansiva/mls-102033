@@ -1,0 +1,322 @@
+<div class="bg-white dark:bg-slate-900 min-h-screen">
+<div class="mx-auto p-8 font-sans">
+<header class="text-center mb-12">
+<h1 class="text-3xl font-semibold text-slate-800 dark:text-slate-100 mb-2">Tabs Navigation Molecule</h1>
+<span class="inline-block px-3 py-1 bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 rounded-full text-sm font-medium">groupNavigateSection</span>
+</header>
+<widget-playground-state-102020 state='{"playground":{"basic":{"value":"tab1","error":""},"label":{"value":"profile","error":""},"loading":{"value":"","error":""},"disabled":{"value":"tab2","error":""},"error":{"value":"tab1","error":"Please select a valid section."},"icons":{"value":"dashboard","error":""}}}'></widget-playground-state-102020>
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+<!-- 1. Basic usage with three tabs -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Basic usage with three tabs</h3>
+<demo id="demo-basic">
+<groupnavigatesection--ml-tabs
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  disabled="false"
+  loading="false">
+  <Tab value="tab1" title="Home">
+    <p>Welcome to the home section.</p>
+  </Tab>
+  <Tab value="tab2" title="Profile">
+    <p>User profile details go here.</p>
+  </Tab>
+  <Tab value="tab3" title="Settings">
+    <p>Adjust your preferences in settings.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.basic.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.basic.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-basic">
+<template>
+<groupnavigatesection--ml-tabs
+  value="{{playground.basic.value}}"
+  error="{{playground.basic.error}}"
+  disabled="false"
+  loading="false">
+  <Tab value="tab1" title="Home">
+    <p>Welcome to the home section.</p>
+  </Tab>
+  <Tab value="tab2" title="Profile">
+    <p>User profile details go here.</p>
+  </Tab>
+  <Tab value="tab3" title="Settings">
+    <p>Adjust your preferences in settings.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 2. With Label slot and one disabled tab -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With Label slot and one disabled tab</h3>
+<demo id="demo-label">
+<groupnavigatesection--ml-tabs
+  value="{{playground.label.value}}"
+  error="{{playground.label.error}}"
+  disabled="false"
+  loading="false">
+  <Label>Account Navigation</Label>
+  <Tab value="overview" title="Overview">
+    <p>Account overview content.</p>
+  </Tab>
+  <Tab value="profile" title="Profile">
+    <p>Edit your profile here.</p>
+  </Tab>
+  <Tab value="security" title="Security" disabled>
+    <p>Security settings are unavailable.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.label.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.label.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-label">
+<template>
+<groupnavigatesection--ml-tabs
+  value="{{playground.label.value}}"
+  error="{{playground.label.error}}"
+  disabled="false"
+  loading="false">
+  <Label>Account Navigation</Label>
+  <Tab value="overview" title="Overview">
+    <p>Account overview content.</p>
+  </Tab>
+  <Tab value="profile" title="Profile">
+    <p>Edit your profile here.</p>
+  </Tab>
+  <Tab value="security" title="Security" disabled>
+    <p>Security settings are unavailable.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 3. Loading state -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Loading state</h3>
+<demo id="demo-loading">
+<groupnavigatesection--ml-tabs
+  value="{{playground.loading.value}}"
+  error="{{playground.loading.error}}"
+  disabled="false"
+  loading="true">
+  <Label>Loading Tabs</Label>
+  <Tab value="tab1" title="Tab 1">
+    <p>Tab 1 content.</p>
+  </Tab>
+  <Tab value="tab2" title="Tab 2">
+    <p>Tab 2 content.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.loading.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.loading.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-loading">
+<template>
+<groupnavigatesection--ml-tabs
+  value="{{playground.loading.value}}"
+  error="{{playground.loading.error}}"
+  disabled="false"
+  loading="true">
+  <Label>Loading Tabs</Label>
+  <Tab value="tab1" title="Tab 1">
+    <p>Tab 1 content.</p>
+  </Tab>
+  <Tab value="tab2" title="Tab 2">
+    <p>Tab 2 content.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 4. All navigation disabled -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">All navigation disabled</h3>
+<demo id="demo-disabled">
+<groupnavigatesection--ml-tabs
+  value="{{playground.disabled.value}}"
+  error="{{playground.disabled.error}}"
+  disabled="true"
+  loading="false">
+  <Label>Disabled Navigation</Label>
+  <Tab value="tab1" title="Tab 1">
+    <p>Tab 1 content.</p>
+  </Tab>
+  <Tab value="tab2" title="Tab 2">
+    <p>Tab 2 content.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.disabled.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.disabled.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-disabled">
+<template>
+<groupnavigatesection--ml-tabs
+  value="{{playground.disabled.value}}"
+  error="{{playground.disabled.error}}"
+  disabled="true"
+  loading="false">
+  <Label>Disabled Navigation</Label>
+  <Tab value="tab1" title="Tab 1">
+    <p>Tab 1 content.</p>
+  </Tab>
+  <Tab value="tab2" title="Tab 2">
+    <p>Tab 2 content.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 5. With error message -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">With error message</h3>
+<demo id="demo-error">
+<groupnavigatesection--ml-tabs
+  value="{{playground.error.value}}"
+  error="{{playground.error.error}}"
+  disabled="false"
+  loading="false">
+  <Label>Section Navigation</Label>
+  <Tab value="tab1" title="Tab 1">
+    <p>Tab 1 content.</p>
+  </Tab>
+  <Tab value="tab2" title="Tab 2">
+    <p>Tab 2 content.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.error.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.error.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-error">
+<template>
+<groupnavigatesection--ml-tabs
+  value="{{playground.error.value}}"
+  error="{{playground.error.error}}"
+  disabled="false"
+  loading="false">
+  <Label>Section Navigation</Label>
+  <Tab value="tab1" title="Tab 1">
+    <p>Tab 1 content.</p>
+  </Tab>
+  <Tab value="tab2" title="Tab 2">
+    <p>Tab 2 content.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+<!-- 6. Tabs with icons and mixed disabled -->
+<article class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+<h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">Tabs with icons and mixed disabled</h3>
+<demo id="demo-icons">
+<groupnavigatesection--ml-tabs
+  value="{{playground.icons.value}}"
+  error="{{playground.icons.error}}"
+  disabled="false"
+  loading="false">
+  <Label>Dashboard</Label>
+  <Tab value="dashboard" title="Dashboard" icon="<svg width='1em' height='1em' fill='none' stroke='currentColor' stroke-width='2' viewBox='0 0 24 24'><rect x='3' y='3' width='7' height='9'/><rect x='14' y='3' width='7' height='5'/><rect x='14' y='12' width='7' height='9'/><rect x='3' y='16' width='7' height='5'/></svg>">
+    <p>Dashboard overview.</p>
+  </Tab>
+  <Tab value="reports" title="Reports" icon="<svg width='1em' height='1em' fill='none' stroke='currentColor' stroke-width='2' viewBox='0 0 24 24'><path d='M3 3h18v18H3z'/><path d='M8 3v18'/><path d='M16 3v18'/></svg>">
+    <p>Reports and analytics.</p>
+  </Tab>
+  <Tab value="settings" title="Settings" icon="<svg width='1em' height='1em' fill='none' stroke='currentColor' stroke-width='2' viewBox='0 0 24 24'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'/></svg>" disabled>
+    <p>Settings are not available.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</demo>
+<details class="mt-4">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">Properties</summary>
+<div class="mt-2 p-4 border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-900">
+<widget-playground-state-text-102020 label="value" value="{{playground.icons.value}}"></widget-playground-state-text-102020>
+<widget-playground-state-text-102020 label="error" value="{{playground.icons.error}}"></widget-playground-state-text-102020>
+</div>
+</details>
+<details class="mt-2">
+<summary class="cursor-pointer text-sm font-medium text-slate-500 dark:text-slate-400">HTML</summary>
+<div class="mt-2">
+<widget-playground-state-preview-code-102020 target="demo-icons">
+<template>
+<groupnavigatesection--ml-tabs
+  value="{{playground.icons.value}}"
+  error="{{playground.icons.error}}"
+  disabled="false"
+  loading="false">
+  <Label>Dashboard</Label>
+  <Tab value="dashboard" title="Dashboard" icon="<svg width='1em' height='1em' fill='none' stroke='currentColor' stroke-width='2' viewBox='0 0 24 24'><rect x='3' y='3' width='7' height='9'/><rect x='14' y='3' width='7' height='5'/><rect x='14' y='12' width='7' height='9'/><rect x='3' y='16' width='7' height='5'/></svg>">
+    <p>Dashboard overview.</p>
+  </Tab>
+  <Tab value="reports" title="Reports" icon="<svg width='1em' height='1em' fill='none' stroke='currentColor' stroke-width='2' viewBox='0 0 24 24'><path d='M3 3h18v18H3z'/><path d='M8 3v18'/><path d='M16 3v18'/></svg>">
+    <p>Reports and analytics.</p>
+  </Tab>
+  <Tab value="settings" title="Settings" icon="<svg width='1em' height='1em' fill='none' stroke='currentColor' stroke-width='2' viewBox='0 0 24 24'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'/></svg>" disabled>
+    <p>Settings are not available.</p>
+  </Tab>
+</groupnavigatesection--ml-tabs>
+</template>
+</widget-playground-state-preview-code-102020>
+</div>
+</details>
+</article>
+
+</section>
+</div>
+</div>
