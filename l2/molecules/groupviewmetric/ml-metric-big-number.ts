@@ -9,7 +9,7 @@
 import { html, TemplateResult } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement } from 'lit/decorators.js';
-import { propertyDataSource } from '/_102029_/l2/collabDecorators';
+import { propertyDataSource } from '/_102029_/l2/collabDecorators.js';
 import { MoleculeAuraElement } from '/_102033_/l2/moleculeBase.js';
 
 @customElement('groupviewmetric--ml-metric-big-number')

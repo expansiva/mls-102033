@@ -8,7 +8,7 @@ import { html, TemplateResult } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { ifDefined } from 'lit/directives/if-defined.js';
 import { customElement, state } from 'lit/decorators.js';
-import { propertyDataSource } from '/_102029_/l2/collabDecorators';
+import { propertyDataSource } from '/_102029_/l2/collabDecorators.js';
 import { MoleculeAuraElement } from '/_102033_/l2/moleculeBase.js';
 
 @customElement('groupentertext--ml-multiline-text')
