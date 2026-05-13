@@ -6,6 +6,7 @@ import { StateLitElement } from '/_102029_/l2/stateLitElement.js';
 // BASE CLASS
 // =============================================================================
 
+
 export class MoleculeAuraElement extends StateLitElement {
 
   // ===========================================================================
@@ -109,7 +110,7 @@ export class MoleculeAuraElement extends StateLitElement {
 
   private _slotObserver: MutationObserver | null = null;
   private _updateDebounceTimer: number | null = null;
-  private _mutationLock = false;
+  public _mutationLock = false;
 
   // ===========================================================================
   // LIFECYCLE
