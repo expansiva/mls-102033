@@ -130,10 +130,14 @@ export class MoleculeAuraElement extends StateLitElement {
     this._hideSlotTags();
     super.connectedCallback();
     this._setupSlotObserver();
+    this.addEventListener('change', this._stopNativeFormEvent);
+    this.addEventListener('input', this._stopNativeFormEvent);
   }
 
   disconnectedCallback() {
     if (this._isInert) return;
+    this.removeEventListener('change', this._stopNativeFormEvent);
+    this.removeEventListener('input', this._stopNativeFormEvent);
     super.disconnectedCallback();
     this._teardownSlotObserver();
   }
@@ -142,11 +146,16 @@ export class MoleculeAuraElement extends StateLitElement {
   // SLOT TAG VISIBILITY
   // ===========================================================================
 
+  private _stopNativeFormEvent = (e: Event) => {
+    if (!(e instanceof CustomEvent)) e.stopImmediatePropagation();
+  };
+
   private _hideSlotTags(): void {
-    this.slotTags.forEach(tag => {
-      this.querySelectorAll(tag).forEach(el => {
-        (el as HTMLElement).style.display = 'none';
-      });
+    Array.from(this.children).forEach(child => {
+      const tag = (child as HTMLElement).tagName?.toLowerCase();
+      if (tag && this.slotTags.map(t => t.toLowerCase()).includes(tag)) {
+        (child as HTMLElement).style.display = 'none';
+      }
     });
   }
 
