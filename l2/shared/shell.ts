@@ -4,7 +4,10 @@ import type {
   AuraBlockingErrorState,
   AuraBootConfig,
   AuraDeviceKind,
+  AuraDynamicRegionConfig,
   AuraInteractionState,
+  AuraRegionName,
+  AuraRegionRendererConfig,
   AuraRouteDefinition,
 } from '/_102033_/l2/shared/contracts/bootstrap.js';
 import '/_102033_/l2/shared/layout/aura-aside.js';
@@ -45,8 +48,13 @@ function isAuraBootConfig(value: unknown): value is AuraBootConfig {
   );
 }
 
-type AuraRegionName = 'header' | 'aside' | 'content';
 const MOBILE_BREAKPOINT_PX = 768;
+type AuraDynamicRegionName = Exclude<AuraRegionName, 'content'>;
+type AuraRegionRendererState = AuraRegionRendererConfig & { fallback?: boolean };
+type AuraRegionElement = HTMLElement & {
+  bootConfig?: AuraBootConfig;
+  regionProps?: Record<string, unknown>;
+};
 
 const DEFAULT_REGION_TAGS: Record<Exclude<AuraRegionName, 'content'>, string> = {
   header: 'collab-aura-header',
@@ -77,6 +85,9 @@ export class CollabAuraShell extends LitElement {
   activeRoute?: AuraRouteDefinition;
   private mobileMediaQuery?: MediaQueryList;
   private unsubscribeInteraction?: () => void;
+  private dynamicRegionRenderers: Partial<Record<AuraDynamicRegionName, AuraRegionRendererState>> = {};
+  private dynamicRegionProps: Partial<Record<AuraDynamicRegionName, Record<string, unknown>>> = {};
+  private activeAsideWidthPx?: number;
 
   createRenderRoot() {
     return this;
@@ -92,10 +103,14 @@ export class CollabAuraShell extends LitElement {
     this.bootConfig = window.collabBoot;
     this.resolvedDevice = this.resolveDevice();
     this.isAsideOpen = this.getDefaultAsideOpen(this.resolvedDevice);
+    this.initializeDynamicRegions();
     window.collabAuraShellControls = {
       toggleAside: this.handleToggleAside,
       openAside: this.handleOpenAside,
       closeAside: this.handleCloseAside,
+      setHeaderRenderer: this.setHeaderRenderer,
+      setAsideRenderer: this.setAsideRenderer,
+      setShellProfile: this.setShellProfile,
     };
     this.mobileMediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`);
     this.mobileMediaQuery.addEventListener('change', this.handleViewportChange);
@@ -174,6 +189,87 @@ export class CollabAuraShell extends LitElement {
     this.requestUpdate();
   };
 
+  private readonly setHeaderRenderer = async (
+    renderer: AuraRegionRendererConfig,
+    props?: Record<string, unknown>,
+  ) => {
+    await this.setRegionRenderer('header', renderer, props);
+  };
+
+  private readonly setAsideRenderer = async (
+    renderer: AuraRegionRendererConfig,
+    props?: Record<string, unknown>,
+  ) => {
+    const widthPx = typeof props?.widthPx === 'number' ? props.widthPx : undefined;
+    await this.setRegionRenderer('aside', renderer, props, widthPx);
+  };
+
+  private readonly setShellProfile = async (profileName: string) => {
+    if (!profileName) {
+      return;
+    }
+
+    const changes: Array<Promise<void>> = [];
+    if (this.getRegionProfile('header', profileName)) {
+      changes.push(this.setRegionProfile('header', profileName));
+    }
+    if (this.getRegionProfile('aside', profileName)) {
+      changes.push(this.setRegionProfile('aside', profileName));
+    }
+
+    if (changes.length === 0) {
+      throw new Error(`Shell profile "${profileName}" is not configured.`);
+    }
+
+    if (this.bootConfig?.clientShell) {
+      this.bootConfig.clientShell.activeProfile = profileName;
+    }
+
+    await Promise.all(changes);
+  };
+
+  private async setRegionProfile(region: AuraDynamicRegionName, profileName: string) {
+    const profile = this.getRegionProfile(region, profileName);
+    if (!profile) {
+      return;
+    }
+
+    const regionConfig = this.bootConfig?.clientShell?.regions[region];
+    if (regionConfig) {
+      regionConfig.activeProfile = profileName;
+    }
+
+    await this.setRegionRenderer(
+      region,
+      profile.renderer,
+      this.getRegionPropsFromProfile(profile, profileName),
+      profile.widthPx,
+    );
+  }
+
+  private async setRegionRenderer(
+    region: AuraDynamicRegionName,
+    renderer: AuraRegionRendererConfig,
+    props?: Record<string, unknown>,
+    widthPx?: number,
+  ) {
+    if (!renderer.entrypoint || !renderer.tag) {
+      throw new Error(`Aura ${region} renderer requires entrypoint and tag.`);
+    }
+
+    await loadAuraRouteChunk(renderer.entrypoint);
+    this.dynamicRegionRenderers[region] = {
+      ...renderer,
+      fallback: false,
+    };
+    this.dynamicRegionProps[region] = props ?? {};
+    if (region === 'aside' && typeof widthPx === 'number' && widthPx > 0) {
+      this.activeAsideWidthPx = widthPx;
+    }
+    this.mountRegion(region);
+    this.requestUpdate();
+  }
+
   private readonly handleKeyDown = (event: KeyboardEvent) => {
     if (this.interactionState.busy) {
       event.preventDefault();
@@ -222,12 +318,72 @@ export class CollabAuraShell extends LitElement {
     return this.getAsideModeForDevice(device) === 'inline';
   }
 
+  private initializeDynamicRegions() {
+    (['header', 'aside'] as AuraDynamicRegionName[]).forEach((region) => {
+      const regionConfig = this.bootConfig?.clientShell?.regions[region];
+      const profileName = regionConfig?.activeProfile;
+      if (!profileName) {
+        return;
+      }
+
+      const profile = this.getRegionProfile(region, profileName);
+      if (!profile) {
+        return;
+      }
+
+      this.dynamicRegionRenderers[region] = {
+        ...profile.renderer,
+        fallback: false,
+      };
+      this.dynamicRegionProps[region] = this.getRegionPropsFromProfile(profile, profileName);
+      if (region === 'aside' && typeof profile.widthPx === 'number' && profile.widthPx > 0) {
+        this.activeAsideWidthPx = profile.widthPx;
+      }
+    });
+  }
+
+  private getRegionProfile(region: AuraDynamicRegionName, profileName: string) {
+    return this.bootConfig?.clientShell?.regions[region]?.profiles[profileName];
+  }
+
+  private getRegionPropsFromProfile(profile: AuraDynamicRegionConfig, profileName: string): Record<string, unknown> {
+    const {
+      renderer: _renderer,
+      widthPx: _widthPx,
+      source: _source,
+      switchWithoutRouteReload: _switchWithoutRouteReload,
+      props,
+      ...regionProps
+    } = profile;
+
+    return {
+      ...regionProps,
+      ...(props ?? {}),
+      profileName,
+    };
+  }
+
   private getAsideModeForDevice(device: AuraDeviceKind): AuraAsideMode {
     return this.bootConfig?.layout.asideMode[device] ?? (device === 'mobile' ? 'drawer' : 'inline');
   }
 
   private getResolvedAsideMode(): AuraAsideMode {
     return this.getAsideModeForDevice(this.resolvedDevice);
+  }
+
+  private getAsideWidthPx() {
+    return this.activeAsideWidthPx ?? this.bootConfig?.layout.asideSize?.desktopWidthPx ?? 280;
+  }
+
+  private getAsideDrawerWidthPx() {
+    return this.activeAsideWidthPx ?? this.bootConfig?.layout.asideSize?.drawerWidthPx ?? 320;
+  }
+
+  private getRegionProps(region: AuraRegionName) {
+    if (region === 'content') {
+      return undefined;
+    }
+    return this.dynamicRegionProps[region];
   }
 
   private getRenderer(region: AuraRegionName) {
@@ -244,6 +400,11 @@ export class CollabAuraShell extends LitElement {
         tag: this.activeRoute.tag,
         fallback: false,
       };
+    }
+
+    const dynamicRenderer = this.dynamicRegionRenderers[region];
+    if (dynamicRenderer) {
+      return dynamicRenderer;
     }
 
     const entrypoint = region === 'header' ? this.bootConfig.headerEntrypoint : this.bootConfig.asideEntrypoint;
@@ -386,9 +547,10 @@ export class CollabAuraShell extends LitElement {
         region,
         tag: renderer.tag,
       });
-      const currentElement = host.firstElementChild as HTMLElement & { bootConfig?: AuraBootConfig } | null;
+      const currentElement = host.firstElementChild as AuraRegionElement | null;
       if (currentElement) {
         currentElement.bootConfig = this.bootConfig;
+        currentElement.regionProps = this.getRegionProps(region);
       }
       return;
     }
@@ -397,8 +559,9 @@ export class CollabAuraShell extends LitElement {
       region,
       tag: renderer.tag,
     });
-    const element = document.createElement(renderer.tag) as HTMLElement & { bootConfig?: AuraBootConfig };
+    const element = document.createElement(renderer.tag) as AuraRegionElement;
     element.bootConfig = this.bootConfig;
+    element.regionProps = this.getRegionProps(region);
     host.replaceChildren(element);
   }
 
@@ -452,7 +615,7 @@ export class CollabAuraShell extends LitElement {
 
       collab-aura-shell .body {
         display: grid;
-        grid-template-columns: 280px minmax(0, 1fr);
+        grid-template-columns: var(--aura-aside-width, 280px) minmax(0, 1fr);
         min-height: 0;
         background: #fffdfa;
         position: relative;
@@ -485,7 +648,7 @@ export class CollabAuraShell extends LitElement {
         left: 0;
         bottom: 0;
         z-index: 30;
-        max-width: min(320px, calc(100vw - 32px));
+        max-width: min(var(--aura-aside-drawer-width, 320px), calc(100vw - 32px));
         width: 100%;
         box-shadow: 0 20px 50px rgba(15, 23, 42, 0.28);
       }
@@ -636,6 +799,8 @@ export class CollabAuraShell extends LitElement {
       `--aura-region-header-display: ${headerVisible ? 'block' : 'none'}`,
       `--aura-region-aside-display: ${asideVisible ? 'block' : 'none'}`,
       `--aura-region-content-display: ${contentVisible ? 'block' : 'none'}`,
+      `--aura-aside-width: ${this.getAsideWidthPx()}px`,
+      `--aura-aside-drawer-width: ${this.getAsideDrawerWidthPx()}px`,
     ].join('; ');
 
     return html`
