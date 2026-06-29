@@ -1,10 +1,16 @@
 /// <mls fileReference="_102033_/l2/core/bff-client.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { execBff } from '/_102033_/l2/core/bff-client.js';
+import { execBff, type BffDirectTransport } from '/_102033_/l2/core/bff-client.js';
 
 const originalFetch = globalThis.fetch;
-const globalWithWindow = globalThis as typeof globalThis & { window?: Window };
+type BffTestWindow = {
+  collabBffTransport?: BffDirectTransport;
+  collabBffTransportModule?: string;
+};
+type TestGlobal = Omit<typeof globalThis, 'window'> & { window?: BffTestWindow };
+
+const globalWithWindow = globalThis as TestGlobal;
 const originalWindow = globalWithWindow.window;
 
 test.afterEach(() => {
@@ -64,7 +70,7 @@ test('execBff uses registered Studio transport instead of fetch', async () => {
 
   globalWithWindow.window = {
     collabBffTransport: {
-      execBff: async (request) => {
+      execBff: async <TData = unknown>(request) => {
         assert.equal(request.routine, 'demo.load');
         assert.deepEqual(request.params, { id: '42' });
         assert.equal(request.meta.source, 'test');
@@ -72,12 +78,12 @@ test('execBff uses registered Studio transport instead of fetch', async () => {
           ok: true,
           data: {
             id: 'direct',
-          },
+          } as TData,
           error: null,
         };
       },
     },
-  } as unknown as Window;
+  };
 
   const response = await execBff<{ id: string }>('demo.load', { id: '42' });
 
@@ -108,7 +114,7 @@ test('execBff imports Studio transport module when configured', async () => {
 
   globalWithWindow.window = {
     collabBffTransportModule: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
-  } as unknown as Window;
+  };
 
   const response = await execBff<{ routine: string; source: string }>('demo.imported', {});
 
