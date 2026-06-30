@@ -1,13 +1,13 @@
 /// <mls fileReference="_102033_/l2/shared/shell.ts" enhancement="_blank" />
 import type {
-  AuraAsideMode,
+  MasterFrontendAsideMode,
   MasterFrontendBlockingErrorState,
   MasterFrontendBootConfig,
-  AuraDeviceKind,
+  MasterFrontendDeviceKind,
   MasterFrontendDynamicRegionConfig,
   MasterFrontendInteractionState,
   MasterFrontendRegionName,
-  AuraRegionRendererConfig,
+  MasterFrontendRegionRendererConfig,
   MasterFrontendRouteDefinition,
 } from '/_102033_/l2/shared/contracts/bootstrap.js';
 import '/_102033_/l2/shared/layout/aura-aside.js';
@@ -50,7 +50,7 @@ function isAuraBootConfig(value: unknown): value is MasterFrontendBootConfig {
 
 const MOBILE_BREAKPOINT_PX = 768;
 type AuraDynamicRegionName = Exclude<MasterFrontendRegionName, 'content'>;
-type AuraRegionRendererState = AuraRegionRendererConfig & { fallback?: boolean };
+type AuraRegionRendererState = MasterFrontendRegionRendererConfig & { fallback?: boolean };
 type AuraRegionElement = HTMLElement & {
   bootConfig?: MasterFrontendBootConfig;
   regionProps?: Record<string, unknown>;
@@ -80,7 +80,7 @@ export class CollabAuraShell extends LitElement {
     busyPhase: 'idle',
     clearContentWhileBusy: false,
   };
-  resolvedDevice: AuraDeviceKind = 'desktop';
+  resolvedDevice: MasterFrontendDeviceKind = 'desktop';
   isAsideOpen = false;
   activeRoute?: MasterFrontendRouteDefinition;
   private mobileMediaQuery?: MediaQueryList;
@@ -190,14 +190,14 @@ export class CollabAuraShell extends LitElement {
   };
 
   private readonly setHeaderRenderer = async (
-    renderer: AuraRegionRendererConfig,
+    renderer: MasterFrontendRegionRendererConfig,
     props?: Record<string, unknown>,
   ) => {
     await this.setRegionRenderer('header', renderer, props);
   };
 
   private readonly setAsideRenderer = async (
-    renderer: AuraRegionRendererConfig,
+    renderer: MasterFrontendRegionRendererConfig,
     props?: Record<string, unknown>,
   ) => {
     const widthPx = typeof props?.widthPx === 'number' ? props.widthPx : undefined;
@@ -249,7 +249,7 @@ export class CollabAuraShell extends LitElement {
 
   private async setRegionRenderer(
     region: AuraDynamicRegionName,
-    renderer: AuraRegionRendererConfig,
+    renderer: MasterFrontendRegionRendererConfig,
     props?: Record<string, unknown>,
     widthPx?: number,
   ) {
@@ -307,14 +307,14 @@ export class CollabAuraShell extends LitElement {
     this.requestUpdate();
   }
 
-  private resolveDevice(): AuraDeviceKind {
+  private resolveDevice(): MasterFrontendDeviceKind {
     if (typeof window.matchMedia === 'function') {
       return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`).matches ? 'mobile' : 'desktop';
     }
     return this.bootConfig?.device ?? 'desktop';
   }
 
-  private getDefaultAsideOpen(device: AuraDeviceKind) {
+  private getDefaultAsideOpen(device: MasterFrontendDeviceKind) {
     return this.getAsideModeForDevice(device) === 'inline';
   }
 
@@ -363,11 +363,11 @@ export class CollabAuraShell extends LitElement {
     };
   }
 
-  private getAsideModeForDevice(device: AuraDeviceKind): AuraAsideMode {
+  private getAsideModeForDevice(device: MasterFrontendDeviceKind): MasterFrontendAsideMode {
     return this.bootConfig?.layout.asideMode[device] ?? (device === 'mobile' ? 'drawer' : 'inline');
   }
 
-  private getResolvedAsideMode(): AuraAsideMode {
+  private getResolvedAsideMode(): MasterFrontendAsideMode {
     return this.getAsideModeForDevice(this.resolvedDevice);
   }
 
