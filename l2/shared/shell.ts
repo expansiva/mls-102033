@@ -1,14 +1,14 @@
 /// <mls fileReference="_102033_/l2/shared/shell.ts" enhancement="_blank" />
 import type {
   AuraAsideMode,
-  AuraBlockingErrorState,
-  AuraBootConfig,
+  MasterFrontendBlockingErrorState,
+  MasterFrontendBootConfig,
   AuraDeviceKind,
-  AuraDynamicRegionConfig,
-  AuraInteractionState,
-  AuraRegionName,
+  MasterFrontendDynamicRegionConfig,
+  MasterFrontendInteractionState,
+  MasterFrontendRegionName,
   AuraRegionRendererConfig,
-  AuraRouteDefinition,
+  MasterFrontendRouteDefinition,
 } from '/_102033_/l2/shared/contracts/bootstrap.js';
 import '/_102033_/l2/shared/layout/aura-aside.js';
 import '/_102033_/l2/shared/layout/aura-header.js';
@@ -32,7 +32,7 @@ function traceLazy(event: string, details?: Record<string, unknown>) {
   console.log('[traceLazy][shell]', event, details ?? {});
 }
 
-function isAuraBootConfig(value: unknown): value is AuraBootConfig {
+function isAuraBootConfig(value: unknown): value is MasterFrontendBootConfig {
   if (!value || typeof value !== 'object') {
     return false;
   }
@@ -49,14 +49,14 @@ function isAuraBootConfig(value: unknown): value is AuraBootConfig {
 }
 
 const MOBILE_BREAKPOINT_PX = 768;
-type AuraDynamicRegionName = Exclude<AuraRegionName, 'content'>;
+type AuraDynamicRegionName = Exclude<MasterFrontendRegionName, 'content'>;
 type AuraRegionRendererState = AuraRegionRendererConfig & { fallback?: boolean };
 type AuraRegionElement = HTMLElement & {
-  bootConfig?: AuraBootConfig;
+  bootConfig?: MasterFrontendBootConfig;
   regionProps?: Record<string, unknown>;
 };
 
-const DEFAULT_REGION_TAGS: Record<Exclude<AuraRegionName, 'content'>, string> = {
+const DEFAULT_REGION_TAGS: Record<Exclude<MasterFrontendRegionName, 'content'>, string> = {
   header: 'collab-aura-header',
   aside: 'collab-aura-aside',
 };
@@ -72,17 +72,17 @@ export class CollabAuraShell extends LitElement {
     activeRoute: { attribute: false },
   };
 
-  declare bootConfig?: AuraBootConfig;
+  declare bootConfig?: MasterFrontendBootConfig;
   declare statusMessage: string;
   routeStatusMessage = '';
-  interactionState: AuraInteractionState = {
+  interactionState: MasterFrontendInteractionState = {
     busy: false,
     busyPhase: 'idle',
     clearContentWhileBusy: false,
   };
   resolvedDevice: AuraDeviceKind = 'desktop';
   isAsideOpen = false;
-  activeRoute?: AuraRouteDefinition;
+  activeRoute?: MasterFrontendRouteDefinition;
   private mobileMediaQuery?: MediaQueryList;
   private unsubscribeInteraction?: () => void;
   private dynamicRegionRenderers: Partial<Record<AuraDynamicRegionName, AuraRegionRendererState>> = {};
@@ -104,7 +104,7 @@ export class CollabAuraShell extends LitElement {
     this.resolvedDevice = this.resolveDevice();
     this.isAsideOpen = this.getDefaultAsideOpen(this.resolvedDevice);
     this.initializeDynamicRegions();
-    window.collabAuraShellControls = {
+    window.collabMasterFrontendShellControls = {
       toggleAside: this.handleToggleAside,
       openAside: this.handleOpenAside,
       closeAside: this.handleCloseAside,
@@ -128,7 +128,7 @@ export class CollabAuraShell extends LitElement {
   }
 
   disconnectedCallback() {
-    delete window.collabAuraShellControls;
+    delete window.collabMasterFrontendShellControls;
     this.mobileMediaQuery?.removeEventListener('change', this.handleViewportChange);
     window.removeEventListener('resize', this.handleViewportChange);
     window.removeEventListener(AURA_TOGGLE_ASIDE_EVENT, this.handleToggleAside as EventListener);
@@ -346,7 +346,7 @@ export class CollabAuraShell extends LitElement {
     return this.bootConfig?.clientShell?.regions[region]?.profiles[profileName];
   }
 
-  private getRegionPropsFromProfile(profile: AuraDynamicRegionConfig, profileName: string): Record<string, unknown> {
+  private getRegionPropsFromProfile(profile: MasterFrontendDynamicRegionConfig, profileName: string): Record<string, unknown> {
     const {
       renderer: _renderer,
       widthPx: _widthPx,
@@ -379,14 +379,14 @@ export class CollabAuraShell extends LitElement {
     return this.activeAsideWidthPx ?? this.bootConfig?.layout.asideSize?.drawerWidthPx ?? 320;
   }
 
-  private getRegionProps(region: AuraRegionName) {
+  private getRegionProps(region: MasterFrontendRegionName) {
     if (region === 'content') {
       return undefined;
     }
     return this.dynamicRegionProps[region];
   }
 
-  private getRenderer(region: AuraRegionName) {
+  private getRenderer(region: MasterFrontendRegionName) {
     if (!this.bootConfig) {
       return null;
     }
@@ -424,7 +424,7 @@ export class CollabAuraShell extends LitElement {
     };
   }
 
-  private async importRegion(region: AuraRegionName) {
+  private async importRegion(region: MasterFrontendRegionName) {
     const renderer = this.getRenderer(region);
     if (!renderer || renderer.fallback) {
       return;
@@ -483,7 +483,7 @@ export class CollabAuraShell extends LitElement {
     }
   }
 
-  private getBaseRegionVisibility(region: AuraRegionName) {
+  private getBaseRegionVisibility(region: MasterFrontendRegionName) {
     const visibility = this.bootConfig?.layout.regions[this.resolvedDevice];
     return visibility?.[region] ?? true;
   }
@@ -496,7 +496,7 @@ export class CollabAuraShell extends LitElement {
     return this.getResolvedAsideMode() === 'inline' ? true : this.isAsideOpen;
   }
 
-  private getRegionVisibility(region: AuraRegionName) {
+  private getRegionVisibility(region: MasterFrontendRegionName) {
     if (!this.getBaseRegionVisibility(region)) {
       return false;
     }
@@ -515,7 +515,7 @@ export class CollabAuraShell extends LitElement {
     return true;
   }
 
-  private mountRegion(region: AuraRegionName) {
+  private mountRegion(region: MasterFrontendRegionName) {
     if (!this.bootConfig) {
       return;
     }
@@ -577,7 +577,7 @@ export class CollabAuraShell extends LitElement {
     this.mountRegion('content');
   }
 
-  private renderBlockingError(blockingError: AuraBlockingErrorState) {
+  private renderBlockingError(blockingError: MasterFrontendBlockingErrorState) {
     return html`
       <section class="shell-error-card" role="alert" aria-live="assertive">
         <p class="shell-error-eyebrow">Falha de carregamento</p>

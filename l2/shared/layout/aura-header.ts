@@ -1,6 +1,6 @@
 /// <mls fileReference="_102033_/l2/shared/layout/aura-header.ts" enhancement="_blank" />
 import { LitElement, html } from 'lit';
-import type { AuraBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
+import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 import { toggleAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js';
 
 export class AuraHeader extends LitElement {
@@ -8,7 +8,7 @@ export class AuraHeader extends LitElement {
     bootConfig: { attribute: false },
   };
 
-  declare bootConfig?: AuraBootConfig;
+  declare bootConfig?: MasterFrontendBootConfig;
 
   createRenderRoot() {
     return this;

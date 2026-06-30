@@ -1,7 +1,7 @@
 /// <mls fileReference="_102033_/l2/shared/routeRuntime.ts" enhancement="_blank" />
-import type { AuraRouteDefinition } from '/_102033_/l2/shared/contracts/bootstrap.js';
+import type { MasterFrontendRouteDefinition } from '/_102033_/l2/shared/contracts/bootstrap.js';
 
-function normalizeRoutePattern(route: AuraRouteDefinition) {
+function normalizeRoutePattern(route: MasterFrontendRouteDefinition) {
   return [
     route.path,
     ...(route.aliases ?? []),
@@ -9,9 +9,9 @@ function normalizeRoutePattern(route: AuraRouteDefinition) {
 }
 
 export function matchAuraRoute(
-  routes: AuraRouteDefinition[],
+  routes: MasterFrontendRouteDefinition[],
   pathname: string,
-): AuraRouteDefinition | undefined {
+): MasterFrontendRouteDefinition | undefined {
   const exactMatches = routes.flatMap((route) =>
     normalizeRoutePattern(route)
       .filter((pattern) => (route.matchMode ?? 'exact') === 'exact' && pattern === pathname)

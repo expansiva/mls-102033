@@ -12,7 +12,7 @@ import {
 
 test.beforeEach(() => {
   globalThis.window = {
-    collabAuraInteractionState: undefined,
+    collabMasterFrontendInteractionState: undefined,
   } as Window & typeof globalThis;
 });
 

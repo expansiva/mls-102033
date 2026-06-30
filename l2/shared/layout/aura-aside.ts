@@ -1,6 +1,6 @@
 /// <mls fileReference="_102033_/l2/shared/layout/aura-aside.ts" enhancement="_blank" />
 import { LitElement, html } from 'lit';
-import type { AuraBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
+import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 import { beginExpectedNavigationLoad, runBlockingUiAction } from '/_102033_/l2/shared/interactionRuntime.js';
 import { closeAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js';
 
@@ -17,7 +17,7 @@ export class AuraAside extends LitElement {
     currentPath: { state: true },
   };
 
-  declare bootConfig?: AuraBootConfig;
+  declare bootConfig?: MasterFrontendBootConfig;
   declare currentPath: string;
 
   createRenderRoot() {
