@@ -1,6 +1,7 @@
 /// <mls fileReference="_102033_/l2/moleculeBase.ts" enhancement="_blank"/>
 
 import { StateLitElement } from '/_102029_/l2/stateLitElement.js';
+import { propertyDataSource } from '/_102029_/l2/collabDecorators.js';
 
 // =============================================================================
 // BASE CLASS
@@ -8,6 +9,14 @@ import { StateLitElement } from '/_102029_/l2/stateLitElement.js';
 
 
 export class MoleculeAuraElement extends StateLitElement {
+
+  // ===========================================================================
+  // DATA-CLASS — consumer-provided CSS classes for the root element
+  // Usage: <my-component data-class="w-full mt-4">
+  // ===========================================================================
+
+  @propertyDataSource({ type: String, attribute: 'data-class' })
+  cssClass: string = '';
 
   // ===========================================================================
   // SLOT TAGS DEFINITION
@@ -287,6 +296,10 @@ export class MoleculeAuraElement extends StateLitElement {
 
   protected hasSlot(tag: string): boolean {
     return this.getSnapshot().querySelector(tag) !== null;
+  }
+
+  protected getSlotClass(tag: string): string {
+    return this.getSlotAttr(tag, 'data-class') || '';
   }
 
 }
