@@ -1,7 +1,7 @@
 /// <mls fileReference="_102033_/l2/shared/routeRuntime.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { AuraRouteDefinition } from '/_102033_/l2/shared/contracts/bootstrap.js';
+import type { MasterFrontendRouteDefinition } from '/_102033_/l2/shared/contracts/bootstrap.js';
 import {
   getCollabRouteChunkCache,
   getCollabRouteChunkPromises,
@@ -9,7 +9,7 @@ import {
   matchAuraRoute,
 } from '/_102033_/l2/shared/routeRuntime.js';
 
-const routes: AuraRouteDefinition[] = [
+const routes: MasterFrontendRouteDefinition[] = [
   {
     path: '/demo',
     aliases: ['/demo/index.html'],
