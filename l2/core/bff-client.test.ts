@@ -70,7 +70,7 @@ test('execBff uses registered Studio transport instead of fetch', async () => {
 
   globalWithWindow.window = {
     collabBffTransport: {
-      execBff: async <TData = unknown>(request) => {
+     execBff: async <TData = unknown>(request: { routine: unknown; params: unknown; meta: { source: unknown; }; }) => {
         assert.equal(request.routine, 'demo.load');
         assert.deepEqual(request.params, { id: '42' });
         assert.equal(request.meta.source, 'test');
