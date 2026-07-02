@@ -18,7 +18,9 @@ import {
   AURA_TOGGLE_ASIDE_EVENT,
 } from '/_102033_/l2/shared/layout/aura-shell-events.js';
 import {
+  bindExpectedNavigationLoad,
   clearBlockingError,
+  consumeExpectedNavigationLoad,
   retryBlockingError,
   subscribeToInteractionState,
 } from '/_102033_/l2/shared/interactionRuntime.js';
@@ -292,7 +294,11 @@ export class CollabAuraShell extends LitElement {
     if (this.getResolvedAsideMode() !== 'inline') {
       this.isAsideOpen = false;
     }
-    void this.loadActiveRoute();
+    // Settle the aside's expected navigation load with the real route load: without this
+    // bind the beginExpectedNavigationLoad promise never resolves and every menu
+    // navigation ends in a 10s TIMEOUT (no network request involved).
+    const pendingLoad = consumeExpectedNavigationLoad();
+    bindExpectedNavigationLoad(pendingLoad, this.loadActiveRoute());
     this.requestUpdate();
   };
 
