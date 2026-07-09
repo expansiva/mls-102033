@@ -90,6 +90,9 @@ export class CollabAuraShell extends LitElement {
   private dynamicRegionRenderers: Partial<Record<AuraDynamicRegionName, AuraRegionRendererState>> = {};
   private dynamicRegionProps: Partial<Record<AuraDynamicRegionName, Record<string, unknown>>> = {};
   private activeAsideWidthPx?: number;
+  // Ctrl+E cycles the content page through its UX variants (genome page11 -> page21 -> page31 -> ...).
+  // Override the content renderer with the picked variant; tied to the active route so navigation resets it.
+  private contentVariantRenderer?: { tag: string; entrypoint: string; routeKey: string };
 
   createRenderRoot() {
     return this;
@@ -280,6 +283,12 @@ export class CollabAuraShell extends LitElement {
     }
 
     this.syncResolvedDevice();
+    // Ctrl+E cycles the current page through its UX variants (page11 -> page21 -> page31 -> ...).
+    if (event.ctrlKey && !event.altKey && !event.metaKey && (event.key === 'e' || event.key === 'E')) {
+      event.preventDefault();
+      void this.rotateContentVariant();
+      return;
+    }
     if (event.key === 'Escape' && this.getResolvedAsideMode() !== 'inline' && this.isAsideOpen) {
       this.isAsideOpen = false;
       this.requestUpdate();
@@ -392,18 +401,90 @@ export class CollabAuraShell extends LitElement {
     return this.dynamicRegionProps[region];
   }
 
+  // Effective content renderer: the picked UX variant when set for the current route, else the route default.
+  private getActiveContentRenderer(): { tag: string; entrypoint: string } | undefined {
+    if (!this.activeRoute?.entrypoint || !this.activeRoute.tag) {
+      return undefined;
+    }
+    if (this.contentVariantRenderer && this.contentVariantRenderer.routeKey === this.activeRoute.path) {
+      return { tag: this.contentVariantRenderer.tag, entrypoint: this.contentVariantRenderer.entrypoint };
+    }
+    return { tag: this.activeRoute.tag, entrypoint: this.activeRoute.entrypoint };
+  }
+
+  // Ordered UX layout indices from the config (project.json/config.json "layouts"); falls back to 1..3.
+  private getAvailableUxLayouts(): number[] {
+    const layouts = (this.bootConfig as { layouts?: Record<string, unknown> } | undefined)?.layouts
+      ?? (window.collabBoot as { layouts?: Record<string, unknown> } | undefined)?.layouts;
+    if (layouts && typeof layouts === 'object') {
+      const indices = Object.keys(layouts)
+        .map((key) => Number(key))
+        .filter((value) => Number.isInteger(value) && value >= 1)
+        .sort((left, right) => left - right);
+      if (indices.length > 0) {
+        return indices;
+      }
+    }
+    return [1, 2, 3];
+  }
+
+  // Cycle the content page to the next existing UX variant (rotative). A variant exists when its
+  // module chunk loads and its custom element is registered; missing variants are skipped.
+  private async rotateContentVariant(): Promise<void> {
+    const current = this.getActiveContentRenderer();
+    if (!current) {
+      return;
+    }
+    const genomeMatch = current.tag.match(/--page(\d)(\d)--/);
+    if (!genomeMatch) {
+      return;
+    }
+    const currentUx = Number(genomeMatch[1]);
+    const uiDigit = genomeMatch[2];
+    const uxList = this.getAvailableUxLayouts();
+    if (uxList.length <= 1) {
+      return;
+    }
+    const startIndex = Math.max(0, uxList.indexOf(currentUx));
+    for (let step = 1; step <= uxList.length; step++) {
+      const nextUx = uxList[(startIndex + step) % uxList.length];
+      if (nextUx === currentUx) {
+        continue;
+      }
+      const nextTag = current.tag.replace(/--page\d\d--/, `--page${nextUx}${uiDigit}--`);
+      const nextEntrypoint = current.entrypoint.replace(/\/page\d\d\//, `/page${nextUx}${uiDigit}/`);
+      if (nextTag === current.tag || nextEntrypoint === current.entrypoint) {
+        continue;
+      }
+      try {
+        await loadAuraRouteChunk(nextEntrypoint);
+      } catch {
+        continue;
+      }
+      if (!customElements.get(nextTag)) {
+        continue;
+      }
+      this.contentVariantRenderer = { tag: nextTag, entrypoint: nextEntrypoint, routeKey: this.activeRoute?.path ?? '' };
+      this.routeStatusMessage = '';
+      this.mountRegion('content');
+      this.requestUpdate();
+      return;
+    }
+  }
+
   private getRenderer(region: MasterFrontendRegionName) {
     if (!this.bootConfig) {
       return null;
     }
 
     if (region === 'content') {
-      if (!this.activeRoute?.entrypoint || !this.activeRoute.tag) {
+      const content = this.getActiveContentRenderer();
+      if (!content) {
         throw new Error('Aura shell requires an active route renderer in window.collabBoot.');
       }
       return {
-        entrypoint: this.activeRoute.entrypoint,
-        tag: this.activeRoute.tag,
+        entrypoint: content.entrypoint,
+        tag: content.tag,
         fallback: false,
       };
     }
@@ -467,6 +548,8 @@ export class CollabAuraShell extends LitElement {
     }
 
     this.activeRoute = nextRoute;
+    // Navigation resets any picked UX variant back to the route default (page11).
+    this.contentVariantRenderer = undefined;
     const loadedChunks = getCollabRouteChunkCache();
     const shouldShowLoading = !loadedChunks.has(nextRoute.entrypoint);
     traceLazy('loadActiveRoute.matched', {
