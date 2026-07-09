@@ -90,7 +90,7 @@ export class CollabAuraShell extends LitElement {
   private dynamicRegionRenderers: Partial<Record<AuraDynamicRegionName, AuraRegionRendererState>> = {};
   private dynamicRegionProps: Partial<Record<AuraDynamicRegionName, Record<string, unknown>>> = {};
   private activeAsideWidthPx?: number;
-  // Ctrl+E cycles the content page through its UX variants (genome page11 -> page21 -> page31 -> ...).
+  // Alt+Shift+E cycles the content page through its UX variants (genome page11 -> page21 -> page31 ...).
   // Override the content renderer with the picked variant; tied to the active route so navigation resets it.
   private contentVariantRenderer?: { tag: string; entrypoint: string; routeKey: string };
 
@@ -283,8 +283,10 @@ export class CollabAuraShell extends LitElement {
     }
 
     this.syncResolvedDevice();
-    // Ctrl+E cycles the current page through its UX variants (page11 -> page21 -> page31 -> ...).
-    if (event.ctrlKey && !event.altKey && !event.metaKey && (event.key === 'e' || event.key === 'E')) {
+    // Alt+Shift+E cycles the current page through its UX variants (page11 -> page21 -> page31 -> ...).
+    // Chrome/Windows reserves Ctrl+E/Ctrl+L (omnibox), so Alt+Shift is used instead. Match by
+    // event.code ('KeyE') because Alt can change event.key to a composed character on some layouts.
+    if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyE') {
       event.preventDefault();
       void this.rotateContentVariant();
       return;
