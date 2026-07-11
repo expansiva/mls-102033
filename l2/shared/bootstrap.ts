@@ -1,5 +1,6 @@
 /// <mls fileReference="_102033_/l2/shared/bootstrap.ts" enhancement="_blank" />
 import '/_102033_/l2/shared/shell.js';
+import '/_102033_/l2/cbe/cbeMiniCfe.js';
 import { getTokensCss } from '/_102029_/l2/designSystemBase.js';
 
 /**
