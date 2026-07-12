@@ -24,6 +24,12 @@ const routes: MasterFrontendRouteDefinition[] = [
     title: 'Items',
     matchMode: 'prefix',
   },
+  {
+    path: '/demo/reports/:statusReportId?',
+    entrypoint: '/_102030_/l2/demo/routes/report.js',
+    tag: 'demo-report-page',
+    title: 'Report',
+  },
 ];
 
 test.beforeEach(() => {
@@ -37,6 +43,9 @@ test('matchAuraRoute resolves exact paths and aliases before prefixes', () => {
   assert.equal(matchAuraRoute(routes, '/demo')?.title, 'Overview');
   assert.equal(matchAuraRoute(routes, '/demo/index.html')?.title, 'Overview');
   assert.equal(matchAuraRoute(routes, '/demo/items/42')?.title, 'Items');
+  assert.equal(matchAuraRoute(routes, '/demo/reports')?.title, 'Report');
+  assert.equal(matchAuraRoute(routes, '/demo/reports/shared-42')?.title, 'Report');
+  assert.equal(matchAuraRoute(routes, '/demo/reports/shared-42/extra'), undefined);
 });
 
 test('loadAuraRouteChunk caches loaded entrypoints', async () => {

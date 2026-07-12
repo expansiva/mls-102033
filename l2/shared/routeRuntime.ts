@@ -8,6 +8,25 @@ function normalizeRoutePattern(route: MasterFrontendRouteDefinition) {
   ];
 }
 
+/** Match `/orders/:orderId` and optional `/orders/:orderId?` path segments without changing
+ * the route object consumed by the shell. Params are read by generated pages from location. */
+function matchesParameterizedPath(pattern: string, pathname: string): boolean {
+  const patternParts = pattern.split('/').filter(Boolean);
+  const pathParts = pathname.split('/').filter(Boolean);
+  let pathIndex = 0;
+  for (const part of patternParts) {
+    const parameter = /^:([A-Za-z][A-Za-z0-9_]*)(\?)?$/.exec(part);
+    if (!parameter) {
+      if (pathParts[pathIndex] !== part) return false;
+      pathIndex++;
+      continue;
+    }
+    if (pathParts[pathIndex]) pathIndex++;
+    else if (!parameter[2]) return false;
+  }
+  return pathIndex === pathParts.length;
+}
+
 export function matchAuraRoute(
   routes: MasterFrontendRouteDefinition[],
   pathname: string,
@@ -20,6 +39,14 @@ export function matchAuraRoute(
   if (exactMatches.length > 0) {
     return exactMatches[0];
   }
+
+  const parameterMatches = routes.flatMap((route) =>
+    normalizeRoutePattern(route)
+      .filter((pattern) => (route.matchMode ?? 'exact') === 'exact' && matchesParameterizedPath(pattern, pathname))
+      .map((pattern) => ({ route, patternLength: pattern.length })),
+  );
+  parameterMatches.sort((left, right) => right.patternLength - left.patternLength);
+  if (parameterMatches.length > 0) return parameterMatches[0].route;
 
   const prefixMatches = routes.flatMap((route) =>
     normalizeRoutePattern(route)
