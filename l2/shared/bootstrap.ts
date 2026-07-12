@@ -1,6 +1,8 @@
 /// <mls fileReference="_102033_/l2/shared/bootstrap.ts" enhancement="_blank" />
 import '/_102033_/l2/shared/shell.js';
-import '/_102033_/l2/cbe/cbeMiniCfe.js';
+// cbeMiniCfe is loaded by the shell templates (spa/pwa index.html) as an early
+// <head> module script, so the SW install + cbe login start in parallel with
+// the app boot — do not import it here or it would run twice (two instances).
 import { getTokensCss } from '/_102029_/l2/designSystemBase.js';
 
 /**

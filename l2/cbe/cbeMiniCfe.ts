@@ -16,14 +16,18 @@ declare global {
       api: { cbeLogin: () => Promise<{ statusCode: number } | undefined> };
       stor: {
         orgs: Record<string, unknown>;
+        files: Record<string, unknown>;
         localDB: { getAllKeys: () => Promise<string[]> };
+        cache: { installIfNeeded: () => Promise<unknown> };
+        server: { loadProjectInfoIfNeeded: (project: number, forceUpdate?: boolean) => Promise<boolean> };
+        loadProjectdependenciesInfoIfNeed: (project: number, forceUpdate?: boolean) => Promise<number[]>;
       };
     };
   }
 }
 
 // Bump on every change so the console shows which build is live on the VM.
-const CBE_MINI_CFE_VERSION = '1.0.1';
+const CBE_MINI_CFE_VERSION = '1.0.3';
 
 const MLS_SCRIPT_ID = 'cbe-mls-lib';
 const MLS_LOAD_TIMEOUT_MS = 20000;
@@ -72,7 +76,19 @@ export async function initCbeMiniCfe(): Promise<void> {
     const mls = window.mls;
     if (!mls) return;
 
+    // The service worker backs the js cache used by updateProjectFilesInfo —
+    // without it the files processing awaits navigator.serviceWorker.ready
+    // forever. Same order the studio uses (mls2.html).
+    await mls.stor.cache.installIfNeeded();
+
     const rc = await mls.api.cbeLogin();
+
+    // Preload mls.stor.files for the site's project + dependencies. This is
+    // what "opening" a project in the studio does; here everything resolves
+    // from the IndexedDB the login just filled (the driver is only consulted
+    // on a cache miss), so no external call happens on the VM.
+    await preloadStorFiles(mls);
+
     const keys = await mls.stor.localDB.getAllKeys();
     const elapsed = Math.round(performance.now() - t0);
     console.info(
@@ -81,11 +97,36 @@ export async function initCbeMiniCfe(): Promise<void> {
         loginStatus: rc?.statusCode,
         orgs: Object.keys(mls.stor.orgs),
         indexedDbKeys: keys.length,
+        storFiles: Object.keys(mls.stor.files).length,
       },
     );
   } catch (err) {
     // The app page must render regardless of the studio bootstrap outcome.
     console.warn('[cbeMiniCfe] studio bootstrap skipped:', err);
+  }
+}
+
+/** Loads the site's project and its dependencies (transitively) into mls.stor.files. */
+async function preloadStorFiles(mls: NonNullable<Window['mls']>): Promise<void> {
+  const boot = (window as unknown as { collabBoot?: { projectId?: string | number } }).collabBoot;
+  const projectId = Number(boot?.projectId) || 0;
+  if (projectId < 100000) {
+    console.warn(`[cbeMiniCfe] preload skipped: no valid collabBoot.projectId (${boot?.projectId})`);
+    return;
+  }
+  try {
+    await mls.stor.server.loadProjectInfoIfNeeded(projectId);
+    const pending: number[] = [projectId];
+    const seen = new Set<number>();
+    while (pending.length > 0) {
+      const current = pending.shift() as number;
+      if (seen.has(current)) continue;
+      seen.add(current);
+      const loadedDeps = await mls.stor.loadProjectdependenciesInfoIfNeed(current);
+      pending.push(...loadedDeps);
+    }
+  } catch (err) {
+    console.warn(`[cbeMiniCfe] preload of stor.files failed for project ${projectId}:`, err);
   }
 }
 
