@@ -90,9 +90,13 @@ export class CollabAuraShell extends LitElement {
   private dynamicRegionRenderers: Partial<Record<AuraDynamicRegionName, AuraRegionRendererState>> = {};
   private dynamicRegionProps: Partial<Record<AuraDynamicRegionName, Record<string, unknown>>> = {};
   private activeAsideWidthPx?: number;
-  // Alt+Shift+E cycles the content page through its UX variants (genome page11 -> page21 -> page31 ...).
-  // Override the content renderer with the picked variant; tied to the active route so navigation resets it.
+  // Ctrl+Alt+E cycles the content page through its UX variants (genome page11 -> page21 -> page31 ...);
+  // mls.sites.setPage(n) sets one directly. Override the content renderer with the picked variant;
+  // tied to the active route so navigation resets it.
   private contentVariantRenderer?: { tag: string; entrypoint: string; routeKey: string };
+  private sitesRetryTimer?: ReturnType<typeof setTimeout>;
+  // Bounded retry (~20s at 300ms) matching cbeMiniCfe's mls-lib load window.
+  private sitesRetriesLeft = 67;
 
   createRenderRoot() {
     return this;
@@ -117,6 +121,7 @@ export class CollabAuraShell extends LitElement {
       setAsideRenderer: this.setAsideRenderer,
       setShellProfile: this.setShellProfile,
     };
+    this.registerSitesControls();
     this.mobileMediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`);
     this.mobileMediaQuery.addEventListener('change', this.handleViewportChange);
     window.addEventListener('resize', this.handleViewportChange);
@@ -133,6 +138,10 @@ export class CollabAuraShell extends LitElement {
   }
 
   disconnectedCallback() {
+    if (this.sitesRetryTimer) {
+      clearTimeout(this.sitesRetryTimer);
+      this.sitesRetryTimer = undefined;
+    }
     delete window.collabMasterFrontendShellControls;
     this.mobileMediaQuery?.removeEventListener('change', this.handleViewportChange);
     window.removeEventListener('resize', this.handleViewportChange);
@@ -283,10 +292,9 @@ export class CollabAuraShell extends LitElement {
     }
 
     this.syncResolvedDevice();
-    // Alt+Shift+E cycles the current page through its UX variants (page11 -> page21 -> page31 -> ...).
-    // Chrome/Windows reserves Ctrl+E/Ctrl+L (omnibox), so Alt+Shift is used instead. Match by
-    // event.code ('KeyE') because Alt can change event.key to a composed character on some layouts.
-    if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyE') {
+    // Ctrl+Alt+E cycles the current page through its UX variants (page11 -> page21 -> page31 -> ...).
+    // Match by event.code ('KeyE') because Alt can change event.key to a composed character on some layouts.
+    if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && event.code === 'KeyE') {
       event.preventDefault();
       void this.rotateContentVariant();
       return;
@@ -472,6 +480,102 @@ export class CollabAuraShell extends LitElement {
       this.requestUpdate();
       return;
     }
+  }
+
+  // Inject the console-facing controls into the mls lib (window.mls.sites), so a developer
+  // can change header/aside/page from devtools. The mls lib loads asynchronously on the
+  // runtime VM (cbeMiniCfe injects /libs/mls.js), so retry with a bounded poll until it is
+  // present — before it registers, mls.sites getters return undefined and setters are no-ops.
+  private readonly registerSitesControls = () => {
+    this.sitesRetryTimer = undefined;
+    const register = (window as unknown as {
+      mls?: { sites?: { register?: (impl: Record<string, unknown>) => void } };
+    }).mls?.sites?.register;
+    if (typeof register === 'function') {
+      register({
+        getHeader: () => this.getRegionIndex('header'),
+        setHeader: (index: number) => this.setRegionByIndex('header', index),
+        getAside: () => this.getRegionIndex('aside'),
+        setAside: (index: number) => this.setRegionByIndex('aside', index),
+        getPage: () => this.getContentPageGenome(),
+        setPage: (genome: number) => { void this.setContentPage(genome); },
+      });
+      return;
+    }
+    if (this.sitesRetriesLeft <= 0) {
+      return; // mls lib never loaded (e.g. lib disabled on this VM) — nothing to register
+    }
+    this.sitesRetriesLeft -= 1;
+    this.sitesRetryTimer = setTimeout(this.registerSitesControls, 300);
+  };
+
+  // Ordered profile names for a region, from clientShell.regions[region].profiles in the
+  // boot config (config.json). This is the selectable header/aside list mls.sites indexes.
+  private getRegionProfileNames(region: AuraDynamicRegionName): string[] {
+    const profiles = this.bootConfig?.clientShell?.regions[region]?.profiles;
+    return profiles ? Object.keys(profiles) : [];
+  }
+
+  // 1-based index of the region's active profile within its profile list, or undefined.
+  private getRegionIndex(region: AuraDynamicRegionName): number | undefined {
+    const names = this.getRegionProfileNames(region);
+    if (names.length === 0) {
+      return undefined;
+    }
+    const active = this.bootConfig?.clientShell?.regions[region]?.activeProfile;
+    if (!active) {
+      return undefined;
+    }
+    const index = names.indexOf(active);
+    return index >= 0 ? index + 1 : undefined;
+  }
+
+  // Switch a region to the nth profile (1-based) of its clientShell list. Throws synchronously
+  // on an out-of-range index so the console call surfaces the error; applies asynchronously.
+  private setRegionByIndex(region: AuraDynamicRegionName, index: number): void {
+    const names = this.getRegionProfileNames(region);
+    if (!Number.isInteger(index) || index < 1 || index > names.length) {
+      const name = region === 'header' ? 'setHeader' : 'setAside';
+      throw new Error(`mls.sites.${name}(${index}): index out of range (valid: 1..${names.length}).`);
+    }
+    void this.setRegionProfile(region, names[index - 1])
+      .catch((error) => console.error(`[mls.sites] failed to set ${region}`, error));
+  }
+
+  // Current content page genome (e.g. 11, 21) parsed from the active renderer tag, or undefined.
+  private getContentPageGenome(): number | undefined {
+    const match = this.getActiveContentRenderer()?.tag.match(/--page(\d\d)--/);
+    return match ? Number(match[1]) : undefined;
+  }
+
+  // Set the active content page to an absolute two-digit genome (e.g. 21). Fail-safe: if the
+  // variant chunk does not load or its element is not registered, the current page is kept.
+  private async setContentPage(genome: number): Promise<void> {
+    const current = this.getActiveContentRenderer();
+    if (!current) {
+      return;
+    }
+    const genomeStr = String(genome);
+    if (!/^\d\d$/u.test(genomeStr)) {
+      return; // setPage expects a two-digit genome, e.g. 21
+    }
+    const nextTag = current.tag.replace(/--page\d\d--/u, `--page${genomeStr}--`);
+    const nextEntrypoint = current.entrypoint.replace(/\/page\d\d\//u, `/page${genomeStr}/`);
+    if (nextTag === current.tag && nextEntrypoint === current.entrypoint) {
+      return; // no genome segment to replace, or already on this genome
+    }
+    try {
+      await loadAuraRouteChunk(nextEntrypoint);
+    } catch {
+      return; // variant chunk not available — keep current page
+    }
+    if (!customElements.get(nextTag)) {
+      return; // variant element not registered — keep current page
+    }
+    this.contentVariantRenderer = { tag: nextTag, entrypoint: nextEntrypoint, routeKey: this.activeRoute?.path ?? '' };
+    this.routeStatusMessage = '';
+    this.mountRegion('content');
+    this.requestUpdate();
   }
 
   private getRenderer(region: MasterFrontendRegionName) {
