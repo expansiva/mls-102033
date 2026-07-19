@@ -26,3 +26,4 @@ package-lock.json
 *.mjs
 /dist/
 
+.collab-fs.json
