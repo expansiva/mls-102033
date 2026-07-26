@@ -53,6 +53,7 @@ function isAuraBootConfig(value: unknown): value is MasterFrontendBootConfig {
 const MOBILE_BREAKPOINT_PX = 768;
 type AuraDynamicRegionName = Exclude<MasterFrontendRegionName, 'content'>;
 type AuraRegionRendererState = MasterFrontendRegionRendererConfig & { fallback?: boolean };
+type AuraContentRenderer = { tag: string; entrypoint: string };
 type AuraRegionElement = HTMLElement & {
   bootConfig?: MasterFrontendBootConfig;
   regionProps?: Record<string, unknown>;
@@ -92,8 +93,8 @@ export class CollabAuraShell extends LitElement {
   private activeAsideWidthPx?: number;
   // Ctrl+Alt+E cycles the content page through its UX variants (genome page11 -> page21 -> page31 ...);
   // mls.sites.setPage(n) sets one directly. Override the content renderer with the picked variant;
-  // tied to the active route so navigation resets it.
-  private contentVariantRenderer?: { tag: string; entrypoint: string; routeKey: string };
+  // navigation preserves the current genome when the next route has the same pageNN variant.
+  private contentVariantRenderer?: AuraContentRenderer & { routeKey: string };
   private sitesRetryTimer?: ReturnType<typeof setTimeout>;
   // Bounded retry (~20s at 300ms) matching cbeMiniCfe's mls-lib load window.
   private sitesRetriesLeft = 67;
@@ -412,7 +413,7 @@ export class CollabAuraShell extends LitElement {
   }
 
   // Effective content renderer: the picked UX variant when set for the current route, else the route default.
-  private getActiveContentRenderer(): { tag: string; entrypoint: string } | undefined {
+  private getActiveContentRenderer(): AuraContentRenderer | undefined {
     if (!this.activeRoute?.entrypoint || !this.activeRoute.tag) {
       return undefined;
     }
@@ -420,6 +421,42 @@ export class CollabAuraShell extends LitElement {
       return { tag: this.contentVariantRenderer.tag, entrypoint: this.contentVariantRenderer.entrypoint };
     }
     return { tag: this.activeRoute.tag, entrypoint: this.activeRoute.entrypoint };
+  }
+
+  private async applyContentPageGenome(genome: number, shouldMount: boolean): Promise<boolean> {
+    const current = this.getActiveContentRenderer();
+    if (!current) {
+      return false;
+    }
+
+    const genomeStr = String(genome);
+    if (!/^\d\d$/u.test(genomeStr)) {
+      return false;
+    }
+
+    const nextTag = current.tag.replace(/--page\d\d--/u, `--page${genomeStr}--`);
+    const nextEntrypoint = current.entrypoint.replace(/\/page\d\d\//u, `/page${genomeStr}/`);
+    if (nextTag === current.tag && nextEntrypoint === current.entrypoint) {
+      return true;
+    }
+
+    try {
+      await loadAuraRouteChunk(nextEntrypoint);
+    } catch {
+      return false;
+    }
+
+    if (!customElements.get(nextTag)) {
+      return false;
+    }
+
+    this.contentVariantRenderer = { tag: nextTag, entrypoint: nextEntrypoint, routeKey: this.activeRoute?.path ?? '' };
+    this.routeStatusMessage = '';
+    if (shouldMount) {
+      this.mountRegion('content');
+      this.requestUpdate();
+    }
+    return true;
   }
 
   // Ordered UX layout indices from the config (project.json/config.json "layouts"); falls back to 1..3.
@@ -551,31 +588,7 @@ export class CollabAuraShell extends LitElement {
   // Set the active content page to an absolute two-digit genome (e.g. 21). Fail-safe: if the
   // variant chunk does not load or its element is not registered, the current page is kept.
   private async setContentPage(genome: number): Promise<void> {
-    const current = this.getActiveContentRenderer();
-    if (!current) {
-      return;
-    }
-    const genomeStr = String(genome);
-    if (!/^\d\d$/u.test(genomeStr)) {
-      return; // setPage expects a two-digit genome, e.g. 21
-    }
-    const nextTag = current.tag.replace(/--page\d\d--/u, `--page${genomeStr}--`);
-    const nextEntrypoint = current.entrypoint.replace(/\/page\d\d\//u, `/page${genomeStr}/`);
-    if (nextTag === current.tag && nextEntrypoint === current.entrypoint) {
-      return; // no genome segment to replace, or already on this genome
-    }
-    try {
-      await loadAuraRouteChunk(nextEntrypoint);
-    } catch {
-      return; // variant chunk not available — keep current page
-    }
-    if (!customElements.get(nextTag)) {
-      return; // variant element not registered — keep current page
-    }
-    this.contentVariantRenderer = { tag: nextTag, entrypoint: nextEntrypoint, routeKey: this.activeRoute?.path ?? '' };
-    this.routeStatusMessage = '';
-    this.mountRegion('content');
-    this.requestUpdate();
+    await this.applyContentPageGenome(genome, true);
   }
 
   private getRenderer(region: MasterFrontendRegionName) {
@@ -643,8 +656,10 @@ export class CollabAuraShell extends LitElement {
       return;
     }
 
+    const requestedContentGenome = this.getContentPageGenome() ?? 11;
     traceLazy('loadActiveRoute.start', {
       pathname: window.location.pathname,
+      requestedContentGenome,
     });
     const nextRoute = matchAuraRoute(this.bootConfig.routes, window.location.pathname);
     if (!nextRoute) {
@@ -654,13 +669,16 @@ export class CollabAuraShell extends LitElement {
     }
 
     this.activeRoute = nextRoute;
-    // Navigation resets any picked UX variant back to the route default (page11).
     this.contentVariantRenderer = undefined;
+    if (requestedContentGenome !== this.getContentPageGenome()) {
+      await this.applyContentPageGenome(requestedContentGenome, false);
+    }
     const loadedChunks = getCollabRouteChunkCache();
-    const shouldShowLoading = !loadedChunks.has(nextRoute.entrypoint);
+    const activeRenderer = this.getActiveContentRenderer() ?? nextRoute;
+    const shouldShowLoading = !loadedChunks.has(activeRenderer.entrypoint);
     traceLazy('loadActiveRoute.matched', {
       path: nextRoute.path,
-      entrypoint: nextRoute.entrypoint,
+      entrypoint: activeRenderer.entrypoint,
       shouldShowLoading,
     });
     this.routeStatusMessage = shouldShowLoading ? `Loading ${nextRoute.title}...` : '';
