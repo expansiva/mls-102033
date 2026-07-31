@@ -4,6 +4,11 @@ import '/_102033_/l2/shared/shell.js';
 // <head> module script, so the SW install + cbe login start in parallel with
 // the app boot — do not import it here or it would run twice (two instances).
 import { getTokensCss } from '/_102029_/l2/designSystemBase.js';
+import {
+  listRuntimeDesignSystems,
+  resolveRuntimeDesignSystem,
+  setRuntimeDesignSystem,
+} from '/_102033_/l2/shared/designSystemRuntime.js';
 
 /**
  * Inject the design-system tokens generated from the project's designSystem.js.
@@ -17,7 +22,18 @@ async function injectDesignSystemTokens(): Promise<void> {
     const boot = window.collabBoot;
     const project = boot?.projectId;
     if (!project) return;
-    const dsIndex = (boot as { designSystem?: string } | undefined)?.designSystem || 1;
+    const designSystems = listRuntimeDesignSystems(boot.designSystems);
+    const requestedDesignSystem = resolveRuntimeDesignSystem(
+      designSystems,
+      boot.designSystem ?? '',
+    ) ?? designSystems[0];
+    if (requestedDesignSystem) {
+      await setRuntimeDesignSystem(requestedDesignSystem, designSystems, project);
+      return;
+    }
+
+    // Compatibility with a config generated before modules[].designSystems existed.
+    const dsIndex = boot.designSystem || 1;
     const css = await getTokensCss(dsIndex, `/_${project}_/l2/designSystem.js`);
     if (!css) return;
     let style = document.getElementById('ds-tokens') as HTMLStyleElement | null;
@@ -27,6 +43,9 @@ async function injectDesignSystemTokens(): Promise<void> {
       document.head.appendChild(style);
     }
     style.textContent = css;
+    if (typeof boot.designSystem === 'string') {
+      style.dataset.designSystem = boot.designSystem;
+    }
   } catch (e) {
     console.warn('[bootstrap] design system tokens not injected:', e);
   }

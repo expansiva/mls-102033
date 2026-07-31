@@ -24,6 +24,18 @@ import {
   retryBlockingError,
   subscribeToInteractionState,
 } from '/_102033_/l2/shared/interactionRuntime.js';
+import {
+  getNextRuntimeLanguage,
+  getRuntimeLanguage,
+  listRuntimeLanguages,
+  setRuntimeLanguage,
+} from '/_102033_/l2/shared/languageRuntime.js';
+import {
+  getNextRuntimeDesignSystem,
+  getRuntimeDesignSystem,
+  listRuntimeDesignSystems,
+  setRuntimeDesignSystem,
+} from '/_102033_/l2/shared/designSystemRuntime.js';
 import { getCollabRouteChunkCache, loadAuraRouteChunk, matchAuraRoute } from '/_102033_/l2/shared/routeRuntime.js';
 import { LitElement, html } from 'lit';
 
@@ -58,6 +70,15 @@ type AuraRegionElement = HTMLElement & {
   bootConfig?: MasterFrontendBootConfig;
   regionProps?: Record<string, unknown>;
 };
+type AuraSitesControls = {
+  register?: (impl: Record<string, unknown>) => void;
+  getLanguage?: () => string | undefined;
+  setLanguage?: (language: string) => void;
+  listLanguages?: () => string[];
+  getDS?: () => string | undefined;
+  setDS?: (designSystem: string) => Promise<void>;
+  listDS?: () => string[];
+};
 
 const DEFAULT_REGION_TAGS: Record<Exclude<MasterFrontendRegionName, 'content'>, string> = {
   header: 'collab-aura-header',
@@ -91,7 +112,9 @@ export class CollabAuraShell extends LitElement {
   private dynamicRegionRenderers: Partial<Record<AuraDynamicRegionName, AuraRegionRendererState>> = {};
   private dynamicRegionProps: Partial<Record<AuraDynamicRegionName, Record<string, unknown>>> = {};
   private activeAsideWidthPx?: number;
-  // Ctrl+Alt+E cycles the content page through its UX variants (genome page11 -> page21 -> page31 ...);
+  // Ctrl+Alt+E cycles the content page through its UX variants (genome page11 -> page21 -> page31 ...).
+  // Ctrl+Alt+L cycles the configured runtime languages.
+  // Ctrl+Alt+D cycles the configured runtime design systems.
   // mls.sites.setPage(n) sets one directly. Override the content renderer with the picked variant;
   // navigation preserves the current genome when the next route has the same pageNN variant.
   private contentVariantRenderer?: AuraContentRenderer & { routeKey: string };
@@ -300,6 +323,18 @@ export class CollabAuraShell extends LitElement {
       void this.rotateContentVariant();
       return;
     }
+    // Ctrl+Alt+L cycles the configured languages (en -> pt -> ...).
+    if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && event.code === 'KeyL') {
+      event.preventDefault();
+      this.rotateLanguage();
+      return;
+    }
+    // Ctrl+Alt+D cycles the configured design systems (Default -> Natal -> ...).
+    if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && event.code === 'KeyD') {
+      event.preventDefault();
+      void this.rotateDesignSystem();
+      return;
+    }
     if (event.key === 'Escape' && this.getResolvedAsideMode() !== 'inline' && this.isAsideOpen) {
       this.isAsideOpen = false;
       this.requestUpdate();
@@ -475,6 +510,55 @@ export class CollabAuraShell extends LitElement {
     return [1, 2, 3];
   }
 
+  private listLanguages(): string[] {
+    return listRuntimeLanguages(this.bootConfig?.languages);
+  }
+
+  private getLanguage(): string | undefined {
+    return getRuntimeLanguage(this.listLanguages(), document.documentElement.lang);
+  }
+
+  private setLanguage(language: string): void {
+    setRuntimeLanguage(language, this.listLanguages());
+  }
+
+  private rotateLanguage(): void {
+    const languages = this.listLanguages();
+    const nextLanguage = getNextRuntimeLanguage(languages, document.documentElement.lang);
+    if (nextLanguage) {
+      this.setLanguage(nextLanguage);
+    }
+  }
+
+  private listDS(): string[] {
+    return listRuntimeDesignSystems(this.bootConfig?.designSystems);
+  }
+
+  private getDS(): string | undefined {
+    return getRuntimeDesignSystem(this.listDS());
+  }
+
+  private async setDS(designSystem: string): Promise<void> {
+    const projectId = this.bootConfig?.projectId;
+    if (!projectId) {
+      throw new Error('mls.sites.setDS: runtime project is not available.');
+    }
+    await setRuntimeDesignSystem(designSystem, this.listDS(), projectId);
+  }
+
+  private async rotateDesignSystem(): Promise<void> {
+    const designSystems = this.listDS();
+    const nextDesignSystem = getNextRuntimeDesignSystem(designSystems, this.getDS());
+    if (!nextDesignSystem) {
+      return;
+    }
+    try {
+      await this.setDS(nextDesignSystem);
+    } catch (error) {
+      console.warn('[shell] design system switch failed:', error);
+    }
+  }
+
   // Cycle the content page to the next existing UX variant (rotative). A variant exists when its
   // module chunk loads and its custom element is registered; missing variants are skipped.
   private async rotateContentVariant(): Promise<void> {
@@ -520,15 +604,26 @@ export class CollabAuraShell extends LitElement {
   }
 
   // Inject the console-facing controls into the mls lib (window.mls.sites), so a developer
-  // can change header/aside/page from devtools. The mls lib loads asynchronously on the
+  // can change header/aside/page/language/design system from devtools. The mls lib loads asynchronously on the
   // runtime VM (cbeMiniCfe injects /libs/mls.js), so retry with a bounded poll until it is
   // present — before it registers, mls.sites getters return undefined and setters are no-ops.
   private readonly registerSitesControls = () => {
     this.sitesRetryTimer = undefined;
-    const register = (window as unknown as {
-      mls?: { sites?: { register?: (impl: Record<string, unknown>) => void } };
-    }).mls?.sites?.register;
+    const sites = (window as unknown as {
+      mls?: { sites?: AuraSitesControls };
+    }).mls?.sites;
+    const register = sites?.register;
     if (typeof register === 'function') {
+      const languageControls = {
+        getLanguage: () => this.getLanguage(),
+        setLanguage: (language: string) => this.setLanguage(language),
+        listLanguages: () => this.listLanguages(),
+      };
+      const designSystemControls = {
+        getDS: () => this.getDS(),
+        setDS: (designSystem: string) => this.setDS(designSystem),
+        listDS: () => this.listDS(),
+      };
       register({
         getHeader: () => this.getRegionIndex('header'),
         setHeader: (index: number) => this.setRegionByIndex('header', index),
@@ -536,7 +631,19 @@ export class CollabAuraShell extends LitElement {
         setAside: (index: number) => this.setRegionByIndex('aside', index),
         getPage: () => this.getContentPageGenome(),
         setPage: (genome: number) => { void this.setContentPage(genome); },
+        ...languageControls,
+        ...designSystemControls,
       });
+      // Compatibility with an already-published mls.js that predates the language/DS
+      // forwarders. A future mls.js exposes these itself and this branch is skipped.
+      if (sites) {
+        sites.getLanguage ??= languageControls.getLanguage;
+        sites.setLanguage ??= languageControls.setLanguage;
+        sites.listLanguages ??= languageControls.listLanguages;
+        sites.getDS ??= designSystemControls.getDS;
+        sites.setDS ??= designSystemControls.setDS;
+        sites.listDS ??= designSystemControls.listDS;
+      }
       return;
     }
     if (this.sitesRetriesLeft <= 0) {
