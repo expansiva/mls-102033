@@ -119,7 +119,18 @@ export class MoleculeAuraElement extends StateLitElement {
     const id = this._liveRefIds.get(source);
     const nodes = id ? this._liveNodes.get(id) : undefined;
     if (nodes && nodes.length > 0) {
-      return nodes.map((n) => n.textContent || '').join('').trim();
+      // Comment nodes are skipped because `textContent` on a Comment returns its DATA, and
+      // the projected nodes carry Lit's part markers (`?lit$<id>$`). Including them made the
+      // sort key of a projected cell read `?lit$622922547$70` instead of `70`: every
+      // projected cell then shared that prefix, sorted among themselves, and the whole block
+      // landed before the unprojected rows — `?` collates before digits. Measured with the
+      // P4 demo page on 2026-08-03. Element children are safe: `Element.textContent` already
+      // concatenates descendant TEXT only, never comment data.
+      return nodes
+        .filter((n) => n.nodeType !== Node.COMMENT_NODE)
+        .map((n) => n.textContent || '')
+        .join('')
+        .trim();
     }
     return (source.textContent || '').trim();
   }
@@ -233,12 +244,25 @@ export class MoleculeAuraElement extends StateLitElement {
     while (current) {
       // Check if current is a MoleculeAuraElement
       if (current instanceof MoleculeAuraElement) {
-        // A parent on the LIVE slot path never needs us inert: it moves our nodes instead
-        // of serializing them, so rendering normally is exactly what it wants. Staying
-        // inert here is what used to make a molecule inside a slot a dead element.
-        if (current.usesLiveSlots) {
-          return false;
-        }
+        // NOTE: there is deliberately NO `if (current.usesLiveSlots) return false` here.
+        //
+        // That short-circuit existed to let a molecule inside a live slot render, but it
+        // was per-MOLECULE, not per-SLOT: it woke up everything under a live-slot parent,
+        // including content sitting in slots that are still SERIALIZED. Measured on
+        // 2026-08-03 with mls-102053/l2/demo-live-slots/notificacoes.ts — a button molecule
+        // inside <Message> of a migrated ml-notify-banner rendered itself, `_takeSnapshot()`
+        // then serialized it with `outerHTML` (which now carried that rendered markup), and
+        // the clone painted it AGAIN: two buttons on screen, one dead and one live. The same
+        // page with a NON-migrated molecule showed one button, which is what pinned the
+        // cause on this line.
+        //
+        // Nothing replaces it, because the projection already gives per-slot precision for
+        // free: `_fillAnchor` MOVES the nodes into `<span data-ml-live-slot>`, and moving a
+        // connected node re-runs disconnected/connectedCallback. On that second pass the
+        // walk below finds the anchor's plain ancestors instead of a slot tag, so the node
+        // stops being inert exactly when — and only when — it is really projected. Content
+        // left in a serialized slot stays inert, and the snapshot stays clean.
+        //
         // Check if any of our ancestors (between us and this molecule)
         // is one of its slot tags
         if (slotTagCandidate && current.slotTags.length > 0) {
