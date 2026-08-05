@@ -61,6 +61,12 @@ export class MoleculeAuraElement extends StateLitElement {
    */
   private _liveNodes = new Map<string, Node[]>();
 
+  /** Last anchor that held each key — see `_currentNodes`. */
+  private _liveHosts = new Map<string, HTMLElement>();
+
+  /** Detached holder per key, so eviction does not lose content. */
+  private _liveHolders = new Map<string, HTMLElement>();
+
   /**
    * Per-element anchors, for molecules that don't pass a slot through but TRANSFORM it.
    *
@@ -117,7 +123,9 @@ export class MoleculeAuraElement extends StateLitElement {
   protected getLiveText(source: Element | null | undefined): string {
     if (!source) return '';
     const id = this._liveRefIds.get(source);
-    const nodes = id ? this._liveNodes.get(id) : undefined;
+    // `_currentNodes` and not `_liveNodes`: when the consumer swaps the slot's content, the
+    // capture list goes stale, and sorting by it would use the old text.
+    const nodes = id ? this._currentNodes(id) : undefined;
     if (nodes && nodes.length > 0) {
       // Comment nodes are skipped because `textContent` on a Comment returns its DATA, and
       // the projected nodes carry Lit's part markers (`?lit$<id>$`). Including them made the
@@ -190,7 +198,11 @@ export class MoleculeAuraElement extends StateLitElement {
     // non-empty anchor and leave the wrong row's content in place.
     const held = anchor.dataset.mlLiveHeld;
     if (held && held !== key) {
-      while (anchor.firstChild) anchor.removeChild(anchor.firstChild);
+      // Hand them back to that owner's holder instead of discarding them: those nodes can be
+      // NEWER than the ones in `_liveNodes` (see `_currentNodes`), and throwing them away would
+      // lose content.
+      const deposito = this._holderFor(held);
+      while (anchor.firstChild) deposito.appendChild(anchor.firstChild);
       delete anchor.dataset.mlLiveHeld;
     }
 
@@ -210,9 +222,53 @@ export class MoleculeAuraElement extends StateLitElement {
     // are detached but alive. Projecting only once was a real bug — the content vanished
     // the first time the branch was hidden.
     if (!anchor.firstChild) {
-      for (const node of this._liveNodes.get(key)!) anchor.appendChild(node);
+      for (const node of this._currentNodes(key)) anchor.appendChild(node);
     }
+    this._liveHosts.set(key, anchor);
     anchor.dataset.mlLiveHeld = key;
+  }
+
+  /**
+   * Holder per key: a detached element where the nodes wait while they have no anchor.
+   * It exists so eviction does not lose content.
+   */
+  private _holderFor(key: string): HTMLElement {
+    let holder = this._liveHolders.get(key);
+    if (!holder) {
+      holder = document.createElement('div');
+      this._liveHolders.set(key, holder);
+    }
+    return holder;
+  }
+
+  /**
+   * The CURRENT nodes for a key, which are not always the captured ones.
+   *
+   * `_liveNodes` is the list taken at capture time. It goes stale when the consumer REPLACES the
+   * slot's content instead of just updating values — `${loading ? spinner : table}`, for example:
+   * Lit removes the old nodes and inserts different ones between the same markers, which are
+   * still in the anchor. Reattaching the capture list would hand back only the already-discarded
+   * nodes, and the region would come back EMPTY when reopened. Measured on 2026-08-04 with
+   * demotable--pedidosdetalhe: opening, closing and opening again showed a blank row.
+   *
+   * Hence the order of preference: the last anchor that held the key (Lit removes the anchor from
+   * the DOM, but its children stay INSIDE it), then the holder, and only then the capture.
+   */
+  private _currentNodes(key: string): Node[] {
+    // `mlLiveHeld === key` is mandatory, not caution: when sorting, Lit reuses the anchors by
+    // position and an anchor changes owner. `_liveHosts` still points at it under the OLD key, and
+    // without this check we would pull the wrong row's content — in practice, blank rows and
+    // scrambled content. Whoever was already evicted loses its `mlLiveHeld`, so it falls through
+    // to the holder, which is where its nodes actually are.
+    const ultimaAncora = this._liveHosts.get(key);
+    if (ultimaAncora?.dataset.mlLiveHeld === key && ultimaAncora.firstChild) {
+      return Array.from(ultimaAncora.childNodes);
+    }
+
+    const deposito = this._liveHolders.get(key);
+    if (deposito?.firstChild) return Array.from(deposito.childNodes);
+
+    return this._liveNodes.get(key) ?? [];
   }
 
   /** The consumer's slot element for `tag`, among this element's own children. */
