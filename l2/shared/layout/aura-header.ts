@@ -23,6 +23,7 @@ export class AuraHeader extends LitElement {
       <style>
         collab-aura-header {
           display: block;
+          height: 100%;
         }
 
         collab-aura-header .header {
@@ -34,6 +35,10 @@ export class AuraHeader extends LitElement {
           border-bottom: 1px solid #d9e2ec;
           background: rgba(255, 255, 255, 0.9);
           backdrop-filter: blur(14px);
+          /* Fill the shell's fixed header band (--aura-header-height) so profile
+             switches (client header <-> studio navs) keep the same total height. */
+          height: 100%;
+          box-sizing: border-box;
         }
 
         collab-aura-header .brand {

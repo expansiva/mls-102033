@@ -94,6 +94,8 @@ export class CollabAuraShell extends LitElement {
     resolvedDevice: { state: true },
     isAsideOpen: { state: true },
     activeRoute: { attribute: false },
+    contentTabs: { state: true },
+    activeContentTabId: { state: true },
   };
 
   declare bootConfig?: MasterFrontendBootConfig;
@@ -112,6 +114,36 @@ export class CollabAuraShell extends LitElement {
   private dynamicRegionRenderers: Partial<Record<AuraDynamicRegionName, AuraRegionRendererState>> = {};
   private dynamicRegionProps: Partial<Record<AuraDynamicRegionName, Record<string, unknown>>> = {};
   private activeAsideWidthPx?: number;
+  // Fixed header band height from the active header profile (heightPx). When every
+  // header profile declares the same value, switching profiles (e.g. client app
+  // header <-> studio nav1/nav2/nav3, Ctrl+Alt+S) causes zero layout shift.
+  private activeHeaderHeightPx?: number;
+  // ── Unified nav3 (option C): the content region hosts N tabs. Tab 'app' is the
+  // client app (the normal route rendering) and is always present; extra tabs host
+  // arbitrary elements (task Detail, studio services, another app route — the
+  // "3 telas" workflow). The tab bar only renders when extra tabs exist, so the
+  // production app pays nothing until a tab opens. Hosted elements get the studio
+  // nav3 contract: an `msize` attribute ("width,height,top,left") plus layout()
+  // calls on resize — what serviceBase/monaco-based services rely on.
+  declare contentTabs: Array<{ id: string; title: string; element: HTMLElement; closable: boolean }>;
+  declare activeContentTabId: string;
+  // ── Progressive upgrade to the on.collab.codes structure (option C final):
+  // after first paint, the shell mounts collab-page>nav1+spliter[nav2+nav3 × 2]
+  // in background and the runtime services adopt the aside/content panels.
+  // Production vs studio differs ONLY in the top 66px: the client banner is a
+  // fixed overlay covering nav1+nav2; Ctrl+Alt+S hides/shows the banner.
+  private structureUpgraded = false;
+  private studioModeOn = false;
+  private structureUpgradeAttempted = false;
+  private structureRetriesLeft = 67;
+  // Embedded (iframe) mode: foreign modules opened as nav3 content tabs by the
+  // unified shell (openProgramUnified). The OUTER shell already provides
+  // navigation (Apps menu) and framing — rendering this module's own header +
+  // aside/hamburger would show its item menu twice on screen, so the frame is
+  // content-only. Also gates the structure upgrade (no nested mini-studio).
+  private readonly isEmbedded = (() => {
+    try { return window.self !== window.top; } catch { return true; }
+  })();
   // Ctrl+Alt+E cycles the content page through its UX variants (genome page11 -> page21 -> page31 ...).
   // Ctrl+Alt+L cycles the configured runtime languages.
   // Ctrl+Alt+D cycles the configured runtime design systems.
@@ -136,6 +168,8 @@ export class CollabAuraShell extends LitElement {
     this.bootConfig = window.collabBoot;
     this.resolvedDevice = this.resolveDevice();
     this.isAsideOpen = this.getDefaultAsideOpen(this.resolvedDevice);
+    this.contentTabs = [];
+    this.activeContentTabId = 'app';
     this.initializeDynamicRegions();
     window.collabMasterFrontendShellControls = {
       toggleAside: this.handleToggleAside,
@@ -145,7 +179,19 @@ export class CollabAuraShell extends LitElement {
       setAsideRenderer: this.setAsideRenderer,
       setShellProfile: this.setShellProfile,
     };
+    // Unified nav3 tab API — for the shell's own pages, the collab-messages
+    // environment (Detail tab) and, later, studio services.
+    window.collabRuntimeNav3 = {
+      // Contract types element as unknown (DOM-free for backend consumers);
+      // the implementation validates it is an HTMLElement.
+      openTab: (tab) => this.openContentTab(tab as { id: string; title: string; element: HTMLElement; closable?: boolean }),
+      closeTab: this.closeContentTab,
+      activateTab: this.activateContentTab,
+      listTabs: () => ['app', ...this.contentTabs.map((tab) => tab.id)],
+    };
+    window.addEventListener('resize', this.handleContentTabsResize);
     this.registerSitesControls();
+    setTimeout(() => this.maybeUpgradeStructure(), 1200);
     this.mobileMediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`);
     this.mobileMediaQuery.addEventListener('change', this.handleViewportChange);
     window.addEventListener('resize', this.handleViewportChange);
@@ -167,6 +213,8 @@ export class CollabAuraShell extends LitElement {
       this.sitesRetryTimer = undefined;
     }
     delete window.collabMasterFrontendShellControls;
+    delete window.collabRuntimeNav3;
+    window.removeEventListener('resize', this.handleContentTabsResize);
     this.mobileMediaQuery?.removeEventListener('change', this.handleViewportChange);
     window.removeEventListener('resize', this.handleViewportChange);
     window.removeEventListener(AURA_TOGGLE_ASIDE_EVENT, this.handleToggleAside as EventListener);
@@ -282,6 +330,7 @@ export class CollabAuraShell extends LitElement {
       profile.renderer,
       this.getRegionPropsFromProfile(profile, profileName),
       profile.widthPx,
+      profile.heightPx,
     );
   }
 
@@ -290,6 +339,7 @@ export class CollabAuraShell extends LitElement {
     renderer: MasterFrontendRegionRendererConfig,
     props?: Record<string, unknown>,
     widthPx?: number,
+    heightPx?: number,
   ) {
     if (!renderer.entrypoint || !renderer.tag) {
       throw new Error(`Aura ${region} renderer requires entrypoint and tag.`);
@@ -303,6 +353,9 @@ export class CollabAuraShell extends LitElement {
     this.dynamicRegionProps[region] = props ?? {};
     if (region === 'aside' && typeof widthPx === 'number' && widthPx > 0) {
       this.activeAsideWidthPx = widthPx;
+    }
+    if (region === 'header' && typeof heightPx === 'number' && heightPx > 0) {
+      this.activeHeaderHeightPx = heightPx;
     }
     this.mountRegion(region);
     this.requestUpdate();
@@ -333,6 +386,19 @@ export class CollabAuraShell extends LitElement {
     if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && event.code === 'KeyD') {
       event.preventDefault();
       void this.rotateDesignSystem();
+      return;
+    }
+    // Ctrl+Alt+S swaps ONLY the top 66px. Upgraded structure: toggle the client
+    // banner overlay (production covers nav1+nav2; studio reveals them — the
+    // workspace below never changes). Classic layout: rotate header profiles.
+    if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && event.code === 'KeyS') {
+      event.preventDefault();
+      if (this.structureUpgraded) {
+        this.studioModeOn = !this.studioModeOn;
+        this.requestUpdate();
+      } else {
+        this.rotateHeaderProfile();
+      }
       return;
     }
     if (event.key === 'Escape' && this.getResolvedAsideMode() !== 'inline' && this.isAsideOpen) {
@@ -400,6 +466,9 @@ export class CollabAuraShell extends LitElement {
       if (region === 'aside' && typeof profile.widthPx === 'number' && profile.widthPx > 0) {
         this.activeAsideWidthPx = profile.widthPx;
       }
+      if (region === 'header' && typeof profile.heightPx === 'number' && profile.heightPx > 0) {
+        this.activeHeaderHeightPx = profile.heightPx;
+      }
     });
   }
 
@@ -411,6 +480,7 @@ export class CollabAuraShell extends LitElement {
     const {
       renderer: _renderer,
       widthPx: _widthPx,
+      heightPx: _heightPx,
       source: _source,
       switchWithoutRouteReload: _switchWithoutRouteReload,
       props,
@@ -674,6 +744,118 @@ export class CollabAuraShell extends LitElement {
     return index >= 0 ? index + 1 : undefined;
   }
 
+  // ── Unified nav3: content tabs ────────────────────────────────────────────
+
+  private readonly openContentTab = (tab: { id: string; title: string; element: HTMLElement; closable?: boolean }): void => {
+    if (!tab?.id || tab.id === 'app' || !(tab.element instanceof HTMLElement)) {
+      throw new Error('collabRuntimeNav3.openTab: id (!= "app") and element are required.');
+    }
+    const existing = this.contentTabs.find((entry) => entry.id === tab.id);
+    if (existing) {
+      existing.title = tab.title || existing.title;
+      existing.element = tab.element;
+    } else {
+      this.contentTabs = [...this.contentTabs, {
+        id: tab.id,
+        title: tab.title || tab.id,
+        element: tab.element,
+        closable: tab.closable !== false,
+      }];
+    }
+    this.activeContentTabId = tab.id;
+    this.requestUpdate();
+  };
+
+  private readonly closeContentTab = (id: string): void => {
+    if (id === 'app') return;
+    this.contentTabs = this.contentTabs.filter((entry) => entry.id !== id);
+    if (this.activeContentTabId === id) {
+      this.activeContentTabId = this.contentTabs.length > 0 ? this.contentTabs[this.contentTabs.length - 1].id : 'app';
+    }
+  };
+
+  private readonly activateContentTab = (id: string): void => {
+    if (id !== 'app' && !this.contentTabs.some((entry) => entry.id === id)) return;
+    this.activeContentTabId = id;
+  };
+
+  // Studio nav3 contract for hosted elements: msize="width,height,top,left" +
+  // layout() on resize. serviceBase/monaco-based components size themselves
+  // from it; plain elements simply ignore the attribute.
+  private readonly handleContentTabsResize = (): void => {
+    if (this.contentTabs.length > 0) this.updateContentTabsMsize();
+  };
+
+  private updateContentTabsMsize(): void {
+    const panels = this.querySelector('.nav3-panels');
+    if (!panels) return;
+    const rect = panels.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const msize = [rect.width.toFixed(2), rect.height.toFixed(2), rect.top.toFixed(2), rect.left.toFixed(2)].join(',');
+    for (const tab of this.contentTabs) {
+      tab.element.setAttribute('msize', msize);
+      (tab.element as HTMLElement & { layout?: () => void }).layout?.();
+    }
+  }
+
+  // After render: make sure each tab panel contains its element (imperative —
+  // the elements are caller-owned and must not be re-created by lit).
+  private syncContentTabPanels(): void {
+    for (const tab of this.contentTabs) {
+      const panel = this.querySelector(`.nav3-panel[data-tab="${tab.id}"]`);
+      if (panel && tab.element.parentElement !== panel) {
+        panel.replaceChildren(tab.element);
+      }
+    }
+    if (this.contentTabs.length > 0) this.updateContentTabsMsize();
+  }
+
+  // ── Progressive structure upgrade ────────────────────────────────────────
+
+  private structureRetryPending = false;
+
+  private maybeUpgradeStructure(): void {
+    if (this.isEmbedded || this.structureUpgradeAttempted || this.resolvedDevice !== 'desktop' || !this.bootConfig) return;
+    const mlsReady = Boolean((window as unknown as { collabMiniCfeReady?: boolean }).collabMiniCfeReady);
+    if (!mlsReady) {
+      if (!this.structureRetryPending && this.structureRetriesLeft-- > 0) {
+        this.structureRetryPending = true;
+        setTimeout(() => { this.structureRetryPending = false; this.maybeUpgradeStructure(); }, 500);
+      }
+      return;
+    }
+    this.structureUpgradeAttempted = true;
+    void (async () => {
+      try {
+        const modulePath = '/_102033_/l2/cbe/studioStructure.js';
+        const module = (await import(`${modulePath}`)) as {
+          upgradeToStudioStructure: (container: HTMLElement, siteProject: number) => Promise<HTMLElement>;
+        };
+        const host = this.querySelector('.studio-structure-host') as HTMLElement | null;
+        if (!host) return;
+        await module.upgradeToStudioStructure(host, Number(this.bootConfig?.projectId) || 0);
+        this.structureUpgraded = true;
+        this.requestUpdate();
+        console.info('[aura-shell] structure upgraded to the unified studio layout');
+      } catch (error) {
+        console.warn('[aura-shell] studio structure upgrade skipped (classic layout stays):', error);
+      }
+    })();
+  }
+
+  // Ctrl+Alt+S: advance to the next header profile in the clientShell list
+  // (banner <-> studio nav1+nav2; wraps around). No-op with fewer than two.
+  private rotateHeaderProfile(): void {
+    const names = this.getRegionProfileNames('header');
+    if (names.length < 2) {
+      return;
+    }
+    const active = this.bootConfig?.clientShell?.regions.header?.activeProfile ?? names[0];
+    const next = names[(Math.max(0, names.indexOf(active)) + 1) % names.length];
+    void this.setRegionProfile('header', next)
+      .catch((error) => console.error('[aura-shell] failed to rotate header profile', error));
+  }
+
   // Switch a region to the nth profile (1-based) of its clientShell list. Throws synchronously
   // on an out-of-range index so the console call surfaces the error; applies asynchronously.
   private setRegionByIndex(region: AuraDynamicRegionName, index: number): void {
@@ -804,6 +986,7 @@ export class CollabAuraShell extends LitElement {
   }
 
   private getBaseRegionVisibility(region: MasterFrontendRegionName) {
+    if (this.isEmbedded && region !== 'content') return false;
     const visibility = this.bootConfig?.layout.regions[this.resolvedDevice];
     return visibility?.[region] ?? true;
   }
@@ -892,9 +1075,16 @@ export class CollabAuraShell extends LitElement {
     this.setAttribute('data-device', this.resolvedDevice);
     this.setAttribute('data-aside-mode', this.getResolvedAsideMode());
     this.setAttribute('data-aside-open', String(this.getActualAsideOpen()));
+    this.setAttribute('data-structure', this.structureUpgraded ? 'upgraded' : 'classic');
+    this.setAttribute('data-studio-mode', String(this.studioModeOn));
     this.mountRegion('header');
     this.mountRegion('aside');
     this.mountRegion('content');
+    this.syncContentTabPanels();
+    // Redundant trigger: the connectedCallback timer can be lost across early
+    // shell remounts (observed on some boots) — the attempted/mls guards make
+    // this re-check free once the upgrade ran or started.
+    this.maybeUpgradeStructure();
   }
 
   private renderBlockingError(blockingError: MasterFrontendBlockingErrorState) {
@@ -933,6 +1123,38 @@ export class CollabAuraShell extends LitElement {
         background: #fffdfa;
       }
 
+      /* ── Upgraded structure (on.collab.codes layout) ─────────────────────
+         The studio DOM (collab-page > nav1 + spliter[nav2+nav3 ×2]) fills the
+         viewport; the runtime services inside the nav3 pair adopted the
+         messages/app panels. The classic .body is emptied+hidden. The client
+         banner becomes a fixed 66px overlay covering exactly nav1+nav2 —
+         production shows the banner, studio mode (Ctrl+Alt+S) hides it. */
+      collab-aura-shell .studio-structure-host { display: none; }
+
+      collab-aura-shell[data-structure="upgraded"] .studio-structure-host {
+        display: block;
+        position: fixed;
+        inset: 0;
+      }
+
+      collab-aura-shell[data-structure="upgraded"] .layout .body {
+        display: none;
+      }
+
+      collab-aura-shell[data-structure="upgraded"] .region.header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 66px;
+        z-index: 50;
+        overflow: hidden;
+      }
+
+      collab-aura-shell[data-structure="upgraded"][data-studio-mode="true"] .region.header {
+        display: none;
+      }
+
       collab-aura-shell .body {
         display: grid;
         grid-template-columns: var(--aura-aside-width, 280px) minmax(0, 1fr);
@@ -954,6 +1176,13 @@ export class CollabAuraShell extends LitElement {
 
       collab-aura-shell .region.header {
         display: var(--aura-region-header-display);
+        height: var(--aura-header-height, auto);
+        overflow: hidden;
+      }
+
+      collab-aura-shell .region.header [data-region-host="header"],
+      collab-aura-shell .region.header [data-region-host="header"] > * {
+        height: 100%;
       }
 
       collab-aura-shell .region.aside {
@@ -979,10 +1208,80 @@ export class CollabAuraShell extends LitElement {
 
       collab-aura-shell .region.content {
         display: var(--aura-region-content-display);
-        padding: 24px;
         background:
           radial-gradient(circle at top right, rgba(255, 207, 117, 0.28), transparent 26%),
           linear-gradient(180deg, #f7f4ea 0%, #fffdfa 100%);
+      }
+
+      /* Unified nav3: the content region is a tab host. With no extra tabs the
+         bar is absent and the app panel keeps the classic 24px padding — the
+         production app renders exactly as before. */
+      collab-aura-shell .region.content[data-has-tabs="true"] {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      collab-aura-shell .nav3-tabs {
+        display: flex;
+        gap: 2px;
+        flex: 0 0 36px;
+        align-items: stretch;
+        padding: 0 8px;
+        background: var(--collab-nav-bg-2, #e8e4da);
+        border-bottom: 1px solid #d9e2ec;
+      }
+
+      collab-aura-shell .nav3-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 4px;
+        padding: 0 14px;
+        border: none;
+        border-radius: 6px 6px 0 0;
+        background: transparent;
+        color: var(--collab-nav-color, #52606d);
+        font-size: 0.85rem;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      collab-aura-shell .nav3-tab[data-active="true"] {
+        background: var(--collab-nav-bg-3, #fffdfa);
+        color: var(--collab-nav-color-active, #102a43);
+        font-weight: 600;
+      }
+
+      collab-aura-shell .nav3-tab-close {
+        font-size: 1rem;
+        line-height: 1;
+        opacity: 0.6;
+      }
+
+      collab-aura-shell .nav3-tab-close:hover {
+        opacity: 1;
+      }
+
+      collab-aura-shell .nav3-panels {
+        flex: 1 1 auto;
+        min-height: 0;
+        position: relative;
+      }
+
+      collab-aura-shell .nav3-panel {
+        height: 100%;
+        min-height: 0;
+        overflow: auto;
+      }
+
+      collab-aura-shell .nav3-panel[data-active="false"] {
+        display: none;
+      }
+
+      collab-aura-shell .nav3-panel-app {
+        padding: 24px;
+        box-sizing: border-box;
       }
 
       collab-aura-shell [data-region-host="aside"] {
@@ -1121,6 +1420,7 @@ export class CollabAuraShell extends LitElement {
       `--aura-region-content-display: ${contentVisible ? 'block' : 'none'}`,
       `--aura-aside-width: ${this.getAsideWidthPx()}px`,
       `--aura-aside-drawer-width: ${this.getAsideDrawerWidthPx()}px`,
+      `--aura-header-height: ${this.activeHeaderHeightPx && this.activeHeaderHeightPx > 0 ? `${this.activeHeaderHeightPx}px` : 'auto'}`,
     ].join('; ');
 
     return html`
@@ -1140,6 +1440,7 @@ export class CollabAuraShell extends LitElement {
               </div>
             `
           : null}
+        <div class="studio-structure-host"></div>
         <div class="layout">
           <section class="region header" data-region="header" data-visible=${String(headerVisible)}>
             <div data-region-host="header"></div>
@@ -1157,12 +1458,36 @@ export class CollabAuraShell extends LitElement {
             <aside class="region aside" data-region="aside" data-visible=${String(asideVisible)}>
               <div data-region-host="aside"></div>
             </aside>
-            <main class="region content" data-region="content" data-visible=${String(contentVisible)}>
-              ${blockingError ? this.renderBlockingError(blockingError) : null}
-              ${!blockingError && this.routeStatusMessage
+            <main class="region content" data-region="content" data-visible=${String(contentVisible)} data-has-tabs=${String(this.contentTabs.length > 0)}>
+              ${this.contentTabs.length > 0
+        ? html`
+                  <div class="nav3-tabs" role="tablist">
+                    <button class="nav3-tab" role="tab" data-active=${String(this.activeContentTabId === 'app')} @click=${() => this.activateContentTab('app')}>
+                      ${this.bootConfig?.pageTitle ?? 'App'}
+                    </button>
+                    ${this.contentTabs.map((tab) => html`
+                      <button class="nav3-tab" role="tab" data-active=${String(this.activeContentTabId === tab.id)} @click=${() => this.activateContentTab(tab.id)}>
+                        ${tab.title}
+                        ${tab.closable
+            ? html`<span class="nav3-tab-close" title="Fechar" @click=${(event: Event) => { event.stopPropagation(); this.closeContentTab(tab.id); }}>×</span>`
+            : null}
+                      </button>
+                    `)}
+                  </div>
+                `
+        : null}
+              <div class="nav3-panels">
+                <div class="nav3-panel nav3-panel-app" data-tab="app" data-active=${String(this.activeContentTabId === 'app')}>
+                  ${blockingError ? this.renderBlockingError(blockingError) : null}
+                  ${!blockingError && this.routeStatusMessage
         ? html`<div class="error">${this.routeStatusMessage}</div>`
         : null}
-              ${blockingError ? null : html`<div data-region-host="content"></div>`}
+                  ${blockingError ? null : html`<div data-region-host="content"></div>`}
+                </div>
+                ${this.contentTabs.map((tab) => html`
+                  <div class="nav3-panel" data-tab=${tab.id} data-active=${String(this.activeContentTabId === tab.id)}></div>
+                `)}
+              </div>
             </main>
           </div>
         </div>
