@@ -195,6 +195,11 @@ export class CbeStudioHeader extends LitElement {
     } catch (err) {
       console.warn('[studioHeader] service scan failed — using anonymous defaults:', err);
     }
+    // The studio's own messages widget has no backend on the VM (msg.collab.codes
+    // endpoints only) — point it at the runtime environment's equivalent instead.
+    services = services.map((entry) => entry
+      .replaceAll('_102020_/l2/serviceCollabMessages', '_102033_/l2/cbe/serviceRuntimeMessages')
+      .replaceAll('_102020_serviceCollabMessages', '_102033_/l2/cbe/serviceRuntimeMessages'));
     nav1.services = { services };
     nav1.setAttribute('status', 'enabled');
   }

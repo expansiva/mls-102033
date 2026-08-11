@@ -68,6 +68,17 @@ export async function buildProgramMenu(): Promise<CollabProgramMenu[]> {
   return [];
 }
 
+// The app's tabs/panels live adopted inside serviceClientApp, on the right
+// nav3 — if some OTHER right-side service is active (e.g. a studio panel
+// selected via the header's own nav2), the region is there but hidden behind
+// it. Opening/activating an app must bring serviceClientApp back to front.
+function ensureAppServiceVisible(): void {
+  const nav3Right = document.querySelector('collab-nav-3[toolbarposition="right"]');
+  if (nav3Right && nav3Right.getAttribute('data-service') !== '_102033_/l2/cbe/serviceClientApp') {
+    nav3Right.setAttribute('data-service', '_102033_/l2/cbe/serviceClientApp');
+  }
+}
+
 /**
  * Program navigation for the unified shell:
  * - Pages of the CURRENT app: SPA navigation (pushState + popstate), no reload.
@@ -78,6 +89,7 @@ export async function buildProgramMenu(): Promise<CollabProgramMenu[]> {
  */
 export async function openProgramUnified(item: { url?: string; pageName?: string }): Promise<void> {
   if (!item.url) return;
+  ensureAppServiceVisible();
   const basePath = window.collabBoot?.basePath ?? '';
   if (basePath && item.url.startsWith(basePath)) {
     window.history.pushState({}, '', item.url);
@@ -135,6 +147,7 @@ export function applyRuntimeMessagesEnvironment(): void {
       openTaskDetails: async (messageId, _taskId, task, message) => {
         const nav3 = window.collabRuntimeNav3;
         if (!nav3) return { openLocal: false, element: undefined };
+        ensureAppServiceVisible();
         await import('/_102025_/l2/collabMessagesTaskInfo.js');
         const info = document.createElement('collab-messages-task-info-102025') as HTMLElement & { task?: unknown; message?: unknown };
         info.setAttribute('messageId', messageId);

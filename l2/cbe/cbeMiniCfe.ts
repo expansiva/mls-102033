@@ -16,6 +16,8 @@ declare global {
       api: { cbeLogin: () => Promise<{ statusCode: number } | undefined> };
       actualProject?: number;
       setActualProject?: (project?: number) => void;
+      baseMonaco?: string;
+      editor: { InitMonaco: () => Promise<void> };
       stor: {
         orgs: Record<string, unknown>;
         files: Record<string, unknown>;
@@ -38,9 +40,12 @@ const CBE_BASE_PROJECT = 100554;
 // Session helpers (login/logout/user) — imported for its side effect of
 // installing window.collabRuntimeAuth; also used to log the session below.
 import { getLoginUser } from '/_102033_/l2/cbe/cbeAuth.js';
+// Loads/initializes Monaco — needed by collab-messages' TS compile path
+// (readProjectTypescriptAndCompile -> mls.editor.createModelProjectDefinition).
+import { initStudio } from '/_102033_/l2/cbe/initStudio.js';
 
 // Bump on every change so the console shows which build is live on the VM.
-const CBE_MINI_CFE_VERSION = '1.2.0';
+const CBE_MINI_CFE_VERSION = '1.3.0';
 
 const MLS_SCRIPT_ID = 'cbe-mls-lib';
 const MLS_LIB_SCRIPT_ID = 'cbe-mls-nodelibs';
@@ -136,6 +141,15 @@ export async function initCbeMiniCfe(): Promise<void> {
     const mls = window.mls;
     if (!mls) return;
 
+    // Kicked off in parallel with login/preload below — Monaco is a large,
+    // independent download (only needs window.latest.monaco), no reason to
+    // serialize it behind the login round-trip. Awaited before the "ready"
+    // signal so nothing races ahead of window.monacoReady (unlike the
+    // studio, this env has no initCompileMonaco-style guard downstream).
+    const studioReady = initStudio(mls).catch((err) => {
+      console.warn('[cbeMiniCfe] monaco init failed — TS compile features unavailable:', err);
+    });
+
     // The service worker backs the js cache used by updateProjectFilesInfo —
     // without it the files processing awaits navigator.serviceWorker.ready
     // forever. Same order the studio uses (mls2.html).
@@ -153,6 +167,7 @@ export async function initCbeMiniCfe(): Promise<void> {
     // from the IndexedDB the login just filled (the driver is only consulted
     // on a cache miss), so no external call happens on the VM.
     await preloadStorFiles(mls);
+    await studioReady;
 
     const keys = await mls.stor.localDB.getAllKeys();
     // Signals the shell that the mini-studio env is FULLY ready (login done,
