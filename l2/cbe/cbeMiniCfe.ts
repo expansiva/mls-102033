@@ -10,25 +10,10 @@
 //   mls.stor.orgs                   -> orgs/projects returned by the login
 //   mls.stor.localDB.getAllKeys()   -> keys persisted in IndexedDB (mlsDB)
 
-declare global {
-  interface Window {
-    mls?: {
-      api: { cbeLogin: () => Promise<{ statusCode: number } | undefined> };
-      actualProject?: number;
-      setActualProject?: (project?: number) => void;
-      baseMonaco?: string;
-      editor: { InitMonaco: () => Promise<void> };
-      stor: {
-        orgs: Record<string, unknown>;
-        files: Record<string, unknown>;
-        localDB: { getAllKeys: () => Promise<string[]> };
-        cache: { installIfNeeded: () => Promise<unknown> };
-        server: { loadProjectInfoIfNeeded: (project: number, forceUpdate?: boolean) => Promise<boolean> };
-        loadProjectdependenciesInfoIfNeed: (project: number, forceUpdate?: boolean) => Promise<number[]>;
-      };
-    };
-  }
-}
+import { getLoginUser } from '/_102033_/l2/cbe/cbeAuth.js';
+import { initStudio } from '/_102033_/l2/cbe/initStudio.js';
+import type { StudioMls } from '/_102033_/l2/cbe/global.js';
+
 
 // Base project of the studio environment (the studio core, mls-100554). Same
 // hardcode the on.collab.codes site carries in its nav1 markup
@@ -37,27 +22,12 @@ declare global {
 // groundwork for running studio widgets (collab-messages) in the SPA aside.
 const CBE_BASE_PROJECT = 100554;
 
-// Session helpers (login/logout/user) — imported for its side effect of
-// installing window.collabRuntimeAuth; also used to log the session below.
-import { getLoginUser } from '/_102033_/l2/cbe/cbeAuth.js';
-// Loads/initializes Monaco — needed by collab-messages' TS compile path
-// (readProjectTypescriptAndCompile -> mls.editor.createModelProjectDefinition).
-import { initStudio } from '/_102033_/l2/cbe/initStudio.js';
-
 // Bump on every change so the console shows which build is live on the VM.
 const CBE_MINI_CFE_VERSION = '1.3.0';
 
 const MLS_SCRIPT_ID = 'cbe-mls-lib';
 const MLS_LIB_SCRIPT_ID = 'cbe-mls-nodelibs';
 const MLS_LOAD_TIMEOUT_MS = 20000;
-
-// Versions injected by the boot HTML (startServer mirrors the studio
-// index.html: window.latest comes from the central latest.json on S3).
-declare global {
-  interface Window {
-    latest?: { www?: string; libs?: string; monaco?: string; indexHTML?: string; l7?: string };
-  }
-}
 
 /** '/libs/<version>' when window.latest carries it, plain '/libs' otherwise. */
 function getLibsBasePath(): string {

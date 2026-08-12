@@ -8,17 +8,7 @@
 // — neither of those files runs on the VM runtime, so cbeMiniCfe.ts calls
 // initStudio() instead once window.mls is loaded.
 
-declare global {
-  interface Window {
-    latest?: { monaco?: string };
-    monacoReady?: Promise<void>;
-  }
-}
-
-export interface StudioMls {
-  baseMonaco?: string;
-  editor: { InitMonaco: () => Promise<void> };
-}
+import type { StudioMls } from './global.js'; 
 
 const MONACO_SCRIPT_ID = 'cbe-monaco-loader';
 
