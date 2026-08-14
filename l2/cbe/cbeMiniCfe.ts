@@ -14,7 +14,6 @@ import { getLoginUser } from '/_102033_/l2/cbe/cbeAuth.js';
 import { initStudio } from '/_102033_/l2/cbe/initStudio.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 
-
 // Base project of the studio environment (the studio core, mls-100554). Same
 // hardcode the on.collab.codes site carries in its nav1 markup
 // (mls-102041/l2/index.html: <collab-nav-1 initialproject="100554">). The VM

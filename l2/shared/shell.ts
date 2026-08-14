@@ -332,6 +332,39 @@ export class CollabAuraShell extends LitElement {
       profile.widthPx,
       profile.heightPx,
     );
+
+    if (region === 'header') this.showRuntimeServices();
+  }
+
+  /**
+   * Registers the TypeScript definition models of the project chain (Monaco resolves the
+   * cross-project imports through them).
+   *
+   * Deferred to the studio switch on purpose: an app user never opens an editor, so this cost
+   * has no reason to be paid at login. Idempotent — repeated toggles do nothing.
+   */
+  private loadStudioDefinitions(): void {
+    const project = Number(this.bootConfig?.projectId) || 0;
+    if (!project) return;
+    void import('/_102033_/l2/cbe/initStudio.js')
+      .then((module) => (module as { loadProjectDefinitions?: (project: number) => Promise<void> }).loadProjectDefinitions?.(project))
+      .catch((error) => console.warn('[aura-shell] could not load the project definitions', error));
+  }
+
+
+
+  /**
+   * Puts the client's own services (messages + app) back on the structure's nav3 pair.
+   *
+   * Called whenever the shell leaves studio mode, by either door: the Ctrl+Alt+S toggle or a
+   * header profile switch. No-op while the structure is not up.
+   */
+  private showRuntimeServices(): void {
+    const host = this.querySelector('.studio-structure-host');
+    if (!host || !this.structureUpgraded) return;
+    void import('/_102033_/l2/cbe/studioStructure.js')
+      .then((module) => (module as { showRuntimeServices?: (host: ParentNode) => void }).showRuntimeServices?.(host))
+      .catch((error) => console.warn('[aura-shell] could not restore the runtime services', error));
   }
 
   private async setRegionRenderer(
@@ -396,6 +429,11 @@ export class CollabAuraShell extends LitElement {
       if (this.structureUpgraded) {
         this.studioModeOn = !this.studioModeOn;
         this.requestUpdate();
+        if (this.studioModeOn) this.loadStudioDefinitions();
+        // Back to client mode: the banner returns, and the nav3s must show the client's own
+        // services again. The toolbars remember the last service opened — by now a studio one —
+        // so the runtime pair has to be forced, not restored.
+        else this.showRuntimeServices();
       } else {
         this.rotateHeaderProfile();
       }

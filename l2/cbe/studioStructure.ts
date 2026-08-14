@@ -26,6 +26,9 @@ import {
   ANONYMOUS_SERVICES,
   ensureStudioPageAssets,
   buildStudioServices,
+  withRuntimeServices,
+  SERVICE_MESSAGES,
+  SERVICE_APP,
 } from '/_102033_/l2/cbe/studioHeader.js';
 // Runtime services must be DEFINED before the nav3 instances them (the nav3
 // attaches directly when customElements.get(tag) resolves).
@@ -40,11 +43,26 @@ const STUDIO_MODULES = [
   'collab-nav-3-menu-tools-link', 'collab-nav-3-menu-tools-tree-dropdown',
 ];
 const NAV_TAGS = ['collab-page', 'collab-spliter', 'collab-nav-1', 'collab-nav-2', 'collab-nav-3'];
-const SERVICE_MESSAGES = '_102033_/l2/cbe/serviceRuntimeMessages';
-const SERVICE_APP = '_102033_/l2/cbe/serviceClientApp';
 
 export const NAV1_HEIGHT_PX = 30;
 export const NAV2_HEIGHT_PX = 36;
+
+interface Nav2Toolbar extends Element {
+  selectServiceByWidget?: (widget: string) => boolean;
+}
+
+/**
+ * Puts the runtime pair back on the nav3s — messages left, app right.
+ *
+ * What CLIENT mode shows. Leaving studio mode has to force these back: the toolbars remember the
+ * last service opened, which by then is whatever the user was doing in the studio.
+ */
+export function showRuntimeServices(host: ParentNode): void {
+  const nav2Left = host.querySelector('collab-nav-2[toolbarposition="left"]') as Nav2Toolbar | null;
+  const nav2Right = host.querySelector('collab-nav-2[toolbarposition="right"]') as Nav2Toolbar | null;
+  nav2Left?.selectServiceByWidget?.(SERVICE_MESSAGES);
+  nav2Right?.selectServiceByWidget?.(SERVICE_APP);
+}
 
 function el(tag: string, attrs: Record<string, string>): HTMLElement {
   const node = document.createElement(tag);
@@ -74,7 +92,8 @@ export async function upgradeToStudioStructure(container: HTMLElement, siteProje
     tabindexactive: '0',
     initialproject: String(STUDIO_BASE_PROJECT),
   });
-  const spliter = el('collab-spliter', { defaultleft: '50', defaultright: '50' });
+  // `fixed`: no drag, no dblclick on the separator — the split is driven by msplit alone.
+  const spliter = el('collab-spliter', { defaultleft: '50', defaultright: '50', fixed: '' });
   const itemLeft = el('collab-spliter-item', {});
   const itemRight = el('collab-spliter-item', {});
   const nav2Left = el('collab-nav-2', { mheight: String(NAV2_HEIGHT_PX), level: '7', toolbarposition: 'left' });
@@ -97,25 +116,9 @@ export async function upgradeToStudioStructure(container: HTMLElement, siteProje
     services = await buildStudioServices(siteProject);
   } catch { /* anonymous fallback */ }
   // EVERY level gets the runtime pair (messages left, app right) prepended and
-  // shown by default — the unified nav3 is active on all nav1 tabs. The
-  // studio's own serviceCollabMessages is dropped from the scan: on the VM it
-  // would override the runtime environment (msg.collab.codes endpoints) and
-  // blank out; ours is the messages service here.
-  services = [...services];
-  type Nav2State = HTMLElement & { state_?: Record<number, Record<string, string>> };
-  const nav2LeftEl = nav2Left as Nav2State;
-  const nav2RightEl = nav2Right as Nav2State;
-  const dropStudioMessages = (csv: string) =>
-    csv.split(',').filter((widget) => widget && !widget.endsWith('serviceCollabMessages')).join(',');
-  for (let level = 0; level <= 7; level += 1) {
-    const [rawLeft = '', rawRight = ''] = (services[level] ?? ';').split(';');
-    const left = dropStudioMessages(rawLeft);
-    const right = dropStudioMessages(rawRight);
-    services[level] = `${SERVICE_MESSAGES}${left ? `,${left}` : ''};${SERVICE_APP}${right ? `,${right}` : ''}`;
-    if (nav2LeftEl.state_?.[level]) nav2LeftEl.state_[level].left = SERVICE_MESSAGES;
-    if (nav2RightEl.state_?.[level]) nav2RightEl.state_[level].right = SERVICE_APP;
-  }
-  nav1El.services = { services };
+  // shown by default — the unified nav3 is active on all nav1 tabs. Shared with
+  // the studio header so both toolbars offer the same way back (withRuntimeServices).
+  nav1El.services = { services: withRuntimeServices(services, nav2Left, nav2Right) };
 
   nav1.setAttribute('status', 'enabled');
 

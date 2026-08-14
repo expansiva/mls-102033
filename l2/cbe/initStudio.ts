@@ -47,3 +47,111 @@ export async function initStudio(mls: StudioMls): Promise<void> {
   await loadMonacoScript(mls);
   await mls.editor.InitMonaco();
 }
+
+// ─── VM storage driver ───────────────────────────────────────────────────────
+
+interface MlsDriverApi {
+  stor?: {
+    others?: {
+      getDriver?: (provider: string) => unknown;
+      addDriver?: (driver: unknown, provider: string) => void;
+    };
+  };
+}
+
+let vmDriverRegistered = false;
+
+/**
+ * Registers the VM storage driver in the 'github' slot — the slot the cbe login marker points at
+ * (see driverVm.ts for why it is that slot). Without it every source read resolves the GitHub
+ * driver and fails with `Driver _<project>_GitHub not found`, since no driver is registered at all
+ * on the VM.
+ *
+ * Lives here, not in the studio header: that header only mounts through the `setHeader(2)` path,
+ * while Ctrl+Alt+S never creates it — and both need the driver. Dynamic import on purpose
+ * (DriverVm extends a class that only exists once the lib is loaded). Idempotent and never fatal.
+ */
+export async function registerVmDriver(): Promise<void> {
+  if (vmDriverRegistered) return;
+  const others = (window as unknown as { mls?: MlsDriverApi }).mls?.stor?.others;
+  if (!others?.addDriver) {
+    console.warn('[initStudio] mls.stor.others.addDriver unavailable — VM driver not registered');
+    return;
+  }
+  try {
+    const { DriverVm } = await import('/_102033_/l2/cbe/driverVm.js');
+    others.addDriver(new DriverVm(), 'github');
+    vmDriverRegistered = true;
+    console.info('[initStudio] VM storage driver registered');
+  } catch (err) {
+    console.warn('[initStudio] VM driver registration failed:', err);
+  }
+}
+
+// ─── Project definition models (.d.ts of the dependency chain) ───────────────
+
+/** Read through window: the narrow Window.mls of cbeMiniCfe does not carry these APIs. */
+interface MlsDefinitionApi {
+  editor?: {
+    getModels?: (project: number, shortName: string, folder: string, level?: number) => { ts?: unknown } | undefined;
+    createModelProjectDefinition?: (project: number, content: string) => Promise<unknown>;
+  };
+  l5?: { getProjectDependencies?: (project: number, addParentPrj: boolean) => number[] };
+  stor?: {
+    LOCALPROJECTNUMBER?: number;
+    localDB?: { readPrjInfo?: (project: number) => Promise<{ indexModules?: string }> };
+  };
+}
+
+// Projects the studio itself skips — they have no index to model.
+const SKIP_PROJECTS = [100529, 100131];
+
+let definitionsLoaded = false;
+
+/**
+ * Registers the TypeScript definition model of a project and of every project it depends on, so
+ * Monaco resolves imports across the workspace (`/_102027_/l2/...` and friends) instead of
+ * flagging them as missing modules.
+ *
+ * Port of collabInit.initCompileMonaco (mls-100554), which never runs on the VM. Requires BOTH
+ * Monaco initialized and the cbe login done — the index of each project comes from the IndexedDB
+ * the login fills (`readPrjInfo().indexModules`, fed by the compiled.zip's types/index.d.ts).
+ *
+ * Runs once per page. A project that fails is logged and skipped: a missing definition degrades
+ * the editing experience, it must never break the studio bootstrap.
+ */
+export async function loadProjectDefinitions(project: number): Promise<void> {
+  if (definitionsLoaded || !project) return;
+  // Creating the models reads project SOURCES on a cache miss — without the VM driver that read
+  // resolves the GitHub one and throws `Driver _<project>_GitHub not found`.
+  await registerVmDriver();
+  // Called from the studio switch, which can happen before the Monaco download finishes — the
+  // editor API below only exists after it. cbeMiniCfe sets this promise at boot.
+  if (window.monacoReady) await window.monacoReady.catch(() => undefined);
+  const mls = (window as unknown as { mls?: MlsDefinitionApi }).mls;
+  const editor = mls?.editor;
+  if (!editor?.getModels || !editor.createModelProjectDefinition || !mls?.stor?.localDB?.readPrjInfo) return;
+  definitionsLoaded = true;
+
+  const dependencies = mls.l5?.getProjectDependencies?.(project, false) ?? [];
+  const localProject = mls.stor.LOCALPROJECTNUMBER;
+  let created = 0;
+
+  for (const prj of [project, ...dependencies]) {
+    if (SKIP_PROJECTS.includes(prj) || prj === localProject) continue;
+    try {
+      const model = editor.getModels(prj, '', '', 2);
+      if (model?.ts) continue; // already modeled
+      const info = await mls.stor.localDB.readPrjInfo(prj);
+      if (!info?.indexModules) {
+        console.warn(`[initStudio] project ${prj} has no indexModules — definitions not loaded`);
+        continue;
+      }
+      await editor.createModelProjectDefinition(prj, info.indexModules);
+      created += 1;
+    } catch (err) {
+      console.warn(`[initStudio] definition model failed for project ${prj}:`, err);
+    }
+  }
+  console.info(`[initStudio] definition models ready (${created} created of ${dependencies.length + 1} project(s))`);
+}

@@ -19,6 +19,9 @@
 
 import { LitElement, html } from 'lit';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
+// The VM storage driver registration lives with the rest of the runtime studio bootstrap —
+// this header is only ONE of the paths that needs it (see initStudio.registerVmDriver).
+import { registerVmDriver } from '/_102033_/l2/cbe/initStudio.js';
 
 const NAV1_HEIGHT_PX = 30;
 const NAV2_HEIGHT_PX = 36;
@@ -39,6 +42,43 @@ const FONT_AWESOME_LINK_ID = 'cbe-studio-fontawesome';
 
 // Same shape CollabInit.anonymousServices uses: 8 levels, 'leftCsv;rightCsv'.
 export const ANONYMOUS_SERVICES = ['', '', '', '', '', '', '', ';_100554_serviceDetail,'];
+
+// The runtime pair hosted by the shared nav3s (studioStructure): messages left, app right.
+export const SERVICE_MESSAGES = '_102033_/l2/cbe/serviceRuntimeMessages';
+export const SERVICE_APP = '_102033_/l2/cbe/serviceClientApp';
+
+type Nav2State = Element & { state_?: Record<number, Record<string, string>> };
+
+function seedLastService(nav2: Element | null | undefined, level: number, position: 'left' | 'right', widget: string): void {
+  const state = (nav2 as Nav2State | null | undefined)?.state_?.[level];
+  if (state) state[position] = widget;
+}
+
+/**
+ * Adds the runtime service pair to a scanned service list, per level.
+ *
+ * BOTH toolbars need it — the content structure's nav2s and the studio header's — because they
+ * drive the SAME nav3s. A toolbar without these entries strands the user: switching header
+ * profile would leave no way back to the app or the messages.
+ *
+ * Also drops the studio's own serviceCollabMessages (on the VM it points at the
+ * msg.collab.codes endpoints and blanks out — ours is the messages service here) and seeds each
+ * nav2's last-service memory, so a level restore lands on the pair.
+ */
+export function withRuntimeServices(services: string[], nav2Left?: Element | null, nav2Right?: Element | null): string[] {
+  const rc = [...services];
+  const dropStudioMessages = (csv: string) =>
+    csv.split(',').filter((widget) => widget && !widget.endsWith('serviceCollabMessages')).join(',');
+  for (let level = 0; level <= 7; level += 1) {
+    const [rawLeft = '', rawRight = ''] = (rc[level] ?? ';').split(';');
+    const left = dropStudioMessages(rawLeft);
+    const right = dropStudioMessages(rawRight);
+    rc[level] = `${SERVICE_MESSAGES}${left ? `,${left}` : ''};${SERVICE_APP}${right ? `,${right}` : ''}`;
+    seedLastService(nav2Left, level, 'left', SERVICE_MESSAGES);
+    seedLastService(nav2Right, level, 'right', SERVICE_APP);
+  }
+  return rc;
+}
 
 export function ensureStudioPageAssets(): void {
   if (!document.getElementById(FONT_AWESOME_LINK_ID)) {
@@ -94,9 +134,11 @@ export async function buildStudioServices(siteProject: number): Promise<string[]
       if (!projectList.includes(dep)) projectList.push(dep);
     }
   } catch { /* dependencies are best-effort */ }
+  
   if (!projectList.includes(STUDIO_BASE_PROJECT)) projectList.push(STUDIO_BASE_PROJECT);
 
   for (const project of projectList) {
+    await (mlsApi as any).stor.server.loadProjectInfoIfNeeded(project)
     await mlsApi.plugin.loadAll(project, false);
   }
 
@@ -158,6 +200,10 @@ export class CbeStudioHeader extends LitElement {
   private async loadNavModules(): Promise<void> {
     try {
       ensureStudioPageAssets();
+      // Before anything can read a SOURCE file: without it the cfe resolves the
+      // GitHub driver (the login marks every VM project as 'GitHub') and every
+      // cache miss goes to github.com with the bogus projectURL 'local'.
+      await registerVmDriver();
       // Served by the mls service worker from the IndexedDB the cbe login
       // fills (server compiled.zip fallback covers the SW-less first load).
       await Promise.all(STUDIO_MODULES.map((name) => import(`/_${STUDIO_PROJECT}_/l2/${name}.js`)));
@@ -195,12 +241,13 @@ export class CbeStudioHeader extends LitElement {
     } catch (err) {
       console.warn('[studioHeader] service scan failed — using anonymous defaults:', err);
     }
-    // The studio's own messages widget has no backend on the VM (msg.collab.codes
-    // endpoints only) — point it at the runtime environment's equivalent instead.
-    services = services.map((entry) => entry
-      .replaceAll('_102020_/l2/serviceCollabMessages', '_102033_/l2/cbe/serviceRuntimeMessages')
-      .replaceAll('_102020_serviceCollabMessages', '_102033_/l2/cbe/serviceRuntimeMessages'));
-    nav1.services = { services };
+    // Same list the content structure builds (studioStructure): the runtime pair prepended on
+    // every level and the studio's own messages widget dropped. Both toolbars drive the SAME
+    // nav3s, so without this the studio header would have no entry to get back to the app or
+    // the messages after a profile switch.
+    const nav2Left = this.querySelector('collab-nav-2[toolbarposition="left"]');
+    const nav2Right = this.querySelector('collab-nav-2[toolbarposition="right"]');
+    nav1.services = { services: withRuntimeServices(services, nav2Left, nav2Right) };
     nav1.setAttribute('status', 'enabled');
   }
 
@@ -279,8 +326,8 @@ export class CbeStudioHeader extends LitElement {
         : html`
             <div class="studio-placeholder">
               ${this.navsError
-                ? `Studio indisponível: ${this.navsError}`
-                : 'Carregando ambiente do studio...'}
+            ? `Studio indisponível: ${this.navsError}`
+            : 'Carregando ambiente do studio...'}
             </div>
           `}
     `;
