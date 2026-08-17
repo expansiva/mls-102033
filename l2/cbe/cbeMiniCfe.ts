@@ -10,7 +10,7 @@
 //   mls.stor.orgs                   -> orgs/projects returned by the login
 //   mls.stor.localDB.getAllKeys()   -> keys persisted in IndexedDB (mlsDB)
 
-import { getLoginUser } from '/_102033_/l2/cbe/cbeAuth.js';
+import { getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
 import { initStudio } from '/_102033_/l2/cbe/initStudio.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 
@@ -104,6 +104,11 @@ export async function initCbeMiniCfe(): Promise<void> {
     return;
   }
   console.info(`[cbeMiniCfe] v${CBE_MINI_CFE_VERSION} starting`);
+  // Gated host without a loginUser cookie: show the sign-in page RIGHT AWAY —
+  // before the mls lib loads and the /exec login round-trip runs — so an
+  // anonymous visitor never stares at a half-booted app. The post-login call
+  // below removes it once the session exists.
+  showLoginGateIfNeeded();
   try {
     const t0 = performance.now();
     await loadMlsScript();
@@ -129,7 +134,23 @@ export async function initCbeMiniCfe(): Promise<void> {
     // marker, the exact DOM channel the cfe reads in api.ts cbeLogin).
     prepareStudioLoginContext(mls);
 
+    // The cfe cbeLogin surfaces alertMessage/errorMessage through
+    // window.collabMessages — the studio toast system, absent on the VM app
+    // page. Without a stub, a 'login required' response would throw inside
+    // cbeLogin and lose the whole rc.
+    const withToasts = window as unknown as { collabMessages?: { add: (msg: string, type: string, opts?: unknown) => void } };
+    if (!withToasts.collabMessages) {
+      withToasts.collabMessages = {
+        add: (msg, type) => (type === 'error' ? console.error : console.info)(`[collab] ${msg}`),
+      };
+    }
+
     const rc = await mls.api.cbeLogin();
+
+    // Host requires a session (real domain) and none exists: show the sign-in
+    // page (collab-auth redirect). The 'login' action itself never logs anyone
+    // in — it only delivers studio sources once a JWT session exists.
+    showLoginGateIfNeeded();
 
     // Preload mls.stor.files for the site's project + dependencies. This is
     // what "opening" a project in the studio does; here everything resolves
@@ -157,6 +178,8 @@ export async function initCbeMiniCfe(): Promise<void> {
   } catch (err) {
     // The app page must render regardless of the studio bootstrap outcome.
     console.warn('[cbeMiniCfe] studio bootstrap skipped:', err);
+    // Even a failed bootstrap must offer sign-in on a gated host.
+    showLoginGateIfNeeded();
   }
 }
 
