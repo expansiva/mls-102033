@@ -61,14 +61,34 @@ export class ServiceClientApp extends ServiceBase {
     const region = document.querySelector('main[data-region="content"]') as HTMLElement | null;
     if (region) {
       if (region.parentElement !== this) {
-        region.style.height = '100%';
         this.appendChild(region);
+        this.applyRegionHeight();
       }
       return;
     }
     if (this.adoptRetriesLeft-- > 0) {
       setTimeout(() => this.adoptAppHost(), 250);
     }
+  }
+
+  // Same pattern as serviceRuntimeMessages: ServiceBase sets `this.style.height`
+  // in px from the msize attribute the nav3 layout cascades, but a `height:100%`
+  // on the adopted region only resolves against that if every ancestor in
+  // between also has a resolved (non-auto) height — not guaranteed for every
+  // route the client app navigates to internally (e.g. opening Monitor/Tests
+  // left it collapsed at 0). Forwarding the same px value directly removes
+  // the dependency on that cascade.
+  attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null) {
+    super.attributeChangedCallback(name, oldValue ?? '', newValue ?? '');
+    if (name === 'msize') this.applyRegionHeight();
+  }
+
+  private applyRegionHeight(): void {
+    let height = parseFloat((this.getAttribute('msize') || '').split(',')[1] || '');
+    if (!Number.isFinite(height) || height <= 0) height = parseFloat(this.style.height || '');
+    const region = this.querySelector('main[data-region="content"]') as HTMLElement | null;
+    if (!region) return;
+    region.style.height = Number.isFinite(height) && height > 0 ? `${height}px` : '100%';
   }
 
   render() {
