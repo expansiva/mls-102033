@@ -46,6 +46,12 @@ export class ServiceClientApp extends ServiceBase {
     this.adoptAppHost();
   }
 
+  // Bounded retry: the structure can now upgrade before the classic content
+  // region finishes mounting (see shell.ts maybeUpgradeStructure) — without
+  // this, a miss on the first connectedCallback call left the app host
+  // stranded in the hidden legacy .body until the user re-clicked the tab.
+  private adoptRetriesLeft = 20;
+
   private adoptAppHost(): void {
     // Adopt the whole content REGION (tab bar + panels + app host), not just
     // the app host: collabRuntimeNav3.openTab renders its tabs/panels as
@@ -53,9 +59,15 @@ export class ServiceClientApp extends ServiceBase {
     // would leave those tabs in the hidden legacy .body. Lit keeps its
     // bindings on the moved nodes, so the shell keeps re-rendering them here.
     const region = document.querySelector('main[data-region="content"]') as HTMLElement | null;
-    if (region && region.parentElement !== this) {
-      region.style.height = '100%';
-      this.appendChild(region);
+    if (region) {
+      if (region.parentElement !== this) {
+        region.style.height = '100%';
+        this.appendChild(region);
+      }
+      return;
+    }
+    if (this.adoptRetriesLeft-- > 0) {
+      setTimeout(() => this.adoptAppHost(), 250);
     }
   }
 

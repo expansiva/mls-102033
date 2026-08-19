@@ -11,7 +11,7 @@
 //   mls.stor.localDB.getAllKeys()   -> keys persisted in IndexedDB (mlsDB)
 
 import { getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
-import { initStudio } from '/_102033_/l2/cbe/initStudio.js';
+import { initStudio, setOrgActual } from '/_102033_/l2/cbe/initStudio.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 
 // Base project of the studio environment (the studio core, mls-100554). Same
@@ -146,6 +146,13 @@ export async function initCbeMiniCfe(): Promise<void> {
     }
 
     const rc = await mls.api.cbeLogin();
+
+    // Sets mls.l5.actualOrg now that the login has populated mls.stor.orgs —
+    // mirrors collabInit's setProjectActual -> setOrgActual sequence (see
+    // initStudio.setOrgActual for why this port is needed on the VM). Calling
+    // it any earlier (e.g. inside prepareStudioLoginContext, before login)
+    // finds nothing yet and silently leaves actualOrg undefined.
+    setOrgActual(getSiteProjectId() || CBE_BASE_PROJECT);
 
     // Host requires a session (real domain) and none exists: show the sign-in
     // page (collab-auth redirect). The 'login' action itself never logs anyone

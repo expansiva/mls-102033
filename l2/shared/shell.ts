@@ -133,9 +133,14 @@ export class CollabAuraShell extends LitElement {
   // Production vs studio differs ONLY in the top 66px: the client banner is a
   // fixed overlay covering nav1+nav2; Ctrl+Alt+S hides/shows the banner.
   private structureUpgraded = false;
+  private structureUpgradeFailed = false;
   private studioModeOn = false;
   private structureUpgradeAttempted = false;
   private structureRetriesLeft = 67;
+  // Set once the classic header/aside/content regions have mounted (see
+  // mountModuleRoot) — the structure upgrade adopts those DOM nodes, so it
+  // must not run ahead of them.
+  private regionsMounted = false;
   // Embedded (iframe) mode: foreign modules opened as nav3 content tabs by the
   // unified shell (openProgramUnified). The OUTER shell already provides
   // navigation (Apps menu) and framing — rendering this module's own header +
@@ -237,6 +242,7 @@ export class CollabAuraShell extends LitElement {
         this.importRegion('aside'),
       ]);
       await this.loadActiveRoute();
+      this.regionsMounted = true;
       this.requestUpdate();
     } catch (error) {
       this.statusMessage = error instanceof Error ? error.message : String(error);
@@ -854,31 +860,100 @@ export class CollabAuraShell extends LitElement {
 
   private maybeUpgradeStructure(): void {
     if (this.isEmbedded || this.structureUpgradeAttempted || this.resolvedDevice !== 'desktop' || !this.bootConfig) return;
+    // Gate on the FULL studio bootstrap (login + cache + preload) — the
+    // proven-safe condition. An earlier attempt gated this on just the mls
+    // lib being loaded, but when collabMiniCfeReady then landed WHILE the
+    // structure's own dynamic-import/whenDefined chain was still in flight
+    // (fast/warm-cache runs), the upgrade rendered blank — a race in the
+    // shared studio component registration this shell doesn't control.
+    // regionsMounted is kept as an extra guard: the upgrade adopts the
+    // classic content/aside DOM nodes, so they must already exist.
     const mlsReady = Boolean((window as unknown as { collabMiniCfeReady?: boolean }).collabMiniCfeReady);
-    if (!mlsReady) {
+    if (!mlsReady || !this.regionsMounted) {
       if (!this.structureRetryPending && this.structureRetriesLeft-- > 0) {
         this.structureRetryPending = true;
         setTimeout(() => { this.structureRetryPending = false; this.maybeUpgradeStructure(); }, 500);
+      } else if (this.structureRetriesLeft <= 0) {
+        // Gave up waiting — fall back to the classic layout instead of
+        // leaving the skeleton on screen forever.
+        this.structureUpgradeFailed = true;
+        this.requestUpdate();
       }
       return;
     }
     this.structureUpgradeAttempted = true;
-    void (async () => {
+    void this.attemptStructureUpgrade();
+  }
+
+  // The nav1 -> nav2/nav3 service wiring is itself asynchronous inside the
+  // studio components (studioStructure's own applySplit re-applies at 600ms
+  // for the same reason) — upgradeToStudioStructure() resolving cleanly does
+  // NOT guarantee the runtime service widgets actually landed. Observed in
+  // practice: intermittently (more often on fast/warm-cache runs) it
+  // resolves but the app/messages panes never appear, leaving the swap blank
+  // with nothing left to fall back to. Verify the expected widget exists
+  // before committing to 'upgraded'; retry the whole attempt a few times,
+  // then give up to the classic layout rather than show a blank page.
+  private static readonly STRUCTURE_UPGRADE_MAX_ATTEMPTS = 3;
+
+  private async attemptStructureUpgrade(): Promise<void> {
+    const modulePath = '/_102033_/l2/cbe/studioStructure.js';
+    for (let attempt = 1; attempt <= CollabAuraShell.STRUCTURE_UPGRADE_MAX_ATTEMPTS; attempt += 1) {
       try {
-        const modulePath = '/_102033_/l2/cbe/studioStructure.js';
         const module = (await import(`${modulePath}`)) as {
           upgradeToStudioStructure: (container: HTMLElement, siteProject: number) => Promise<HTMLElement>;
         };
         const host = this.querySelector('.studio-structure-host') as HTMLElement | null;
-        if (!host) return;
+        if (!host) throw new Error('studio-structure-host not found');
+        host.replaceChildren();
         await module.upgradeToStudioStructure(host, Number(this.bootConfig?.projectId) || 0);
-        this.structureUpgraded = true;
-        this.requestUpdate();
-        console.info('[aura-shell] structure upgraded to the unified studio layout');
+        if (await this.verifyStudioStructureRendered(host)) {
+          this.structureUpgraded = true;
+          this.requestUpdate();
+          // collab-page measured its own size via getBoundingClientRect()
+          // while .studio-structure-host was still display:none (the CSS
+          // only reveals it once data-structure="upgraded" lands, which is
+          // NOW) — that first measurement is always 0×0. Force a remeasure
+          // once the DOM update above has actually applied, so it sees the
+          // real, visible layout instead of relying on its own 500ms retry
+          // (which can just as easily fire before this point and re-cache 0).
+          await this.updateComplete;
+          (host.querySelector('collab-page') as (HTMLElement & { layout?: () => void }) | null)?.layout?.();
+          console.info(`[aura-shell] structure upgraded to the unified studio layout (attempt ${attempt})`);
+          return;
+        }
+        console.warn(`[aura-shell] studio structure rendered without the runtime service widgets (attempt ${attempt}/${CollabAuraShell.STRUCTURE_UPGRADE_MAX_ATTEMPTS})`);
       } catch (error) {
-        console.warn('[aura-shell] studio structure upgrade skipped (classic layout stays):', error);
+        console.warn(`[aura-shell] studio structure upgrade attempt ${attempt}/${CollabAuraShell.STRUCTURE_UPGRADE_MAX_ATTEMPTS} failed:`, error);
       }
-    })();
+    }
+    console.warn('[aura-shell] studio structure upgrade skipped after retries (classic layout stays)');
+    this.structureUpgradeFailed = true;
+    this.requestUpdate();
+  }
+
+  // Gives the nav1->nav2/nav3 service cascade time to settle (past
+  // studioStructure's own 600ms applySplit re-apply) before judging whether
+  // the upgrade actually produced visible content.
+  private verifyStudioStructureRendered(host: HTMLElement): Promise<boolean> {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve(Boolean(host.querySelector('cbe--service-client-app-102033')));
+      }, 800);
+    });
+  }
+
+  // Whether this connection will (attempt to) end up in the unified studio
+  // structure — governs the skeleton shown from first paint on desktop, so
+  // the classic aside/menu never has to flash before the real swap.
+  private wantsStudioStructure(): boolean {
+    return !this.isEmbedded && this.resolvedDevice === 'desktop';
+  }
+
+  private get structureState(): 'classic' | 'pending' | 'upgraded' {
+    if (this.structureUpgraded) return 'upgraded';
+    if (this.wantsStudioStructure() && !this.structureUpgradeFailed) return 'pending';
+    return 'classic';
   }
 
   // Ctrl+Alt+S: advance to the next header profile in the clientShell list
@@ -1113,7 +1188,7 @@ export class CollabAuraShell extends LitElement {
     this.setAttribute('data-device', this.resolvedDevice);
     this.setAttribute('data-aside-mode', this.getResolvedAsideMode());
     this.setAttribute('data-aside-open', String(this.getActualAsideOpen()));
-    this.setAttribute('data-structure', this.structureUpgraded ? 'upgraded' : 'classic');
+    this.setAttribute('data-structure', this.structureState);
     this.setAttribute('data-studio-mode', String(this.studioModeOn));
     this.mountRegion('header');
     this.mountRegion('aside');
@@ -1175,11 +1250,77 @@ export class CollabAuraShell extends LitElement {
         inset: 0;
       }
 
-      collab-aura-shell[data-structure="upgraded"] .layout .body {
+      /* ── Pending structure (desktop, upgrade attempt in flight) ──────────
+         Same footprint the upgraded structure will occupy, but filled with a
+         static shimmer skeleton instead of collab-page — shown from FIRST
+         paint on desktop so the classic aside/menu never flashes on screen.
+         Swapped out for the real structure the instant the upgrade lands. */
+      collab-aura-shell .studio-structure-skeleton { display: none; }
+
+      collab-aura-shell[data-structure="pending"] .studio-structure-skeleton {
+        display: flex;
+        flex-direction: column;
+        position: fixed;
+        inset: 0;
+        background: #f6f6f6;
+      }
+
+      collab-aura-shell .skeleton-nav1 {
+        flex: 0 0 30px;
+        background: #dfdfdf;
+      }
+
+      collab-aura-shell .skeleton-body {
+        flex: 1 1 auto;
+        display: flex;
+        min-height: 0;
+      }
+
+      collab-aura-shell .skeleton-pane {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        border-right: 1px solid #e2e8f0;
+      }
+
+      collab-aura-shell .skeleton-pane:last-child {
+        border-right: none;
+      }
+
+      collab-aura-shell .skeleton-pane-left {
+        flex: 0 0 375px;
+      }
+
+      collab-aura-shell .skeleton-pane-right {
+        flex: 1 1 auto;
+      }
+
+      collab-aura-shell .skeleton-nav2 {
+        flex: 0 0 36px;
+        background: #dfdfdf;
+      }
+
+      collab-aura-shell .skeleton-content {
+        flex: 1 1 auto;
+        margin: 16px;
+        border-radius: 8px;
+        background: linear-gradient(90deg, #eceff1 25%, #e3e6e8 37%, #eceff1 63%);
+        background-size: 400% 100%;
+        animation: shell-skeleton-shimmer 1.4s ease infinite;
+      }
+
+      @keyframes shell-skeleton-shimmer {
+        0% { background-position: 100% 50%; }
+        100% { background-position: 0 50%; }
+      }
+
+      collab-aura-shell[data-structure="upgraded"] .layout .body,
+      collab-aura-shell[data-structure="pending"] .layout .body {
         display: none;
       }
 
-      collab-aura-shell[data-structure="upgraded"] .region.header {
+      collab-aura-shell[data-structure="upgraded"] .region.header,
+      collab-aura-shell[data-structure="pending"] .region.header {
         position: fixed;
         top: 0;
         left: 0;
@@ -1479,6 +1620,19 @@ export class CollabAuraShell extends LitElement {
             `
           : null}
         <div class="studio-structure-host"></div>
+        <div class="studio-structure-skeleton" aria-hidden="true">
+          <div class="skeleton-nav1"></div>
+          <div class="skeleton-body">
+            <div class="skeleton-pane skeleton-pane-left">
+              <div class="skeleton-nav2"></div>
+              <div class="skeleton-content"></div>
+            </div>
+            <div class="skeleton-pane skeleton-pane-right">
+              <div class="skeleton-nav2"></div>
+              <div class="skeleton-content"></div>
+            </div>
+          </div>
+        </div>
         <div class="layout">
           <section class="region header" data-region="header" data-visible=${String(headerVisible)}>
             <div data-region-host="header"></div>

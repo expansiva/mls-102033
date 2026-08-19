@@ -48,6 +48,30 @@ export async function initStudio(mls: StudioMls): Promise<void> {
   await mls.editor.InitMonaco();
 }
 
+// ─── Organization context ─────────────────────────────────────────────────────
+
+interface MlsOrgApi {
+  l5?: {
+    getProjectOrgIndex?: (prjID: number) => number | undefined;
+    setActualOrg?: (org: number | undefined) => void;
+  };
+}
+
+/**
+ * Sets mls.l5.actualOrg for `project` — port of collabInit.setOrgActual
+ * (mls-100554), which never runs on the VM runtime. Without this, actualOrg
+ * stays undefined forever here, and any save through serviceSave.ts throws
+ * "No organization selected", even for a project whose org index is
+ * perfectly resolvable (project 0 in the org list is a valid index, not "no
+ * org" — serviceSave.ts's own check must compare against undefined, not use
+ * a falsy check, for this to actually take effect).
+ */
+export function setOrgActual(project: number): void {
+  const mls = (window as unknown as { mls?: MlsOrgApi }).mls;
+  const orgIndex = mls?.l5?.getProjectOrgIndex?.(project);
+  mls?.l5?.setActualOrg?.(orgIndex);
+}
+
 // ─── VM storage driver ───────────────────────────────────────────────────────
 
 interface MlsDriverApi {

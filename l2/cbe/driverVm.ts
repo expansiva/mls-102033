@@ -177,8 +177,6 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
   public getUrl(_file: mls.stor.IFileInfo): string { return ''; }
   public async getVersionFromFiles(): Promise<{ [key: string]: string } | undefined> { return undefined; }
   public async checkBranchExistence(): Promise<boolean> { return false; }
-  public async createNewBranch(): Promise<boolean> { return false; }
-  public async createPullRequest(): Promise<boolean> { return false; }
   public async reviewPullRequest(): Promise<boolean> { return false; }
   public async listPullRequests(): Promise<mls.stor.others.IPullRequest[]> { return []; }
   public async listForks(): Promise<mls.stor.others.IFork[]> { return []; }
@@ -200,5 +198,16 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
   }
   public async delVariable(): Promise<boolean> { return false; }
   public async checkFork(): Promise<boolean> { return false; }
-  public async syncFork(): Promise<boolean> { return false; }
+
+  // ── serviceSave's onSave() ceremony (fork/branch/PR) ──────────────────────
+  // serviceSave.ts's fork+branch+pull-request flow treats a falsy return from
+  // these as a hard failure and throws (it has no "not supported" case, unlike
+  // the read/list methods above). The VM writes files directly — no fork,
+  // branch or PR ever really happens — so these report success unconditionally
+  // and let the flow fall through to onSavenewPullrequest's mls.stor.setContents,
+  // which is the actual save (driverVm.setContents below).
+  public async checkForkIO(): Promise<boolean> { return true; }
+  public async syncFork(): Promise<boolean> { return true; }
+  public async createNewBranch(): Promise<boolean> { return true; }
+  public async createPullRequest(): Promise<boolean> { return true; }
 }
