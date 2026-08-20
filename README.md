@@ -205,3 +205,10 @@ Collab Aura is intended to be a reusable frontend platform layer. It should stay
 focused on shell behavior, navigation, interaction patterns, and rendering
 strategy, while product-specific business UI belongs in client modules built on
 top of it.
+
+## Modes, badge and menu by authority
+
+The shell READS these; it never decides them. The environment badge comes from the `appEnv` the server
+resolves, and the menu is filtered by the authorities in the session claims (`navigation[].actors` ∩
+claims). A 401 from `/execBff` means the collab-auth session died: the shell clears it and redirects to
+the login. The canonical definition of all three lives in `mls-102034/docs/appEnvAndAuth.md`.

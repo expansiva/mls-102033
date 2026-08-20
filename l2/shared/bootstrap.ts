@@ -4,6 +4,8 @@ import '/_102033_/l2/shared/shell.js';
 // <head> module script, so the SW install + cbe login start in parallel with
 // the app boot — do not import it here or it would run twice (two instances).
 import { getTokensCss } from '/_102029_/l2/designSystemBase.js';
+import { BFF_UNAUTHENTICATED_EVENT } from '/_102029_/l2/bffClient.js';
+import { startCollabLogin } from '/_102033_/l2/cbe/cbeAuth.js';
 import {
   listRuntimeDesignSystems,
   resolveRuntimeDesignSystem,
@@ -83,6 +85,48 @@ function ensureShellRoot() {
   return shell;
 }
 
+/**
+ * A 401 from the single door means the collab-auth session died (or never started). The page cannot fix
+ * it — the access token is an httpOnly cookie only the runtime writes — so the shell sends the user
+ * through the login that already exists, which returns to this origin. Without this, an expired session
+ * showed up as a broken screen with an error toast on every action.
+ *
+ * Guarded so a storm of parallel calls redirects once.
+ */
+function installUnauthenticatedRedirect(): void {
+  let redirecting = false;
+  window.addEventListener(BFF_UNAUTHENTICATED_EVENT, () => {
+    if (redirecting) return;
+    redirecting = true;
+    console.info('[shell] collab-auth session expired; redirecting to login');
+    startCollabLogin();
+  });
+}
+
+/**
+ * The environment badge. Read-only: the mode is resolved by the server and arrives in the boot config —
+ * the client showing it must never be able to change it. Absent or `production` shows nothing, so a real
+ * app carries no chrome; anything else says so, which is the whole point of a presentation database.
+ */
+function showEnvironmentBadge(): void {
+  const mode = (window.collabBoot as { appEnv?: string } | undefined)?.appEnv;
+  if (!mode || mode === 'production') return;
+  const badge = document.createElement('div');
+  badge.id = 'collab-env-badge';
+  badge.textContent = mode.toUpperCase();
+  badge.setAttribute('aria-label', `environment: ${mode}`);
+  badge.style.cssText = [
+    'position:fixed', 'right:8px', 'bottom:8px', 'z-index:2147483647',
+    'padding:2px 8px', 'border-radius:9999px',
+    'font:600 10px/1.6 system-ui,sans-serif', 'letter-spacing:.08em',
+    'color:var(--text-muted,#475569)', 'background:var(--surface-subtle,#f1f5f9)',
+    'border:1px solid var(--border-default,#cbd5e1)', 'pointer-events:none', 'opacity:.85',
+  ].join(';');
+  document.body.appendChild(badge);
+}
+
 applyThemePreference();
 injectDesignSystemTokens();
+installUnauthenticatedRedirect();
+showEnvironmentBadge();
 ensureShellRoot();

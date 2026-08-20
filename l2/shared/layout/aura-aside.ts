@@ -3,6 +3,7 @@ import { LitElement, html } from 'lit';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 import { beginExpectedNavigationLoad, runBlockingUiAction } from '/_102033_/l2/shared/interactionRuntime.js';
 import { closeAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js';
+import { visibleNavigation } from '/_102033_/l2/shared/navigationVisibility.js';
 
 function traceLazy(event: string, details?: Record<string, unknown>) {
   if (!window.isTraceLazy) {
@@ -15,10 +16,13 @@ export class AuraAside extends LitElement {
   static properties = {
     bootConfig: { attribute: false },
     currentPath: { state: true },
+    authorities: { state: true },
   };
 
   declare bootConfig?: MasterFrontendBootConfig;
   declare currentPath: string;
+  /** The user's authorities, asked of the server once (the token is httpOnly; JS cannot read claims). */
+  declare authorities: string[];
 
   createRenderRoot() {
     return this;
@@ -27,7 +31,26 @@ export class AuraAside extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this.currentPath = window.location.pathname;
+    this.authorities = this.authorities ?? [];
+    void this.loadAuthorities();
     window.addEventListener('popstate', this.handleLocationChange);
+  }
+
+  /**
+   * The claims live in an httpOnly cookie, so the client cannot read them — it ASKS. Best-effort: a
+   * failure leaves the list empty, which means "filter nothing" and the menu behaves as it always did.
+   */
+  private async loadAuthorities(): Promise<void> {
+    try {
+      const response = await fetch('/session/info', { credentials: 'same-origin' });
+      if (!response.ok) return;
+      const info = await response.json() as { allAuthorities?: unknown };
+      if (Array.isArray(info.allAuthorities)) {
+        this.authorities = info.allAuthorities.filter((value): value is string => typeof value === 'string');
+      }
+    } catch {
+      // keep the unfiltered menu
+    }
   }
 
   disconnectedCallback() {
@@ -100,7 +123,7 @@ export class AuraAside extends LitElement {
   }
 
   render() {
-    const navigation = this.bootConfig?.navigation ?? [];
+    const navigation = visibleNavigation(this.bootConfig?.navigation ?? [], this.authorities, this.bootConfig?.moduleId ?? '');
     const moduleLinks = this.bootConfig?.moduleLinks ?? [];
     return html`
       <style>
