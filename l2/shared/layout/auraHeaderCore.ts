@@ -33,20 +33,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** Hard cap for an inlined mark: a monogram is well under 1KB, so this is generous. */
-export const MAX_LOGO_SVG_BYTES = 4096;
+/** Hard cap for an inlined mark. Generous on purpose: a real mark may carry defs and many paths. */
+export const MAX_LOGO_SVG_BYTES = 12000;
 
 const LOGO_SVG_FORBIDDEN = [
   '<script', '<foreignobject', '<iframe', '<image', '<use', '<style', '<animate',
-  'javascript:', 'xlink:', 'href=', 'url(', '<!entity', '<!doctype',
+  'javascript:', 'xlink:', '<!entity', '<!doctype',
 ];
 
 /**
  * Whether an SVG markup is safe AND suitable to be inlined in the header band.
  *
- * The markup is inlined (that is how it inherits `currentColor` and follows the design system), so
- * it is executable surface: anything that can fetch, script or embed is refused. It must also be a
- * single `<svg>` root with a `viewBox` and no intrinsic size, or it cannot scale into the band.
+ * The markup is inlined, so it is executable surface: anything that can script, fetch or embed is
+ * refused. It must also be a single `<svg>` root with a `viewBox` and no intrinsic size, or it cannot
+ * scale into the band. Everything else — how many shapes, which colors, how it looks — is the
+ * designer's call, not this function's.
+ *
+ * `monochrome: true` additionally requires currentColor-only paint (what makes a mark follow the
+ * design system in both themes); it is OPT-IN, because a real brand mark may well be colored.
  *
  * Shared by the runtime and by the generator's validation, so both judge by the same rule.
  */
@@ -60,13 +64,16 @@ export function isSafeLogoSvg(markup: string, options: { monochrome?: boolean } 
   if (!/\sviewbox\s*=/u.test(lower)) return false;
   if (LOGO_SVG_FORBIDDEN.some((token) => lower.includes(token))) return false;
   if (/\son[a-z]+\s*=/u.test(lower)) return false;                 // event handlers
+  // A url(#id) points inside this very markup (a gradient it carries); anything else leaves the page.
+  if (/url\(\s*(?!#)/u.test(lower)) return false;
+  if (/(?:href|src)\s*=/u.test(lower)) return false;
 
   // Intrinsic size on the ROOT tag only — width/height on inner shapes is legitimate.
   const root = lower.slice(0, lower.indexOf('>') + 1);
   if (/\s(width|height)\s*=/u.test(root)) return false;
 
-  // A monochrome mark paints with currentColor alone, which is what makes light/dark free.
-  if (options.monochrome !== false) {
+  // Opt-in: only when the caller wants a design-system-following mark.
+  if (options.monochrome === true) {
     if (/#[0-9a-f]{3,8}/u.test(lower) || /(rgb|rgba|hsl|hsla)\(/u.test(lower)) return false;
     for (const paint of lower.matchAll(/(?:fill|stroke)\s*=\s*"([^"]*)"/gu)) {
       const value = paint[1].trim();
@@ -279,6 +286,38 @@ ${tag} .aura-header-link[data-active="true"] {
   background: var(--ds-color-nav-active-bg, #e8e4da);
   color: var(--ds-color-nav-active-text, #102a43);
   font-weight: 600;
+}
+
+/* Avatar: a circle the size of a touch target, brand-colored, with the photo filling it when the
+   IdP sends one. Same footprint photo or initials, so the band never reflows when the probe answers. */
+${tag} .aura-header-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--ds-color-border-subtle, #d9e2ec);
+  border-radius: 999px;
+  background: var(--ds-color-button-primary-bg, #102a43);
+  color: var(--ds-color-button-primary-text, #fff);
+  cursor: pointer;
+}
+
+${tag} .aura-header-avatar-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+${tag} .aura-header-avatar-initials {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
 }
 
 ${tag} .aura-header-select {

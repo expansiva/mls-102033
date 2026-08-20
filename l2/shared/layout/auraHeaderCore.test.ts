@@ -109,7 +109,12 @@ test('the runtime sanitizer refuses what cannot be inlined safely', () => {
   assert.equal(isSafeLogoSvg('<svg><rect fill="currentColor"/></svg>'), false, 'no viewBox');
   assert.equal(isSafeLogoSvg('<svg viewBox="0 0 32 32" width="32"><rect fill="currentColor"/></svg>'), false, 'intrinsic size');
   assert.equal(isSafeLogoSvg('<div><svg viewBox="0 0 32 32"></svg></div>'), false, 'not a single svg root');
-  assert.equal(isSafeLogoSvg('<svg viewBox="0 0 32 32"><rect fill="#f00"/></svg>'), false, 'literal color');
+  // A fixed color is NOT unsafe — a brand mark may be colored. Monochrome is opt-in, for a mark that
+  // must follow the design system in both themes.
+  assert.ok(isSafeLogoSvg('<svg viewBox="0 0 32 32"><rect fill="#f00"/></svg>'), 'a colored mark is allowed');
+  assert.equal(isSafeLogoSvg('<svg viewBox="0 0 32 32"><rect fill="#f00"/></svg>', { monochrome: true }), false);
+  assert.equal(isSafeLogoSvg('<svg viewBox="0 0 32 32"><rect fill="url(http://x/y#g)"/></svg>'), false, 'external ref');
+  assert.ok(isSafeLogoSvg('<svg viewBox="0 0 32 32"><defs><linearGradient id="g"><stop offset="0" stop-color="#c85a2a"/></linearGradient></defs><rect x="1" y="1" width="30" height="30" fill="url(#g)"/></svg>'), 'inline gradient is fine');
   assert.equal(isSafeLogoSvg(''), false);
 });
 

@@ -34,6 +34,7 @@ import {
   listRuntimeLanguages,
   setRuntimeLanguage,
 } from '/_102033_/l2/shared/languageRuntime.js';
+import { getSessionUser, userInitials, userLabel, type SessionUser } from '/_102033_/l2/shared/sessionUser.js';
 import {
   getRuntimeDesignSystem,
   listRuntimeDesignSystems,
@@ -54,12 +55,15 @@ export abstract class AuraHeaderBase extends LitElement {
     bootConfig: { attribute: false },
     regionProps: { attribute: false },
     currentPath: { state: true },
+    sessionUser: { state: true },
   };
 
   declare bootConfig?: MasterFrontendBootConfig;
   /** Profile props handed over by the shell (`brand`, `heightPx`, `props.actions`, `profileName`). */
   declare regionProps?: Record<string, unknown>;
   declare currentPath: string;
+  /** Who is logged in (for the avatar); undefined until the one-per-page probe answers. */
+  declare sessionUser?: SessionUser;
 
   /** Light DOM — the shell's region CSS and the :root DS tokens depend on it. Do NOT override. */
   createRenderRoot() {
@@ -71,6 +75,10 @@ export abstract class AuraHeaderBase extends LitElement {
     this.currentPath = window.location.pathname;
     window.addEventListener('popstate', this.handleLocationChange);
     this.ensureBandStyles();
+    // Only when this header actually shows an avatar — a header without the action pays nothing.
+    if (this.hasAction('user')) {
+      void getSessionUser().then((user) => { this.sessionUser = user; });
+    }
   }
 
   disconnectedCallback() {
@@ -277,8 +285,39 @@ export abstract class AuraHeaderBase extends LitElement {
   }
 
   /**
-   * The optional actions the profile enabled, in a stable order. `search` and `user` have no shell
-   * runtime behind them: a subclass that declares them renders them itself (see `hasAction`).
+   * The logged user as an avatar: the IdP photo when there is one, otherwise the initials, otherwise
+   * a neutral silhouette. It is a BUTTON — clicking announces the `user` action through
+   * `emitHeaderAction`, and the app decides what opens (menu, profile, sign-out).
+   *
+   * Available to a generated header as `this.renderUserAvatar()`; the profile turns it on by listing
+   * the `user` action.
+   */
+  protected renderUserAvatar() {
+    const user = this.sessionUser;
+    const label = userLabel(user ?? { authenticated: false });
+    const initials = user ? userInitials(user) : '';
+
+    return html`
+      <button
+        class="aura-header-avatar"
+        type="button"
+        title=${label}
+        aria-label=${label}
+        @click=${() => this.emitHeaderAction('user')}
+      >
+        ${user?.picture
+          ? html`<img class="aura-header-avatar-photo" src=${user.picture} alt="" referrerpolicy="no-referrer" />`
+          : initials
+            ? html`<span class="aura-header-avatar-initials">${initials}</span>`
+            : html`<span class="aura-header-avatar-initials" aria-hidden="true">&#9679;</span>`}
+      </button>
+    `;
+  }
+
+  /**
+   * The optional actions the profile enabled, in a stable order. `search` has no shell runtime behind
+   * it: a subclass that declares it renders it itself (see `hasAction`). `user` is the avatar, which
+   * the base draws — a subclass may still place it by hand with `renderUserAvatar()`.
    */
   protected renderActions() {
     const actions = this.actions;
@@ -290,6 +329,7 @@ export abstract class AuraHeaderBase extends LitElement {
       ${actions.includes('modules') ? this.renderModuleLinks() : nothing}
       ${actions.includes('language') ? this.renderLanguageSwitcher() : nothing}
       ${actions.includes('designSystem') ? this.renderDesignSystemSwitcher() : nothing}
+      ${actions.includes('user') ? this.renderUserAvatar() : nothing}
     `;
   }
 
