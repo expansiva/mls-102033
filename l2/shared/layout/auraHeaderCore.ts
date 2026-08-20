@@ -33,6 +33,50 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Hard cap for an inlined mark: a monogram is well under 1KB, so this is generous. */
+export const MAX_LOGO_SVG_BYTES = 4096;
+
+const LOGO_SVG_FORBIDDEN = [
+  '<script', '<foreignobject', '<iframe', '<image', '<use', '<style', '<animate',
+  'javascript:', 'xlink:', 'href=', 'url(', '<!entity', '<!doctype',
+];
+
+/**
+ * Whether an SVG markup is safe AND suitable to be inlined in the header band.
+ *
+ * The markup is inlined (that is how it inherits `currentColor` and follows the design system), so
+ * it is executable surface: anything that can fetch, script or embed is refused. It must also be a
+ * single `<svg>` root with a `viewBox` and no intrinsic size, or it cannot scale into the band.
+ *
+ * Shared by the runtime and by the generator's validation, so both judge by the same rule.
+ */
+export function isSafeLogoSvg(markup: string, options: { monochrome?: boolean } = {}): boolean {
+  const svg = readString(markup);
+  if (!svg || svg.length > MAX_LOGO_SVG_BYTES) return false;
+
+  const lower = svg.toLowerCase();
+  if (!lower.startsWith('<svg') || !lower.endsWith('</svg>')) return false;
+  if (lower.split('<svg').length !== 2) return false;              // exactly one root
+  if (!/\sviewbox\s*=/u.test(lower)) return false;
+  if (LOGO_SVG_FORBIDDEN.some((token) => lower.includes(token))) return false;
+  if (/\son[a-z]+\s*=/u.test(lower)) return false;                 // event handlers
+
+  // Intrinsic size on the ROOT tag only — width/height on inner shapes is legitimate.
+  const root = lower.slice(0, lower.indexOf('>') + 1);
+  if (/\s(width|height)\s*=/u.test(root)) return false;
+
+  // A monochrome mark paints with currentColor alone, which is what makes light/dark free.
+  if (options.monochrome !== false) {
+    if (/#[0-9a-f]{3,8}/u.test(lower) || /(rgb|rgba|hsl|hsla)\(/u.test(lower)) return false;
+    for (const paint of lower.matchAll(/(?:fill|stroke)\s*=\s*"([^"]*)"/gu)) {
+      const value = paint[1].trim();
+      if (value && value !== 'currentcolor' && value !== 'none') return false;
+    }
+  }
+
+  return true;
+}
+
 /**
  * Only `.svg` logos are supported: it is the asset kind that survives into dist (raster brand
  * assets are not published), so anything else would 404 in production.
@@ -54,6 +98,7 @@ export function resolveHeaderBrand(
 ): AuraHeaderBrand {
   const configured = isRecord(regionProps?.brand) ? regionProps.brand : {};
   const logoUrl = readString(configured.logoUrl);
+  const logoSvg = readString(configured.logoSvg);
   const title = readString(configured.title) || fallbackTitle;
   const brand: AuraHeaderBrand = {
     title,
@@ -64,7 +109,11 @@ export function resolveHeaderBrand(
     href: readString(configured.href) || readString(bootConfig?.basePath) || undefined,
   };
 
-  if (isSupportedLogoUrl(logoUrl)) {
+  // Inline markup wins over a URL: it is the one that follows the design system.
+  if (isSafeLogoSvg(logoSvg)) {
+    brand.logoSvg = logoSvg;
+    brand.logoAlt = readString(configured.logoAlt) || title;
+  } else if (isSupportedLogoUrl(logoUrl)) {
     brand.logoUrl = logoUrl;
     brand.logoAlt = readString(configured.logoAlt) || title;
   }
@@ -161,6 +210,20 @@ ${tag} .aura-header-logo {
   display: block;
   width: auto;
   height: 28px;
+}
+
+/* Inlined mark: same box as the img, painted by the nav text color (currentColor). */
+${tag} span.aura-header-logo {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ds-color-nav-text, #102a43);
+}
+
+${tag} .aura-header-logo svg {
+  display: block;
+  width: auto;
+  height: 28px;
+  fill: currentColor;
 }
 
 ${tag} .aura-header-title {

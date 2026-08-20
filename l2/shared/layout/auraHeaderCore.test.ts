@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   AURA_HEADER_HEIGHT_PX,
+  isSafeLogoSvg,
   AURA_MOBILE_BREAKPOINT_PX,
   buildHeaderBandCss,
   isSupportedLogoUrl,
@@ -74,6 +75,36 @@ test('only .svg logos survive (raster brand assets are not published)', () => {
 test('a malformed brand block does not break the header', () => {
   const brand = resolveHeaderBrand(bootConfig(), { brand: 'Sample App' }, 'Collab Aura');
   assert.equal(brand.title, 'Collab Aura');
+});
+
+test('an inlined mark wins over a logo URL, and unsafe markup is dropped', () => {
+  const svg = '<svg viewBox="0 0 32 32"><rect fill="currentColor" width="10" height="10"/></svg>';
+  const inlined = resolveHeaderBrand(bootConfig(), { brand: { title: 'Sample', logoSvg: svg, logoUrl: '/a/b.svg' } });
+  assert.equal(inlined.logoSvg, svg);
+  assert.equal(inlined.logoUrl, undefined, 'the markup is the one that follows the design system');
+  assert.equal(inlined.logoAlt, 'Sample');
+
+  // Refused markup must not silently reach the DOM — the URL takes over.
+  const unsafe = resolveHeaderBrand(bootConfig(), {
+    brand: { title: 'Sample', logoSvg: '<svg viewBox="0 0 32 32"><script>alert(1)</script></svg>', logoUrl: '/a/b.svg' },
+  });
+  assert.equal(unsafe.logoSvg, undefined);
+  assert.equal(unsafe.logoUrl, '/a/b.svg');
+});
+
+test('the band sizes and paints the inlined mark', () => {
+  const css = buildHeaderBandCss('collab-aura-header');
+  assert.ok(css.includes('.aura-header-logo svg'));
+  assert.ok(css.includes('fill: currentColor'), 'the mark follows the nav text color');
+});
+
+test('the runtime sanitizer refuses what cannot be inlined safely', () => {
+  assert.ok(isSafeLogoSvg('<svg viewBox="0 0 32 32"><path d="M0 0h4v4H0z" fill="currentColor"/></svg>'));
+  assert.equal(isSafeLogoSvg('<svg><rect fill="currentColor"/></svg>'), false, 'no viewBox');
+  assert.equal(isSafeLogoSvg('<svg viewBox="0 0 32 32" width="32"><rect fill="currentColor"/></svg>'), false, 'intrinsic size');
+  assert.equal(isSafeLogoSvg('<div><svg viewBox="0 0 32 32"></svg></div>'), false, 'not a single svg root');
+  assert.equal(isSafeLogoSvg('<svg viewBox="0 0 32 32"><rect fill="#f00"/></svg>'), false, 'literal color');
+  assert.equal(isSafeLogoSvg(''), false);
 });
 
 // ── actions ────────────────────────────────────────────────────────────────

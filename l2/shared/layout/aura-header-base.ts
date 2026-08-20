@@ -15,6 +15,7 @@
 // override `createRenderRoot`, declare a height on the host, or use shadow DOM.
 
 import { LitElement, html, nothing } from 'lit';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 import type { ProjectNavigationEntry } from '/_102029_/l2/runtimeConfigTypes.js';
 import { toggleAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js';
@@ -41,6 +42,9 @@ import {
 
 export type { AuraHeaderAction, AuraHeaderBrand };
 export { AURA_HEADER_HEIGHT_PX } from '/_102033_/l2/shared/layout/auraHeaderCore.js';
+
+/** Event a header fires for an action with no route (see `emitHeaderAction`). */
+export const AURA_HEADER_ACTION_EVENT = 'collab-aura:header-action';
 
 /** Band CSS is emitted once per tag, not once per render — several profiles can coexist. */
 const styledTags = new Set<string>();
@@ -143,6 +147,21 @@ export abstract class AuraHeaderBase extends LitElement {
     auraNavigateFromEvent(event, { basePath: this.basePath });
   };
 
+  /**
+   * Announces a header action that has no route behind it (`user`, `search`, anything app-specific).
+   *
+   * A header must never invent a route: an action with no destination dispatches this event and the
+   * app decides what to do (open a menu, a dialog, nothing at all). The event bubbles, so a listener
+   * on window/document sees it.
+   */
+  protected emitHeaderAction(action: string, detail?: Record<string, unknown>): void {
+    this.dispatchEvent(new CustomEvent(AURA_HEADER_ACTION_EVENT, {
+      bubbles: true,
+      composed: true,
+      detail: { action, projectId: this.bootConfig?.projectId, ...detail },
+    }));
+  }
+
   // ── Building blocks ────────────────────────────────────────────────────────
 
   protected renderAsideToggle() {
@@ -158,10 +177,27 @@ export abstract class AuraHeaderBase extends LitElement {
     `;
   }
 
+  /**
+   * The mark: inlined markup when the brand carries one (it inherits `currentColor`, so it follows
+   * the design system in light and dark), otherwise the `<img>` for a URL. `resolveHeaderBrand`
+   * already refused anything unsafe — see `isSafeLogoSvg` — so only a sanitized single `<svg>` root
+   * reaches unsafeHTML here. Same shape the 102025 avatar uses.
+   */
+  protected renderLogo() {
+    const brand = this.brand;
+    if (brand.logoSvg) {
+      return html`<span class="aura-header-logo" role="img" aria-label=${brand.logoAlt ?? brand.title}>${unsafeHTML(brand.logoSvg)}</span>`;
+    }
+    if (brand.logoUrl) {
+      return html`<img class="aura-header-logo" src=${brand.logoUrl} alt=${brand.logoAlt ?? brand.title} />`;
+    }
+    return nothing;
+  }
+
   protected renderBrand() {
     const brand = this.brand;
     const content = html`
-      ${brand.logoUrl ? html`<img class="aura-header-logo" src=${brand.logoUrl} alt=${brand.logoAlt ?? brand.title} />` : nothing}
+      ${this.renderLogo()}
       <span class="aura-header-brand-text">
         <strong class="aura-header-title">${brand.title}</strong>
         ${brand.subtitle ? html`<span class="aura-header-subtitle">${brand.subtitle}</span>` : nothing}
