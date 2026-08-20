@@ -92,10 +92,16 @@ test('an inlined mark wins over a logo URL, and unsafe markup is dropped', () =>
   assert.equal(unsafe.logoUrl, '/a/b.svg');
 });
 
-test('the band sizes and paints the inlined mark', () => {
+test('the band sizes the inlined mark without painting over its own fills', () => {
   const css = buildHeaderBandCss('collab-aura-header');
-  assert.ok(css.includes('.aura-header-logo svg'));
-  assert.ok(css.includes('fill: currentColor'), 'the mark follows the nav text color');
+  const svgRule = css.slice(css.indexOf('.aura-header-logo svg'));
+  const block = svgRule.slice(0, svgRule.indexOf('}'));
+  assert.ok(block.includes('height: 28px'));
+  // A CSS `fill` outranks the markup's fill="none" and turns an outlined mark into a solid blob.
+  assert.equal(/(^|[\s;])fill\s*:/u.test(block), false, 'the svg rule must not set fill');
+  // currentColor still resolves: the wrapper carries the nav text color.
+  assert.ok(css.includes('span.aura-header-logo'));
+  assert.ok(css.includes('color: var(--ds-color-nav-text'));
 });
 
 test('the runtime sanitizer refuses what cannot be inlined safely', () => {

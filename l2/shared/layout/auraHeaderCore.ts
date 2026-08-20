@@ -219,11 +219,14 @@ ${tag} span.aura-header-logo {
   color: var(--ds-color-nav-text, #102a43);
 }
 
+/* No fill declaration here on purpose: CSS BEATS the SVG presentation attributes, so a
+   fill:currentColor would override the mark's own fill=none and turn every outlined shape
+   into a solid blob (a rounded container came out as a filled square). The wrapper's color
+   is what currentColor resolves against — the markup keeps deciding fill vs stroke. */
 ${tag} .aura-header-logo svg {
   display: block;
   width: auto;
   height: 28px;
-  fill: currentColor;
 }
 
 ${tag} .aura-header-title {
