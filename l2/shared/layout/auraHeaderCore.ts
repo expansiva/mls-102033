@@ -157,7 +157,8 @@ export function shouldShowMobileAsideToggle(bootConfig?: MasterFrontendBootConfi
 /**
  * CSS of the user menu — NOT scoped by the header tag, on purpose.
  *
- * The panel is attached to `document.body`, not to the band: the band carries `backdrop-filter`,
+ * Painted with the SAME nav palette as the band (it reads as an extension of the header, not as a
+ * card of the page), and attached to `document.body`, not to the band: the band carries `backdrop-filter`,
  * which establishes a containing block for fixed descendants, so a panel inside it would be trapped
  * and then clipped by the header region's `overflow: hidden`. Living in the body is what lets it
  * open below the header at all. Injected once per page.
@@ -170,11 +171,11 @@ export function buildUserMenuCss(): string {
   min-width: 240px;
   max-width: min(320px, calc(100vw - 24px));
   padding: 6px;
-  border: 1px solid var(--ds-color-border-default, #d9e2ec);
-  border-radius: 14px;
-  background: var(--ds-color-surface-bg, #fff);
-  color: var(--ds-color-text-default, #102a43);
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+  border: 1px solid var(--nav-bg-focus, #d9e2ec);
+  border-radius: var(--radius-large, 14px);
+  background: var(--nav-bg, #fff);
+  color: var(--nav-text, #102a43);
+  box-shadow: var(--shadow-medium, 0 18px 40px rgba(15, 23, 42, 0.16));
   font-family: inherit;
 }
 
@@ -182,7 +183,7 @@ export function buildUserMenuCss(): string {
   display: grid;
   gap: 2px;
   padding: 10px 12px 12px;
-  border-bottom: 1px solid var(--ds-color-border-subtle, #eef2f6);
+  border-bottom: 1px solid var(--nav-bg-focus, #eef2f6);
 }
 
 .aura-user-menu-name {
@@ -192,7 +193,8 @@ export function buildUserMenuCss(): string {
 
 .aura-user-menu-email {
   overflow: hidden;
-  color: var(--ds-color-text-muted, #52606d);
+  color: var(--nav-text, #52606d);
+  opacity: 0.75;
   font-size: 0.84rem;
   text-overflow: ellipsis;
 }
@@ -203,9 +205,9 @@ export function buildUserMenuCss(): string {
   margin-top: 6px;
   padding: 10px 12px;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-medium, 10px);
   background: transparent;
-  color: var(--ds-color-text-default, #102a43);
+  color: var(--nav-text, #102a43);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -213,7 +215,8 @@ export function buildUserMenuCss(): string {
 
 .aura-user-menu-action:hover,
 .aura-user-menu-action:focus-visible {
-  background: var(--ds-color-surface-alt-bg, #f1f5f9);
+  background: var(--nav-active-bg, #f1f5f9);
+  color: var(--nav-active-text, #102a43);
 }
 `.trim();
 }
@@ -248,9 +251,9 @@ ${tag} .aura-header-band {
   height: 100%;
   box-sizing: border-box;
   padding: 0 24px;
-  background: var(--ds-color-nav-bg, rgba(255, 255, 255, 0.9));
-  color: var(--ds-color-nav-text, #102a43);
-  border-bottom: 1px solid var(--ds-color-border-default, #d9e2ec);
+  background: var(--nav-bg, rgba(255, 255, 255, 0.9));
+  color: var(--nav-text, #102a43);
+  border-bottom: 1px solid var(--nav-bg-focus, #d9e2ec);
   backdrop-filter: blur(14px);
 }
 
@@ -287,7 +290,7 @@ ${tag} .aura-header-logo {
 ${tag} span.aura-header-logo {
   display: inline-flex;
   align-items: center;
-  color: var(--ds-color-nav-text, #102a43);
+  color: var(--nav-text, #102a43);
 }
 
 /* No fill declaration here on purpose: CSS BEATS the SVG presentation attributes, so a
@@ -310,7 +313,8 @@ ${tag} .aura-header-title {
 
 ${tag} .aura-header-subtitle {
   overflow: hidden;
-  color: var(--ds-color-text-muted, #52606d);
+  color: var(--nav-text, #52606d);
+  opacity: 0.75;
   font-size: 0.88rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -322,10 +326,10 @@ ${tag} .aura-header-toggle {
   justify-content: center;
   width: 42px;
   height: 42px;
-  border: 1px solid var(--ds-color-border-default, #d9e2ec);
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: var(--ds-color-surface-bg, #fff);
-  color: var(--ds-color-nav-text, #102a43);
+  background: var(--nav-active-bg, #eef2f6);
+  color: var(--nav-active-text, #102a43);
   font-size: 1.1rem;
   cursor: pointer;
 }
@@ -340,15 +344,20 @@ ${tag} .aura-header-nav {
 ${tag} .aura-header-link {
   padding: 8px 12px;
   border-radius: 999px;
-  color: var(--ds-color-nav-text, #102a43);
+  color: var(--nav-text, #102a43);
   font-size: 0.9rem;
   text-decoration: none;
   white-space: nowrap;
 }
 
+${tag} .aura-header-link:hover {
+  background: var(--nav-bg-hover, #eef2f6);
+  color: var(--nav-text-hover, #102a43);
+}
+
 ${tag} .aura-header-link[data-active="true"] {
-  background: var(--ds-color-nav-active-bg, #e8e4da);
-  color: var(--ds-color-nav-active-text, #102a43);
+  background: var(--nav-active-bg, #e8e4da);
+  color: var(--nav-active-text, #102a43);
   font-weight: 600;
 }
 
@@ -363,10 +372,10 @@ ${tag} .aura-header-avatar {
   width: 34px;
   height: 34px;
   padding: 0;
-  border: 1px solid var(--ds-color-border-subtle, #d9e2ec);
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: var(--ds-color-button-primary-bg, #102a43);
-  color: var(--ds-color-button-primary-text, #fff);
+  background: var(--nav-active-bg, #102a43);
+  color: var(--nav-active-text, #fff);
   cursor: pointer;
 }
 
@@ -391,10 +400,10 @@ ${tag} .aura-header-avatar-initials {
 }
 
 ${tag} .aura-header-select {
-  border: 1px solid var(--ds-color-border-subtle, #d9e2ec);
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: var(--ds-color-input-bg, #fff);
-  color: var(--ds-color-text-default, #102a43);
+  background: var(--nav-active-bg, #eef2f6);
+  color: var(--nav-active-text, #102a43);
   padding: 6px 10px;
   font-size: 0.85rem;
   cursor: pointer;

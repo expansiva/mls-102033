@@ -102,7 +102,7 @@ test('the band sizes the inlined mark without painting over its own fills', () =
   assert.equal(/(^|[\s;])fill\s*:/u.test(block), false, 'the svg rule must not set fill');
   // currentColor still resolves: the wrapper carries the nav text color.
   assert.ok(css.includes('span.aura-header-logo'));
-  assert.ok(css.includes('color: var(--ds-color-nav-text'));
+  assert.ok(css.includes('color: var(--nav-text'));
 });
 
 test('the runtime sanitizer refuses what cannot be inlined safely', () => {
@@ -171,8 +171,30 @@ test('every color goes through a DS role token', () => {
   const withoutTokens = css.replace(/var\([^)]*\)/gu, '');
   assert.equal(/#[0-9a-f]{3,8}\b/iu.test(withoutTokens), false, `literal color outside a token fallback: ${withoutTokens.match(/#[0-9a-f]{3,8}\b/iu)?.[0]}`);
   assert.equal(/\b(rgb|rgba|hsl|hsla)\(/u.test(withoutTokens), false, 'literal color function outside a token fallback');
-  assert.ok(css.includes('--ds-color-nav-bg'));
-  assert.ok(css.includes('--ds-color-border-default'));
+  assert.ok(css.includes('--nav-bg'));
+});
+
+test('everything the band paints comes from the nav palette', () => {
+  // The band IS the nav surface: in a project whose nav-bg is dark (102051: #1c2430 with light
+  // nav-text), a surface/input/button token would paint a bright control on a dark strip.
+  const css = buildHeaderBandCss('collab-aura-header');
+  const tokens = [...new Set([...css.matchAll(/var\(\s*(--[a-z0-9-]+)/gu)].map((match) => match[1]))];
+  const offenders = tokens.filter((token) => !token.startsWith('--nav-') && !token.startsWith('--aura-'));
+  assert.deepEqual(offenders, [], `the band must paint with nav-* tokens only, found: ${offenders.join(', ')}`);
+  // And it does use the active pair for its controls (toggle, select, avatar).
+  assert.ok(css.includes('--nav-active-bg'));
+  assert.ok(css.includes('--nav-active-text'));
+});
+
+test('the floating panel wears the nav palette too', () => {
+  // It reads as an extension of the header, not as a card of the page — so the same family as the
+  // band, including the radius/shadow scales from the DS global group.
+  const css = buildUserMenuCss();
+  const tokens = [...new Set([...css.matchAll(/var\(\s*(--[a-z0-9-]+)/gu)].map((match) => match[1]))];
+  const offenders = tokens.filter((token) => !/^--(nav-|radius-|shadow-)/u.test(token));
+  assert.deepEqual(offenders, [], `the panel must use nav-*/radius-*/shadow-* only, found: ${offenders.join(', ')}`);
+  assert.ok(css.includes('--nav-bg'));
+  assert.ok(css.includes('--nav-active-bg'));
 });
 
 // ── navigation predicates ──────────────────────────────────────────────────
