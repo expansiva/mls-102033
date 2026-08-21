@@ -22,6 +22,7 @@ import { toggleAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js
 import { auraNavigate, auraNavigateFromEvent, isRegionLinkActive } from '/_102033_/l2/shared/layout/auraNavigate.js';
 import {
   buildHeaderBandCss,
+  buildUserMenuCss,
   resolveBandHeightPx,
   resolveHeaderActions,
   resolveHeaderBrand,
@@ -64,6 +65,10 @@ export abstract class AuraHeaderBase extends LitElement {
   declare currentPath: string;
   /** Who is logged in (for the avatar); undefined until the one-per-page probe answers. */
   declare sessionUser?: SessionUser;
+  /** Guards the probe (once per element) and the broken-photo fallback. */
+  private sessionRequested = false;
+  private pictureBroken = false;
+  private userMenu?: HTMLElement;
 
   /** Light DOM — the shell's region CSS and the :root DS tokens depend on it. Do NOT override. */
   createRenderRoot() {
@@ -75,20 +80,49 @@ export abstract class AuraHeaderBase extends LitElement {
     this.currentPath = window.location.pathname;
     window.addEventListener('popstate', this.handleLocationChange);
     this.ensureBandStyles();
-    // Only when this header actually shows an avatar — a header without the action pays nothing.
-    if (this.hasAction('user')) {
-      void getSessionUser().then((user) => { this.sessionUser = user; });
-    }
+    // The probe is lazy (see ensureSessionUser): a header that never mentions the user pays nothing,
+    // and one that shows the name WITHOUT the avatar still gets it — the earlier version gated the
+    // fetch on the `user` action, which left `this.sessionUser` empty for a welcome message.
+    if (this.hasAction('user')) this.ensureSessionUser();
   }
 
   disconnectedCallback() {
     window.removeEventListener('popstate', this.handleLocationChange);
+    // The panel lives in the body, so it would outlive a header swapped out by a profile switch.
+    this.closeUserMenu();
     super.disconnectedCallback();
   }
 
   private readonly handleLocationChange = () => {
     this.currentPath = window.location.pathname;
   };
+
+  /** Fires the one-per-page session probe, at most once per element. */
+  private ensureSessionUser(): void {
+    if (this.sessionRequested) return;
+    this.sessionRequested = true;
+    void getSessionUser().then((user) => { this.sessionUser = user; });
+  }
+
+  /**
+   * The logged user's display name (name, else email, else empty) — for a welcome message. Reading it
+   * starts the session probe, so a header that greets the user does not have to ask for the avatar.
+   */
+  protected get userName(): string {
+    this.ensureSessionUser();
+    return this.sessionUser?.name ?? this.sessionUser?.email ?? '';
+  }
+
+  /** First name only, which is what a greeting usually wants. */
+  protected get userFirstName(): string {
+    const name = this.userName;
+    return name.includes('@') ? name.split('@')[0] : name.split(/\s+/u)[0] ?? '';
+  }
+
+  protected get userEmail(): string {
+    this.ensureSessionUser();
+    return this.sessionUser?.email ?? '';
+  }
 
   private ensureBandStyles(): void {
     const tag = this.localName;
@@ -292,10 +326,23 @@ export abstract class AuraHeaderBase extends LitElement {
    * Available to a generated header as `this.renderUserAvatar()`; the profile turns it on by listing
    * the `user` action.
    */
+  /** Neutral silhouette for a user with no photo and no initials (anonymous, or an IdP that tells us nothing). */
+  private renderAvatarFallbackIcon() {
+    return html`
+      <svg class="aura-header-avatar-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="8.5" r="3.75" fill="none" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M4.75 20c0-3.7 3.25-6 7.25-6s7.25 2.3 7.25 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+
   protected renderUserAvatar() {
+    this.ensureSessionUser();
     const user = this.sessionUser;
     const label = userLabel(user ?? { authenticated: false });
     const initials = user ? userInitials(user) : '';
+    // A photo URL that 404s used to leave the browser's broken-image glyph in the band.
+    const photo = this.pictureBroken ? undefined : user?.picture;
 
     return html`
       <button
@@ -303,15 +350,140 @@ export abstract class AuraHeaderBase extends LitElement {
         type="button"
         title=${label}
         aria-label=${label}
-        @click=${() => this.emitHeaderAction('user')}
+        aria-haspopup="menu"
+        @click=${(event: Event) => this.handleAvatarClick(event)}
       >
-        ${user?.picture
-          ? html`<img class="aura-header-avatar-photo" src=${user.picture} alt="" referrerpolicy="no-referrer" />`
+        ${photo
+          ? html`<img
+              class="aura-header-avatar-photo"
+              src=${photo}
+              alt=""
+              referrerpolicy="no-referrer"
+              @error=${() => { this.pictureBroken = true; this.requestUpdate(); }}
+            />`
           : initials
             ? html`<span class="aura-header-avatar-initials">${initials}</span>`
-            : html`<span class="aura-header-avatar-initials" aria-hidden="true">&#9679;</span>`}
+            : this.renderAvatarFallbackIcon()}
       </button>
     `;
+  }
+
+  // ── User menu ──────────────────────────────────────────────────────────────
+
+  /** Copy of the user menu. A subclass with an i18n block overrides this. */
+  protected get userMenuLabels(): { signOut: string; anonymous: string } {
+    return { signOut: 'Sign out', anonymous: 'Not signed in' };
+  }
+
+  private handleAvatarClick(event: Event): void {
+    // The app may want to own this entirely — the event fires either way.
+    this.emitHeaderAction('user');
+    this.toggleUserMenu(event.currentTarget as HTMLElement);
+  }
+
+  /**
+   * Opens the identity panel under the avatar.
+   *
+   * Attached to `document.body`, NOT inside the band: the band carries `backdrop-filter`, which makes
+   * it a containing block for fixed descendants, and the shell clips the header region with
+   * `overflow: hidden` — a panel rendered in place would be cut off instead of shown.
+   */
+  private toggleUserMenu(anchor: HTMLElement | null): void {
+    if (this.userMenu) {
+      this.closeUserMenu();
+      return;
+    }
+    if (!anchor) return;
+
+    if (!document.getElementById('aura-user-menu-css')) {
+      const style = document.createElement('style');
+      style.id = 'aura-user-menu-css';
+      style.textContent = buildUserMenuCss();
+      document.head.appendChild(style);
+    }
+
+    const labels = this.userMenuLabels;
+    const menu = document.createElement('div');
+    menu.className = 'aura-user-menu';
+    menu.setAttribute('role', 'menu');
+
+    const identity = document.createElement('div');
+    identity.className = 'aura-user-menu-identity';
+    const name = document.createElement('div');
+    name.className = 'aura-user-menu-name';
+    name.textContent = this.userName || labels.anonymous;
+    identity.appendChild(name);
+    const email = this.userEmail;
+    if (email && email !== name.textContent) {
+      const emailLine = document.createElement('div');
+      emailLine.className = 'aura-user-menu-email';
+      emailLine.textContent = email;
+      identity.appendChild(emailLine);
+    }
+    menu.appendChild(identity);
+
+    const signOut = document.createElement('button');
+    signOut.type = 'button';
+    signOut.className = 'aura-user-menu-action';
+    signOut.setAttribute('role', 'menuitem');
+    signOut.textContent = labels.signOut;
+    signOut.addEventListener('click', () => { void this.signOut(); });
+    menu.appendChild(signOut);
+
+    document.body.appendChild(menu);
+    const rect = anchor.getBoundingClientRect();
+    const width = menu.offsetWidth;
+    menu.style.top = `${Math.round(rect.bottom + 8)}px`;
+    // Right-aligned with the avatar, kept inside the viewport.
+    menu.style.left = `${Math.round(Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12)))}px`;
+    signOut.focus();
+
+    this.userMenu = menu;
+    window.addEventListener('keydown', this.handleUserMenuKeydown, true);
+    window.addEventListener('pointerdown', this.handleOutsidePointer, true);
+    window.addEventListener('resize', this.closeUserMenu);
+  }
+
+  private readonly closeUserMenu = (): void => {
+    if (!this.userMenu) return;
+    this.userMenu.remove();
+    this.userMenu = undefined;
+    window.removeEventListener('keydown', this.handleUserMenuKeydown, true);
+    window.removeEventListener('pointerdown', this.handleOutsidePointer, true);
+    window.removeEventListener('resize', this.closeUserMenu);
+  };
+
+  private readonly handleUserMenuKeydown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') this.closeUserMenu();
+  };
+
+  private readonly handleOutsidePointer = (event: Event): void => {
+    const target = event.target as Node | null;
+    if (!target || this.userMenu?.contains(target) || this.contains(target)) return;
+    this.closeUserMenu();
+  };
+
+  /**
+   * Ends the session. Uses the runtime hook when the page has it (window.collabRuntimeAuth), and
+   * falls back to importing the auth helper on demand — the header never pays for it until a click.
+   */
+  protected async signOut(): Promise<void> {
+    this.closeUserMenu();
+    const hook = (window as unknown as { collabRuntimeAuth?: { logout?: () => Promise<void> } }).collabRuntimeAuth;
+    if (typeof hook?.logout === 'function') {
+      await hook.logout();
+      return;
+    }
+    try {
+      const auth = await import('/_102033_/l2/cbe/cbeAuth.js') as { logoutCollab?: () => Promise<void> };
+      if (typeof auth.logoutCollab === 'function') {
+        await auth.logoutCollab();
+        return;
+      }
+    } catch (error) {
+      console.warn('[aura-header] could not load the auth helper', error);
+    }
+    window.location.reload();
   }
 
   /**

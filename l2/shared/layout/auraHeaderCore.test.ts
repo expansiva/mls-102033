@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   AURA_HEADER_HEIGHT_PX,
+  buildUserMenuCss,
   isSafeLogoSvg,
   AURA_MOBILE_BREAKPOINT_PX,
   buildHeaderBandCss,
@@ -189,4 +190,19 @@ test('the module root is active on its aliases too', () => {
   assert.equal(isRegionLinkActive('/sampleModule', '/sampleModule/overview', '/sampleModule'), true);
   assert.equal(isRegionLinkActive('/sampleModule', '/sampleModule/items', '/sampleModule'), false);
   assert.equal(isRegionLinkActive('/sampleModule/items', '/sampleModule/items', '/sampleModule'), true);
+});
+
+test('the user menu CSS is global on purpose, and carries the classes the base builds', () => {
+  const css = buildUserMenuCss();
+  // Not tag-scoped: the panel lives in document.body, because the band's backdrop-filter would
+  // trap a fixed child and the shell clips the header region.
+  assert.equal(css.includes('${tag}'), false);
+  assert.ok(css.includes('.aura-user-menu {'));
+  assert.ok(css.includes('position: fixed'));
+  for (const cls of ['.aura-user-menu-identity', '.aura-user-menu-name', '.aura-user-menu-email', '.aura-user-menu-action']) {
+    assert.ok(css.includes(cls), `missing ${cls}`);
+  }
+  // Same token discipline as the band.
+  const withoutTokens = css.replace(/var\([^)]*\)/gu, '');
+  assert.equal(/#[0-9a-f]{3,8}\b/iu.test(withoutTokens), false, 'literal color outside a token fallback');
 });

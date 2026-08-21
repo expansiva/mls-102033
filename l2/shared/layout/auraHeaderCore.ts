@@ -155,6 +155,70 @@ export function shouldShowMobileAsideToggle(bootConfig?: MasterFrontendBootConfi
 }
 
 /**
+ * CSS of the user menu — NOT scoped by the header tag, on purpose.
+ *
+ * The panel is attached to `document.body`, not to the band: the band carries `backdrop-filter`,
+ * which establishes a containing block for fixed descendants, so a panel inside it would be trapped
+ * and then clipped by the header region's `overflow: hidden`. Living in the body is what lets it
+ * open below the header at all. Injected once per page.
+ */
+export function buildUserMenuCss(): string {
+  return `
+.aura-user-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 240px;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--ds-color-border-default, #d9e2ec);
+  border-radius: 14px;
+  background: var(--ds-color-surface-bg, #fff);
+  color: var(--ds-color-text-default, #102a43);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+  font-family: inherit;
+}
+
+.aura-user-menu-identity {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px 12px;
+  border-bottom: 1px solid var(--ds-color-border-subtle, #eef2f6);
+}
+
+.aura-user-menu-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.aura-user-menu-email {
+  overflow: hidden;
+  color: var(--ds-color-text-muted, #52606d);
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+}
+
+.aura-user-menu-action {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ds-color-text-default, #102a43);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.aura-user-menu-action:hover,
+.aura-user-menu-action:focus-visible {
+  background: var(--ds-color-surface-alt-bg, #f1f5f9);
+}
+`.trim();
+}
+
+/**
  * Band CSS for one header tag.
  *
  * Scoped by the ELEMENT'S OWN tag (`this.localName`), never by a hardcoded tag: every subclass —
@@ -311,6 +375,12 @@ ${tag} .aura-header-avatar-photo {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+${tag} .aura-header-avatar-icon {
+  display: block;
+  width: 22px;
+  height: 22px;
 }
 
 ${tag} .aura-header-avatar-initials {
