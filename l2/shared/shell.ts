@@ -37,6 +37,7 @@ import {
   setRuntimeDesignSystem,
 } from '/_102033_/l2/shared/designSystemRuntime.js';
 import { getCollabRouteChunkCache, loadAuraRouteChunk, matchAuraRoute } from '/_102033_/l2/shared/routeRuntime.js';
+import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
 import { LitElement, html } from 'lit';
 
 function traceLazy(event: string, details?: Record<string, unknown>) {
@@ -572,34 +573,36 @@ export class CollabAuraShell extends LitElement {
     return { tag: this.activeRoute.tag, entrypoint: this.activeRoute.entrypoint };
   }
 
+  private reportContentPageMiss(genome: number, reason: string): false {
+    const message = `setPage(${genome}) skipped: ${reason}`;
+    console.warn(`[aura-shell] ${message}`);
+    this.routeStatusMessage = message;
+    this.requestUpdate();
+    return false;
+  }
+
   private async applyContentPageGenome(genome: number, shouldMount: boolean): Promise<boolean> {
     const current = this.getActiveContentRenderer();
-    if (!current) {
-      return false;
+    const change = describeContentPageGenomeChange(current, genome);
+    if (!change.ok) {
+      return this.reportContentPageMiss(genome, change.reason);
     }
-
-    const genomeStr = String(genome);
-    if (!/^\d\d$/u.test(genomeStr)) {
-      return false;
-    }
-
-    const nextTag = current.tag.replace(/--page\d\d--/u, `--page${genomeStr}--`);
-    const nextEntrypoint = current.entrypoint.replace(/\/page\d\d\//u, `/page${genomeStr}/`);
-    if (nextTag === current.tag && nextEntrypoint === current.entrypoint) {
+    if (change.nextTag === current?.tag && change.nextEntrypoint === current?.entrypoint) {
       return true;
     }
 
     try {
-      await loadAuraRouteChunk(nextEntrypoint);
-    } catch {
-      return false;
+      await loadAuraRouteChunk(change.nextEntrypoint);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return this.reportContentPageMiss(genome, `failed to load chunk ${change.nextEntrypoint} (${detail})`);
     }
 
-    if (!customElements.get(nextTag)) {
-      return false;
+    if (!customElements.get(change.nextTag)) {
+      return this.reportContentPageMiss(genome, `custom element '${change.nextTag}' is not registered`);
     }
 
-    this.contentVariantRenderer = { tag: nextTag, entrypoint: nextEntrypoint, routeKey: this.activeRoute?.path ?? '' };
+    this.contentVariantRenderer = { tag: change.nextTag, entrypoint: change.nextEntrypoint, routeKey: this.activeRoute?.path ?? '' };
     this.routeStatusMessage = '';
     if (shouldMount) {
       this.mountRegion('content');
