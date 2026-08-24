@@ -136,6 +136,66 @@ export function resolveHeaderActions(regionProps?: Record<string, unknown>): Aur
 }
 
 /**
+ * Locales this header offers, from `props.locales`, intersected with what the app actually runs.
+ *
+ * The profile is a FILTER, never a source: a locale the app does not ship has no messages, so it
+ * would switch the page into a language nothing is translated to. Absent/empty = every runtime
+ * language, which is the behaviour every header had before the field existed.
+ */
+export function resolveHeaderLocales(
+  regionProps: Record<string, unknown> | undefined,
+  runtimeLanguages: readonly string[],
+): string[] {
+  const raw = regionProps?.locales;
+  if (!Array.isArray(raw) || raw.length === 0) return [...runtimeLanguages];
+  const wanted = new Set(raw.filter((locale): locale is string => typeof locale === 'string'));
+  const kept = runtimeLanguages.filter((language) => wanted.has(language));
+  // An empty intersection means the profile is stale (the project dropped those languages): fall
+  // back to the runtime list instead of hiding the switcher for good.
+  return kept.length ? kept : [...runtimeLanguages];
+}
+
+/**
+ * The entries a header links: the selected hrefs, resolved against everything the runtime offers.
+ *
+ * Both lists are searched — the current module's `navigation` AND the cross-module `moduleLinks` —
+ * because a selection is made in the studio over the whole project, and filtering only the current
+ * module would make a legitimate cross-module link silently disappear.
+ *
+ * Order comes from the runtime lists, not from the selection: the header must not reorder the
+ * project's own navigation. No selection = every entry of `navigation` (what headers did before the
+ * field existed).
+ */
+export function selectNavEntries<T extends { href: string }>(
+  navigation: readonly T[],
+  moduleLinks: readonly T[],
+  wanted: readonly string[],
+): T[] {
+  if (!wanted.length) return [...navigation];
+  const selected = new Set(wanted);
+  const entries: T[] = [];
+  const seen = new Set<string>();
+  for (const entry of [...navigation, ...moduleLinks]) {
+    if (!selected.has(entry.href) || seen.has(entry.href)) continue;
+    seen.add(entry.href);
+    entries.push(entry);
+  }
+  return entries;
+}
+
+/**
+ * Routes this header links, from `props.navLinks`: the hrefs picked for the band.
+ *
+ * Absent/empty means "no selection recorded", NOT "no links": the caller keeps every route the
+ * module declares, which is what headers generated before this field did.
+ */
+export function resolveHeaderNavHrefs(regionProps?: Record<string, unknown>): string[] {
+  const raw = regionProps?.navLinks;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((href): href is string => typeof href === 'string' && href.length > 0);
+}
+
+/**
  * Band height for this profile. Defaults to the shared constant: the shell writes the ACTIVE
  * profile's height into `--aura-header-height`, so a profile that disagrees shifts the page on
  * every switch.

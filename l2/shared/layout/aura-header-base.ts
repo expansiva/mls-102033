@@ -26,6 +26,9 @@ import {
   resolveBandHeightPx,
   resolveHeaderActions,
   resolveHeaderBrand,
+  resolveHeaderLocales,
+  resolveHeaderNavHrefs,
+  selectNavEntries,
   shouldShowMobileAsideToggle,
   type AuraHeaderAction,
   type AuraHeaderBrand,
@@ -251,7 +254,22 @@ export abstract class AuraHeaderBase extends LitElement {
       : html`<span class="aura-header-brand">${content}</span>`;
   }
 
-  protected renderNavLinks(entries: ProjectNavigationEntry[] = this.bootConfig?.navigation ?? []) {
+  /**
+   * The navigation entries this header links: the project's, filtered by the hrefs the profile
+   * selected (`props.navLinks`).
+   *
+   * With NO selection recorded the whole list survives — a band only calls renderNavLinks() when it
+   * was asked for links, and headers generated before the field existed have no list to read.
+   */
+  protected get navEntries(): ProjectNavigationEntry[] {
+    return selectNavEntries(
+      this.bootConfig?.navigation ?? [],
+      this.bootConfig?.moduleLinks ?? [],
+      resolveHeaderNavHrefs(this.regionProps),
+    );
+  }
+
+  protected renderNavLinks(entries: ProjectNavigationEntry[] = this.navEntries) {
     if (entries.length === 0) {
       return nothing;
     }
@@ -276,7 +294,7 @@ export abstract class AuraHeaderBase extends LitElement {
   }
 
   protected renderLanguageSwitcher() {
-    const languages = listRuntimeLanguages(this.bootConfig?.languages);
+    const languages = resolveHeaderLocales(this.regionProps, listRuntimeLanguages(this.bootConfig?.languages));
     if (languages.length <= 1) {
       return nothing;
     }

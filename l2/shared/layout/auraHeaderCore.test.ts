@@ -12,6 +12,9 @@ import {
   resolveBandHeightPx,
   resolveHeaderActions,
   resolveHeaderBrand,
+  resolveHeaderLocales,
+  resolveHeaderNavHrefs,
+  selectNavEntries,
   shouldShowMobileAsideToggle,
 } from '/_102033_/l2/shared/layout/auraHeaderCore.js';
 import { isInternalModuleHref, isRegionLinkActive } from '/_102033_/l2/shared/layout/auraNavigate.js';
@@ -227,4 +230,52 @@ test('the user menu CSS is global on purpose, and carries the classes the base b
   // Same token discipline as the band.
   const withoutTokens = css.replace(/var\([^)]*\)/gu, '');
   assert.equal(/#[0-9a-f]{3,8}\b/iu.test(withoutTokens), false, 'literal color outside a token fallback');
+});
+
+// ── what the profile selected ──────────────────────────────────────────────
+
+test('the profile filters the locales the switcher offers, and never invents one', () => {
+  const runtime = ['pt-BR', 'en', 'es'];
+
+  assert.deepEqual(resolveHeaderLocales({ locales: ['en', 'pt-BR'] }, runtime), ['pt-BR', 'en'],
+    'kept in the runtime order, not the order the profile lists them');
+  assert.deepEqual(resolveHeaderLocales({ locales: ['en', 'de'] }, runtime), ['en'],
+    'a locale the app does not ship has no messages: it cannot be offered');
+
+  // No selection = every runtime language, which is what every header did before the field existed.
+  assert.deepEqual(resolveHeaderLocales(undefined, runtime), runtime);
+  assert.deepEqual(resolveHeaderLocales({ locales: [] }, runtime), runtime);
+  assert.deepEqual(resolveHeaderLocales({ locales: 'en' as unknown as string[] }, runtime), runtime);
+
+  // Stale profile (the project dropped those languages): fall back instead of hiding the switcher.
+  assert.deepEqual(resolveHeaderLocales({ locales: ['de', 'fr'] }, runtime), runtime);
+});
+
+test('the profile selects which routes the band links', () => {
+  assert.deepEqual(resolveHeaderNavHrefs({ navLinks: ['/a', '/b'] }), ['/a', '/b']);
+  assert.deepEqual(resolveHeaderNavHrefs({ navLinks: ['/a', '', 3] as unknown as string[] }), ['/a'],
+    'only usable hrefs survive');
+  assert.deepEqual(resolveHeaderNavHrefs(undefined), [], 'no selection recorded');
+  assert.deepEqual(resolveHeaderNavHrefs({ navLinks: true as unknown as string[] }), [],
+    'the legacy flag is not a selection');
+});
+
+test('the selected links resolve against the module AND the cross-module lists', () => {
+  const navigation = [{ href: '/m/a', label: 'A' }, { href: '/m/b', label: 'B' }];
+  const moduleLinks = [{ href: '/other', label: 'Other' }, { href: '/m/a', label: 'A dup' }];
+
+  assert.deepEqual(
+    selectNavEntries(navigation, moduleLinks, ['/other', '/m/b']).map((entry) => entry.href),
+    ['/m/b', '/other'],
+    'a cross-module selection survives, in the runtime order',
+  );
+  assert.deepEqual(
+    selectNavEntries(navigation, moduleLinks, ['/m/a']).map((entry) => entry.label),
+    ['A'],
+    'the first list wins a duplicated href',
+  );
+  assert.deepEqual(selectNavEntries(navigation, moduleLinks, ['/gone']), [],
+    'a selection that no longer exists links nothing');
+  assert.deepEqual(selectNavEntries(navigation, moduleLinks, []), navigation,
+    'no selection = the module navigation, as before the field existed');
 });

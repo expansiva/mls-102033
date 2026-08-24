@@ -14,9 +14,14 @@ import { ServiceBase, type IService, type IServiceMenu, type IToolbarContent } f
 // path. The runtime import is dynamic, inside armEditor().
 import type { StudioEditor } from '/_102033_/l2/studio/studioEditor.js';
 
-// Tool id in the nav3 toolbar. There is no save tool: every edit persists immediately (the studio
-// editor writes through to the VM right after applying it).
-const TOOL_EDIT = 'studioEdit';
+/**
+ * The nav1 level that means "editing the page".
+ *
+ * There is no button: entering L3 arms the editor and leaving it disarms. The level is the intent
+ * already — L3 is the page level of the aura flow — so a separate toggle was one more state to keep in
+ * sync with it.
+ */
+const EDIT_LEVEL = 3;
 
 export class ServiceClientApp extends ServiceBase {
   public details: IService = {
@@ -35,8 +40,11 @@ export class ServiceClientApp extends ServiceBase {
   // preview again, in another panel.
   private editor?: StudioEditor;
   private editArmed = false;
-  private editPage = '';
+  private editArming = false;
   private studioModeObserver?: MutationObserver;
+  /** Stable reference: mls.events removes a subscriber by identity. */
+  private readonly onToolBarSelected = () => { void this.syncEditMode(); };
+  private levelSubscribed = false;
 
   public menu: IServiceMenu = {
     title: '',
@@ -44,7 +52,6 @@ export class ServiceClientApp extends ServiceBase {
     tabs: undefined,
     tools: {},
     onClickMain: () => { /* no menu actions yet */ },
-    onClickTools: (op: string) => { void this.onClickTools(op); },
   };
 
   public onServiceClick(visible: boolean, _reinit: boolean, _el: IToolbarContent | null): void {
@@ -52,7 +59,9 @@ export class ServiceClientApp extends ServiceBase {
     // The editor overlay is a fixed layer on the body, so it does not disappear with this panel:
     // switching nav3 service used to leave the selection box floating over the other service.
     this.editor?.setOverlayVisible(visible);
-    this.syncTools();
+    // The nav3 sets `level` and `visible` together when it hands a level's service over, so this is
+    // also the moment a level switch becomes observable.
+    void this.syncEditMode();
   }
 
   createRenderRoot() {
@@ -66,13 +75,17 @@ export class ServiceClientApp extends ServiceBase {
     this.style.display = 'block';
     this.adoptAppHost();
     this.watchStudioMode();
-    this.syncTools();
+    this.watchLevel();
+    void this.syncEditMode();
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     this.studioModeObserver?.disconnect();
     this.studioModeObserver = undefined;
+    // undefined/undefined removes the subscriber from every level and type it was added to.
+    mls?.events?.removeEventListener(undefined, undefined, this.onToolBarSelected);
+    this.levelSubscribed = false;
     this.editor?.detach();
     this.editor = undefined;
     this.editArmed = false;
@@ -91,14 +104,36 @@ export class ServiceClientApp extends ServiceBase {
     if (this.studioModeObserver) return;
     const shell = this.closest('collab-aura-shell');
     if (!shell) return;
-    this.studioModeObserver = new MutationObserver(() => {
-      if (!this.isStudioMode() && this.editArmed) {
-        this.editArmed = false;
-        this.editor?.setMode('off');
-      }
-      this.syncTools();
-    });
+    this.studioModeObserver = new MutationObserver(() => { void this.syncEditMode(); });
     this.studioModeObserver.observe(shell, { attributes: true, attributeFilter: ['data-studio-mode'] });
+  }
+
+  /**
+   * Follows the level through `ToolBarSelected`, the lib's own channel.
+   *
+   * There is no level event in `mls.events` (`TypeEvent` is a closed union); `ToolBarSelected` is a
+   * SERVICE SELECTION event that carries the level, and a level switch ends in one: nav1 writes the
+   * level, nav2 flags the change and restores the level's last service
+   * ([collab-nav-2.ts:371](mls-102041/l2/collab-nav-2.ts#L371)), which fires it
+   * ([collab-nav-2.ts:254](mls-102041/l2/collab-nav-2.ts#L254)). Same channel serviceHistories and
+   * serviceCollabFileSystem already use.
+   *
+   * ALL levels, not just the edit one: the event is fired at the level being entered, so subscribing
+   * only to 3 would arm the editor and never disarm it.
+   *
+   * Two consequences of using a selection event as a level signal, both acceptable because
+   * `syncEditMode` is idempotent: it also fires when the user picks another service in the same level
+   * (a free re-sync), and `fire` debounces 200ms by default, so arming lags the switch slightly. What
+   * it does NOT cover: a level whose restore finds nothing to select emits no event at all — hence the
+   * re-check in adoptAppHost, and `onServiceClick` calling the same sync.
+   */
+  private watchLevel(): void {
+    // connectedCallback can run again (the element is moved between containers), and mls.events has no
+    // dedup — a second add would sync twice per event.
+    if (this.levelSubscribed) return;
+    const levels: mls.Level[] = [0, 1, 2, 3, 4, 5, 6, 7];
+    mls?.events?.addEventListener(levels, ['ToolBarSelected'], this.onToolBarSelected);
+    this.levelSubscribed = true;
   }
 
   // ─── Studio edit mode ──────────────────────────────────────────────────────
@@ -120,59 +155,50 @@ export class ServiceClientApp extends ServiceBase {
   }
 
   /**
-   * Rebuilds the toolbar tools for the current state.
+   * Arms the editor while on the edit level, disarms otherwise. The single decision point.
    *
-   * In client mode there are NO edit tools at all — a client session must not even see the affordance.
+   * Studio mode is required on top of the level: leaving studio mode (Ctrl+Alt+S) does NOT reset the
+   * nav3 level, so without that condition the editor would stay armed in a client session — capturing
+   * every pointer event and making the app unusable.
    */
-  private syncTools(): void {
-    const tools: IServiceMenu['tools'] = {};
+  private async syncEditMode(): Promise<void> {
+    const wanted = this.isStudioMode() && this.level === EDIT_LEVEL;
 
-    if (this.isStudioMode()) {
-      tools[TOOL_EDIT] = {
-        type: 'cycle',
-        selected: this.editArmed ? 1 : 0,
-        options: [
-          { text: 'Editar a página', icon: 'f044' },
-          { text: this.editPage ? `Editando ${this.editPage}` : 'Editando', icon: 'f00d' },
-        ],
-      };
-    }
-
-    this.menu.tools = tools;
-    this.menu.refresh?.('tools');
-  }
-
-  private async onClickTools(op: string): Promise<void> {
-    if (op === TOOL_EDIT) await this.toggleEdit();
-  }
-
-  private async toggleEdit(): Promise<void> {
-    if (this.editArmed) {
-      this.editArmed = false;
-      this.editor?.setMode('off');
-      this.syncTools();
+    if (!wanted) {
+      if (this.editArmed) {
+        this.editArmed = false;
+        this.editor?.setMode('off');
+      }
       return;
     }
+
+    if (this.editArmed || this.editArming) return;
 
     const host = this.regionHost();
     if (!host) return;
 
-    if (!this.editor) {
-      // Dynamic on purpose: the studio editor only loads when someone actually arms it.
-      const { StudioEditor } = await import('/_102033_/l2/studio/studioEditor.js');
-      this.editor = new StudioEditor({
-        onTarget: (target) => {
-          this.editPage = target?.page ?? '';
-          this.syncTools();
-        },
-      });
+    // Guard against re-entrancy: loading the editor is async and the observers can fire again
+    // meanwhile (the nav3 sets `level` and `visible` in the same pass).
+    this.editArming = true;
+    try {
+      if (!this.editor) {
+        // Dynamic on purpose: the studio editor only loads when someone actually reaches the level.
+        const { StudioEditor } = await import('/_102033_/l2/studio/studioEditor.js');
+        this.editor = new StudioEditor();
+      }
+      // Re-check: the level may have changed while the import was in flight.
+      if (!this.isStudioMode() || this.level !== EDIT_LEVEL) return;
+
+      // `this` is the chrome host: the editor's status toast mounts inside the SERVICE, so feedback
+      // stays scoped to this panel instead of floating over the whole app.
+      this.editor.attach(host, this);
+      this.editArmed = true;
+      this.editor.setMode('select');
+      // With no button, this is the only signal that clicks now select instead of reaching the app.
+      this.editor.showStatus(`Modo edição (L${EDIT_LEVEL}) — clique num texto para editar`);
+    } finally {
+      this.editArming = false;
     }
-    // `this` is the chrome host: the editor's status toast mounts inside the SERVICE, so feedback
-    // stays scoped to this panel instead of floating over the whole app.
-    this.editor.attach(host, this);
-    this.editArmed = true;
-    this.editor.setMode('select');
-    this.syncTools();
   }
 
   // Bounded retry: the structure can now upgrade before the classic content
@@ -192,6 +218,9 @@ export class ServiceClientApp extends ServiceBase {
       if (region.parentElement !== this) {
         this.appendChild(region);
         this.applyRegionHeight();
+        // The editor binds to the region host, so an arming attempt that ran BEFORE the adoption found
+        // nothing to bind to and gave up. Connecting straight on the edit level is exactly that order.
+        void this.syncEditMode();
       }
       return;
     }
