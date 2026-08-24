@@ -13,20 +13,37 @@
 //
 // nav2's tabs are NOT intrinsic: on the studio, CollabInit (mls-100554) scans
 // the projects' plugin menu actions and assigns nav1.services after login.
-// applyStudioServices() ports that scan (mls.plugin.loadAll +
-// getAllMenuActions per level/position); on any failure it falls back to the
-// studio's anonymous default (Start + Detail on the right).
+// applyStudioServices() scans the site + deps (not 100554) and declares the
+// studio widgets the runtime uses; on any failure it falls back to anonymous.
 
 import { LitElement, html } from 'lit';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 // The VM storage driver registration lives with the rest of the runtime studio bootstrap —
 // this header is only ONE of the paths that needs it (see initStudio.registerVmDriver).
 import { registerVmDriver } from '/_102033_/l2/cbe/initStudio.js';
+import {
+  STUDIO_BASE_PROJECT,
+  ANONYMOUS_SERVICES,
+  SERVICE_MESSAGES,
+  SERVICE_APP,
+  RUNTIME_STUDIO_SERVICES,
+  withRuntimeServices,
+  buildStudioServices,
+} from '/_102033_/l2/cbe/studioServices.js';
+
+export {
+  STUDIO_BASE_PROJECT,
+  ANONYMOUS_SERVICES,
+  SERVICE_MESSAGES,
+  SERVICE_APP,
+  RUNTIME_STUDIO_SERVICES,
+  withRuntimeServices,
+  buildStudioServices,
+};
 
 const NAV1_HEIGHT_PX = 30;
 const NAV2_HEIGHT_PX = 36;
 export const STUDIO_PROJECT = 102041;
-export const STUDIO_BASE_PROJECT = 100554;
 // Header-only studio chrome: nav1 + nav2 (the nav3 workspaces live in the
 // content, shared by both modes — see nav3_unificado_plano.md). collab-page
 // stays as the wrapper because the navs wire to each other via
@@ -39,46 +56,6 @@ const NAV_TAGS = ['collab-nav-1', 'collab-nav-2'];
 // the fontawesome ref in its enhancementCollab.ts. Injected once, on demand.
 const FONT_AWESOME_URL = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css';
 const FONT_AWESOME_LINK_ID = 'cbe-studio-fontawesome';
-
-// Same shape CollabInit.anonymousServices uses: 8 levels, 'leftCsv;rightCsv'.
-export const ANONYMOUS_SERVICES = ['', '', '', '', '', '', '', ';_100554_serviceDetail,'];
-
-// The runtime pair hosted by the shared nav3s (studioStructure): messages left, app right.
-export const SERVICE_MESSAGES = '_102033_/l2/cbe/serviceRuntimeMessages';
-export const SERVICE_APP = '_102033_/l2/cbe/serviceClientApp';
-
-type Nav2State = Element & { state_?: Record<number, Record<string, string>> };
-
-function seedLastService(nav2: Element | null | undefined, level: number, position: 'left' | 'right', widget: string): void {
-  const state = (nav2 as Nav2State | null | undefined)?.state_?.[level];
-  if (state) state[position] = widget;
-}
-
-/**
- * Adds the runtime service pair to a scanned service list, per level.
- *
- * BOTH toolbars need it — the content structure's nav2s and the studio header's — because they
- * drive the SAME nav3s. A toolbar without these entries strands the user: switching header
- * profile would leave no way back to the app or the messages.
- *
- * Also drops the studio's own serviceCollabMessages (on the VM it points at the
- * msg.collab.codes endpoints and blanks out — ours is the messages service here) and seeds each
- * nav2's last-service memory, so a level restore lands on the pair.
- */
-export function withRuntimeServices(services: string[], nav2Left?: Element | null, nav2Right?: Element | null): string[] {
-  const rc = [...services];
-  const dropStudioMessages = (csv: string) =>
-    csv.split(',').filter((widget) => widget && !widget.endsWith('serviceCollabMessages')).join(',');
-  for (let level = 0; level <= 7; level += 1) {
-    const [rawLeft = '', rawRight = ''] = (rc[level] ?? ';').split(';');
-    const left = dropStudioMessages(rawLeft);
-    const right = dropStudioMessages(rawRight);
-    rc[level] = `${SERVICE_MESSAGES}${left ? `,${left}` : ''};${SERVICE_APP}${right ? `,${right}` : ''}`;
-    seedLastService(nav2Left, level, 'left', SERVICE_MESSAGES);
-    seedLastService(nav2Right, level, 'right', SERVICE_APP);
-  }
-  return rc;
-}
 
 export function ensureStudioPageAssets(): void {
   if (!document.getElementById(FONT_AWESOME_LINK_ID)) {
@@ -111,60 +88,6 @@ export function ensureStudioPageAssets(): void {
     `;
     document.head.appendChild(style);
   }
-}
-
-interface MlsPluginApi {
-  plugin?: {
-    loadAll?: (project: number, force?: boolean) => Promise<unknown>;
-    getAllMenuActions?: (project: number, options: { scope: string }) => Array<{ widget?: string; priority?: number }>;
-  };
-  l5?: { getProjectDependencies?: (project: number, includeBase: boolean) => number[] };
-  actual?: Array<{ setFullName: (widget: string) => { path?: string; getStorFileBase?: () => { shortName?: string } | undefined } }>;
-}
-
-/** Port of CollabInit.getServices (mls-100554): menu actions per level/position. */
-export async function buildStudioServices(siteProject: number): Promise<string[]> {
-  const mlsApi = (window as unknown as { mls?: MlsPluginApi }).mls;
-  if (!mlsApi?.plugin?.loadAll || !mlsApi.plugin.getAllMenuActions) return ANONYMOUS_SERVICES;
-
-  const projectList: number[] = [];
-  if (siteProject) projectList.push(siteProject);
-  try {
-    for (const dep of mlsApi.l5?.getProjectDependencies?.(siteProject, false) ?? []) {
-      if (!projectList.includes(dep)) projectList.push(dep);
-    }
-  } catch { /* dependencies are best-effort */ }
-  
-  if (!projectList.includes(STUDIO_BASE_PROJECT)) projectList.push(STUDIO_BASE_PROJECT);
-
-  for (const project of projectList) {
-    await (mlsApi as any).stor.server.loadProjectInfoIfNeeded(project)
-    await mlsApi.plugin.loadAll(project, false);
-  }
-
-  const services: string[] = [];
-  for (let level = 0; level <= 7; level += 1) {
-    const byPosition: Record<'Left' | 'Right', string[]> = { Left: [], Right: [] };
-    for (const position of ['Left', 'Right'] as const) {
-      const addedShortNames = new Set<string>();
-      for (const project of projectList) {
-        const actions = mlsApi.plugin.getAllMenuActions(project, { scope: `l${level}Services${position}` }) ?? [];
-        for (const action of actions.sort((a, b) => (a.priority || 1) - (b.priority || 1))) {
-          // Malformed menu actions produce requests like /_1_/l2/undefined.js —
-          // only widgets with a real project reference pass.
-          if (!action?.widget || !/^_\d{6,}_/u.test(action.widget)) continue;
-          const info = mlsApi.actual?.[0]?.setFullName(action.widget);
-          const shortName = info?.getStorFileBase?.()?.shortName || info?.path?.split('/').pop() || action.widget;
-          if (addedShortNames.has(shortName)) continue;
-          addedShortNames.add(shortName);
-          byPosition[position].push(action.widget);
-        }
-      }
-    }
-    services.push(`${byPosition.Left.join(',')};${byPosition.Right.join(',')}`);
-  }
-  const hasAny = services.some((entry) => entry !== ';');
-  return hasAny ? services : ANONYMOUS_SERVICES;
 }
 
 interface StudioNav1Element extends HTMLElement {

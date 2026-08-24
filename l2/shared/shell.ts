@@ -38,6 +38,7 @@ import {
 } from '/_102033_/l2/shared/designSystemRuntime.js';
 import { getCollabRouteChunkCache, loadAuraRouteChunk, matchAuraRoute } from '/_102033_/l2/shared/routeRuntime.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
+import { contentPageGenomeToPreserve } from '/_102033_/l2/shared/contentPageGenomePreserve.js';
 import { LitElement, html } from 'lit';
 
 function traceLazy(event: string, details?: Record<string, unknown>) {
@@ -1061,10 +1062,10 @@ export class CollabAuraShell extends LitElement {
       return;
     }
 
-    const requestedContentGenome = this.getContentPageGenome() ?? 11;
+    const previousContentGenome = this.getContentPageGenome();
     traceLazy('loadActiveRoute.start', {
       pathname: window.location.pathname,
-      requestedContentGenome,
+      requestedContentGenome: previousContentGenome,
     });
     const nextRoute = matchAuraRoute(this.bootConfig.routes, window.location.pathname);
     if (!nextRoute) {
@@ -1075,7 +1076,9 @@ export class CollabAuraShell extends LitElement {
 
     this.activeRoute = nextRoute;
     this.contentVariantRenderer = undefined;
-    if (requestedContentGenome !== this.getContentPageGenome()) {
+    const nextContentGenome = this.getContentPageGenome();
+    const requestedContentGenome = contentPageGenomeToPreserve(previousContentGenome, nextContentGenome);
+    if (requestedContentGenome !== undefined && requestedContentGenome !== nextContentGenome) {
       await this.applyContentPageGenome(requestedContentGenome, false);
     }
     const loadedChunks = getCollabRouteChunkCache();
