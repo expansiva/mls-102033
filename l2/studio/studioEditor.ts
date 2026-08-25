@@ -29,6 +29,9 @@ import {
   applyTextEdit,
   findTextOriginByKey,
   findTextOriginByOccurrence,
+  pickLocale,
+  pickSiblingLocales,
+  readSharedKeyMap,
   type TextOrigin,
 } from '/_102033_/l2/studio/studioTextEdit.js';
 import { applyLiveUpdate } from '/_102033_/l2/studio/studioLiveUpdate.js';
@@ -38,6 +41,7 @@ import {
   findPageElement,
   persistLocalEdit,
   resolveEditTarget,
+  resolveOrganismTargets,
   resolveSharedTarget,
   saveTarget,
   type IStudioEditTarget,
@@ -54,6 +58,9 @@ export interface StudioEditorEvents {
 
 const STYLE_ID = 'se-editor-styles';
 
+/** How long a transient toast stays up. Long enough to read the key that was edited. */
+const STATUS_TIMEOUT_MS = 5000;
+
 /** Elements the editor itself puts on the page — never selectable, never counted. */
 const CONTROL_CLASS = 'se-control';
 
@@ -65,10 +72,13 @@ export class StudioEditor {
   private selectedEl: HTMLElement | null = null;
   private lastHoveredEl: HTMLElement | null = null;
   private target: IStudioEditTarget | null = null;
-  /** Shared base class of the current page, resolved lazily — it owns the i18n catalog. */
-  private sharedTarget: IStudioEditTarget | null = null;
-  private sharedResolved = false;
+  /**
+   * Files that can hold this page's text, resolved lazily: page, organism files, shared base class.
+   * Null until the first edit needs it.
+   */
+  private candidates: IStudioEditTarget[] | null = null;
   private statusText = '';
+  private statusTimer: number | null = null;
   private events: StudioEditorEvents;
 
   private editSpan: HTMLSpanElement | null = null;
@@ -176,6 +186,10 @@ export class StudioEditor {
     this.target = null;
     this.overlayEl?.remove();
     this.overlayEl = null;
+    if (this.statusTimer !== null) {
+      clearTimeout(this.statusTimer);
+      this.statusTimer = null;
+    }
     this.statusEl?.remove();
     this.statusEl = null;
     // Only undo what we changed: the service's own styling must survive disarming.
@@ -195,8 +209,8 @@ export class StudioEditor {
   }
 
   /** Shows a message on the editor's own status strip. */
-  public showStatus(text: string): void {
-    this.setStatus(text);
+  public showStatus(text: string, sticky = false): void {
+    this.setStatus(text, sticky);
   }
 
   /**
@@ -234,9 +248,8 @@ export class StudioEditor {
     if (!this.host) return;
 
     const result = await resolveEditTarget(this.host);
-    // A new page means a new shared base class.
-    this.sharedTarget = null;
-    this.sharedResolved = false;
+    // A new page means a new chain of candidate files.
+    this.candidates = null;
     if (result.ok) {
       this.target = result.target;
       this.statusText = '';
@@ -612,33 +625,33 @@ export class StudioEditor {
     }
 
     const pageSource = this.target.model.model.getValue();
-    const lang = currentLanguage();
+    const documentLang = currentLanguage();
 
     const resolve = (src: string): TextOrigin => (i18nKey
-      ? findTextOriginByKey(i18nKey, src, lang)
+      ? findTextOriginByKey(i18nKey, src, documentLang)
       // Messages come from `src`, but the ORDER of the matches comes from the page template — on
       // generated pages those are two different files.
-      : findTextOriginByOccurrence(oldText, src, occurrenceIndex, lang, pageSource));
+      : findTextOriginByOccurrence(oldText, src, occurrenceIndex, documentLang, pageSource));
 
-    let origin = resolve(pageSource);
+    // The text can live in THREE places, and the order is what makes the right one win:
+    //  1. the page file — the current generator gives it its own catalog with short keys, part of them
+    //     literals of its own;
+    //  2. an organism file (`<name>_O<k>.ts`) — same structure, its own catalog;
+    //  3. the shared base class — the long dotted keys, where the mapped text really lives.
+    // The page comes first because its catalog is what the template reads: when the same value exists
+    // both there and in the shared, the page is the one on screen.
+    let origin: TextOrigin = { type: 'dynamic', reason: 'not resolved' };
     let editTargetFile = this.target;
     let activeSource = pageSource;
 
-    // Generated pages keep the i18n catalog in the SHARED base class (`web/shared/<name>.ts`) and
-    // only render() in the page file — so for i18n text the page source resolves as `dynamic` and
-    // the real origin is in the shared file. Without this every i18n text of a real page was
-    // reported as "content, not code".
-    if (origin.type === 'dynamic') {
-      const shared = await this.getSharedTarget();
-      if (shared) {
-        const sharedSource = shared.model.model.getValue();
-        const sharedOrigin = resolve(sharedSource);
-        if (sharedOrigin.type !== 'dynamic') {
-          origin = sharedOrigin;
-          editTargetFile = shared;
-          activeSource = sharedSource;
-        }
-      }
+    for (const candidate of await this.resolveCandidates()) {
+      const src = candidate.model.model.getValue();
+      const found = resolve(src);
+      if (found.type === 'dynamic') continue;
+      origin = found;
+      editTargetFile = candidate;
+      activeSource = src;
+      break;
     }
 
     if (origin.type === 'dynamic') {
@@ -648,7 +661,20 @@ export class StudioEditor {
       return;
     }
 
-    const result = applyTextEdit(origin, newText, activeSource, lang);
+    // Against the locales the catalog DECLARES, not the document language reduced to its primary
+    // subtag: the current generator declares `pt` and `pt-br` separately, and editing the wrong one
+    // changes the file while the screen keeps the old text.
+    const lang = origin.type === 'i18n'
+      ? pickLocale(origin.languages.map((l) => l.lang), documentLang)
+      : documentLang;
+
+    // Reaches same-language siblings that hold the SAME text: the app can offer `pt` AND `pt-br` in the
+    // language cycle, and editing only the displayed one made the change look like it vanished when the
+    // user cycled back into the sibling. A sibling with DIFFERENT text is a real translation and is left
+    // alone.
+    const locales = origin.type === 'i18n' && lang ? pickSiblingLocales(origin, lang) : lang;
+
+    const result = applyTextEdit(origin, newText, activeSource, locales);
     if (!result.success || !result.newSource) {
       restoredNode.textContent = oldText;
       this.flashError(editTarget);
@@ -667,9 +693,23 @@ export class StudioEditor {
     // below reads the local copy — that race is what failed with "Object not found in IndexedDB".
     await persistLocalEdit(editTargetFile, result.newSource);
 
-    const what = origin.type === 'i18n' ? `i18n "${origin.key}"` : 'texto';
-    const where = editTargetFile === this.target ? '' : ` em ${editTargetFile.folder}`;
-    this.setStatus(`${what} editado${where} — salvando...`);
+    // The locale is part of the identity of what was edited: without it, an edit that lands on a
+    // sibling locale looks like it did nothing when the language cycles.
+    const localeNote = origin.type === 'i18n' && Array.isArray(locales) && locales.length > 0
+      ? ` (${locales.join(', ')})`
+      : '';
+    const what = origin.type === 'i18n' ? `i18n "${origin.key}"${localeNote}` : 'texto';
+    const where = editTargetFile === this.target
+      ? ' nesta página'
+      : ` em ${editTargetFile.shortName} (${editTargetFile.folder})`;
+    // A shared key reached through the page's `fromShared` mapping is used by every page that maps
+    // it — the edit is NOT local to this screen, and the user has no other way to know that.
+    const scope = origin.type === 'i18n' && this.isSharedKey(pageSource, origin.key)
+      ? ' — atenção: essa chave é compartilhada, muda em toda página que a usa'
+      : '';
+    // Sticky: it is a progress message, always superseded below. Letting it time out would make the
+    // toast blink out and back in whenever the save takes longer than the timeout.
+    this.setStatus(`${what} editado${where} — salvando...`, true);
 
     // Compiles first: it fills `compilerResults.prodJS` (what the live update evaluates) and puts the
     // fresh JS in the SW cache (what a reload would serve).
@@ -689,21 +729,46 @@ export class StudioEditor {
     // tree, which is what publish syncs, would never see the edit.
     try {
       await saveTarget(editTargetFile, `studio edit: ${editTargetFile.page}`);
-      this.setStatus(`${what} salvo${where} — ${live.message}`);
+      this.setStatus(`${what} salvo${where} — ${live.message}${scope}`);
       this.events.onSaved?.(editTargetFile);
     } catch (err) {
       // saveTarget puts the dirty flag back, so the edit survives in the browser for a retry.
-      this.setStatus(`${what} editado${where}, mas FALHOU ao salvar: ${(err as Error).message}`);
+      this.setStatus(`${what} editado${where}, mas FALHOU ao salvar: ${(err as Error).message}`, true);
     }
   }
 
   /** The shared base class of the current page, resolved once per page. */
-  private async getSharedTarget(): Promise<IStudioEditTarget | null> {
-    if (this.sharedResolved) return this.sharedTarget;
-    this.sharedResolved = true;
-    if (!this.target) return null;
-    this.sharedTarget = await resolveSharedTarget(this.target);
-    return this.sharedTarget;
+  /**
+   * Files that can hold the text of the mounted page, in resolution order: page, organisms, shared.
+   *
+   * Resolved once per page and cached — each entry costs a Monaco model.
+   */
+  private async resolveCandidates(): Promise<IStudioEditTarget[]> {
+    if (!this.target) return [];
+    if (this.candidates) return this.candidates;
+
+    const chain: IStudioEditTarget[] = [this.target];
+    chain.push(...await resolveOrganismTargets(this.target));
+    const shared = await resolveSharedTarget(this.target);
+    if (shared) chain.push(shared);
+
+    this.candidates = chain;
+    return chain;
+  }
+
+  /** True when the key is one the page maps out of the shared catalog (`fromShared`). */
+  private isSharedKey(pageSource: string, key: string): boolean {
+    try {
+      const mapped = readSharedKeyMap(pageSource);
+      // Either the SHORT key the page declares, or the LONG key it points at.
+      if (mapped.has(key)) return true;
+      for (const long of mapped.values()) if (long === key) return true;
+      // No mapping at all means the previous generator's shape: the catalog lives only in the shared
+      // base, so any i18n key there is shared by construction.
+      return mapped.size === 0 && key.includes('.');
+    } catch {
+      return false;
+    }
   }
 
   // --- Overlay ---
@@ -810,10 +875,28 @@ export class StudioEditor {
     container.appendChild(this.statusEl);
   }
 
-  private setStatus(text: string): void {
+  /**
+   * Shows a message on the toast.
+   *
+   * Transient by default: it fades after STATUS_TIMEOUT_MS so the panel is not left with a permanent
+   * strip over the content. `sticky` is for the messages the user must not miss — a failed save, where
+   * the edit is still pending and vanishing feedback would look like success.
+   */
+  private setStatus(text: string, sticky = false): void {
+    if (this.statusTimer !== null) {
+      clearTimeout(this.statusTimer);
+      this.statusTimer = null;
+    }
     this.statusText = text;
     this.renderStatus();
     this.drawSelection();
+
+    if (!text || sticky) return;
+    this.statusTimer = window.setTimeout(() => {
+      this.statusTimer = null;
+      this.statusText = '';
+      this.renderStatus();
+    }, STATUS_TIMEOUT_MS);
   }
 
   private renderStatus(): void {

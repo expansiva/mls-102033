@@ -8,6 +8,10 @@ import {
   findTextOrigin,
   findTextOriginByKey,
   findTextOriginByOccurrence,
+  pickLocale,
+  pickSiblingLocales,
+  readDeclaredLocales,
+  readSharedKeyMap,
 } from '/_102033_/l2/studio/studioTextEdit.js';
 
 // A page shaped like the ones the generator emits: an i18n block with two languages, two keys
@@ -349,4 +353,191 @@ test('findTemplateExpression survives dots in the key (regex escaping)', () => {
   // No template in the shared file, so it falls back to the synthesized expression — the point is
   // that building the regex with an unescaped dotted key does not throw.
   assert.ok(origin.templateExpression.includes('section.dashboardWorkspace.sec-kpi-overview.title'));
+});
+
+// ── Current generator: catalog in the PAGE too (102045/102046 shape) ────────────────────────────
+// The page gets its OWN catalog with SHORT keys — part mapped from the shared catalog through
+// `fromShared` (references), part literals of its own — and the object is PREFIXED (`pageMessage_`).
+// Locales are declared as `pt` AND `pt-br`, separately.
+
+const GEN_PAGE = [
+  `import { Base, messages as sharedMessages, type MessageType } from '/_102046_/l2/m/web/shared/x.js';`,
+  `const sharedFallback = sharedMessages[Object.keys(sharedMessages)[0]];`,
+  `/// **collab_i18n_start**`,
+  `const fromShared = (m: MessageType) => ({`,
+  `  'locate.title': m['organism.x.qryLocate.title'],`,
+  `  'locate.empty': m['intent.x.qryLocate.list.empty'],`,
+  `});`,
+  `const pageMessage_pt = {`,
+  `  ...fromShared(sharedMessages['pt'] ?? sharedFallback),`,
+  `  'refresh': 'Atualizar',`,
+  `  'loading': 'Carregando…',`,
+  `};`,
+  `type PageMessageType = typeof pageMessage_pt;`,
+  `const pageMessage_pt_br: PageMessageType = {`,
+  `  ...fromShared(sharedMessages['pt-br'] ?? sharedFallback),`,
+  `  'refresh': 'Atualizar agora',`,
+  `  'loading': 'Carregando…',`,
+  `};`,
+  `const pageMessage_en: PageMessageType = {`,
+  `  ...fromShared(sharedMessages['en'] ?? sharedFallback),`,
+  `  'refresh': 'Refresh',`,
+  `  'loading': 'Loading…',`,
+  `};`,
+  `const pageMessages: { [key: string]: PageMessageType } = { 'pt': pageMessage_pt, 'pt-br': pageMessage_pt_br, 'en': pageMessage_en };`,
+  `/// **collab_i18n_end**`,
+  `class Page extends Base {`,
+  `  render() {`,
+  `    const msg = this.msg;`,
+  `    return html\`<h1>\${msg['locate.title']}</h1>\${this.renderList()}\`;`,
+  `  }`,
+  `  renderList() {`,
+  `    const msg = this.msg;`,
+  `    return html\`<p>Total do turno</p><button>\${msg['refresh']}</button><span>\${msg['locate.empty']}</span>\`;`,
+  `  }`,
+  `}`,
+].join('\n');
+
+test('a PREFIXED catalog is parsed — the bare `message_` name found nothing in generated pages', () => {
+  assert.deepEqual(readDeclaredLocales(GEN_PAGE), ['pt', 'pt-br', 'en']);
+});
+
+test('the const suffix pt_br is read as the locale pt-br', () => {
+  const origin = findTextOriginByKey('refresh', GEN_PAGE);
+  assert.equal(origin.type, 'i18n');
+  if (origin.type !== 'i18n') return;
+  assert.deepEqual(origin.languages.map((l) => l.lang), ['pt', 'pt-br', 'en']);
+});
+
+test('pickLocale honours the declared locales instead of reducing to the primary subtag', () => {
+  const declared = readDeclaredLocales(GEN_PAGE);
+  // The bug this replaces: `pt-BR` became `pt`, so the edit went into the wrong object.
+  assert.equal(pickLocale(declared, 'pt-BR'), 'pt-br');
+  assert.equal(pickLocale(declared, 'pt'), 'pt');
+  // No exact match: falls back to the same primary subtag, then to the first declared.
+  assert.equal(pickLocale(['pt', 'en'], 'pt-br'), 'pt');
+  assert.equal(pickLocale(['en', 'es'], 'de'), 'en');
+  assert.equal(pickLocale([], 'pt'), undefined);
+});
+
+test('editing a page-local literal in pt-br touches ONLY that locale', () => {
+  const origin = findTextOriginByOccurrence('Atualizar agora', GEN_PAGE, 0, 'pt-br');
+  assert.equal(origin.type, 'i18n');
+  if (origin.type !== 'i18n') return;
+  assert.equal(origin.key, 'refresh');
+
+  const lang = pickLocale(origin.languages.map((l) => l.lang), 'pt-BR');
+  const result = applyTextEdit(origin, 'Recarregar', GEN_PAGE, lang);
+  assert.ok(result.newSource);
+  assert.match(result.newSource, /'refresh': 'Recarregar',/u);
+  // The other locales are untouched.
+  assert.match(result.newSource, /'refresh': 'Atualizar',/u);
+  assert.match(result.newSource, /'refresh': 'Refresh',/u);
+});
+
+test('the fromShared mapping is read as short key -> long shared key', () => {
+  const map = readSharedKeyMap(GEN_PAGE);
+  assert.equal(map.size, 2);
+  assert.equal(map.get('locate.title'), 'organism.x.qryLocate.title');
+  assert.equal(map.get('locate.empty'), 'intent.x.qryLocate.list.empty');
+});
+
+test('a mapped key is NOT a page literal — its text is not in this file', () => {
+  // `locate.title` only appears as a reference, so there is nothing to edit here: the value lives in
+  // the shared catalog and the caller must fall through to it.
+  const origin = findTextOriginByKey('locate.title', GEN_PAGE);
+  assert.equal(origin.type, 'dynamic');
+});
+
+test('buildTemplateMap reads `msg[key]` and spans EVERY html`` block', () => {
+  const map = buildTemplateMap(GEN_PAGE);
+  // Without the bare-`msg` pattern these were all `dynamic`; without the multi-template scan the
+  // second method's expressions were invisible.
+  assert.deepEqual(map.map((e) => e.i18nKey), ['locate.title', null, 'refresh', 'locate.empty']);
+});
+
+test('static text in a NON-first template is found', () => {
+  const origin = findTextOrigin('Total do turno', GEN_PAGE);
+  assert.equal(origin.type, 'static');
+  if (origin.type !== 'static') return;
+  assert.equal(GEN_PAGE.substring(origin.startOffset, origin.endOffset), 'Total do turno');
+});
+
+test('readSharedKeyMap is empty for the previous generator shape', () => {
+  assert.equal(readSharedKeyMap(PAGE).size, 0);
+  assert.equal(readSharedKeyMap(SHARED).size, 0);
+});
+
+// ── Two locales for the SAME language (pt and pt-br) ────────────────────────────────────────────
+// The app's language cycle can walk through both, so an edit that reaches only the displayed one
+// looks like it vanished when the user cycles back into the sibling.
+
+const TWO_PT = [
+  `/// **collab_i18n_start**`,
+  `const pageMessage_pt = {`,
+  `  'refresh': 'Atualizar',`,
+  `  'loading': 'A carregar o painel',`,
+  `};`,
+  `const pageMessage_pt_br: T = {`,
+  `  'refresh': 'Atualizar',`,
+  `  'loading': 'Carregando o painel',`,
+  `};`,
+  `const pageMessage_en: T = {`,
+  `  'refresh': 'Atualizar',`,
+  `  'loading': 'Loading',`,
+  `};`,
+  `const pageMessages: { [key: string]: T } = { 'pt': pageMessage_pt, 'pt-br': pageMessage_pt_br, 'en': pageMessage_en };`,
+  `/// **collab_i18n_end**`,
+].join('\n');
+
+test('pickLocale mirrors getMessageKey: exact, then the two-letter key, then the FIRST key', () => {
+  const declared = readDeclaredLocales(TWO_PT);
+  assert.deepEqual(declared, ['pt', 'pt-br', 'en']);
+
+  assert.equal(pickLocale(declared, 'pt-BR'), 'pt-br');   // exact
+  assert.equal(pickLocale(declared, 'pt'), 'pt');         // exact
+  assert.equal(pickLocale(['pt', 'en'], 'pt-br'), 'pt');  // the key IS the two-letter code
+  // No match at all falls back to the FIRST key — what getMessageKey displays.
+  assert.equal(pickLocale(declared, 'de'), 'pt');
+  assert.equal(pickLocale(declared, ''), 'pt');
+});
+
+test('a sibling locale with the SAME text is edited together', () => {
+  const origin = findTextOriginByKey('refresh', TWO_PT);
+  assert.equal(origin.type, 'i18n');
+  if (origin.type !== 'i18n') return;
+
+  const locales = pickSiblingLocales(origin, 'pt-br');
+  // pt shares the value, so it follows; en shares it too but is a DIFFERENT language.
+  assert.deepEqual(locales.sort(), ['pt', 'pt-br']);
+
+  const result = applyTextEdit(origin, 'Recarregar', TWO_PT, locales);
+  assert.ok(result.newSource);
+  assert.equal(result.newSource.match(/'refresh': 'Recarregar',/gu)?.length, 2);
+  // The other language keeps its own text.
+  assert.match(result.newSource, /'refresh': 'Atualizar',[\s\S]*'loading': 'Loading',/u);
+});
+
+test('a sibling locale with DIFFERENT text is a real translation and is left alone', () => {
+  const origin = findTextOriginByKey('loading', TWO_PT);
+  assert.equal(origin.type, 'i18n');
+  if (origin.type !== 'i18n') return;
+
+  // 'A carregar o painel' (pt) vs 'Carregando o painel' (pt-br): pt-PT vs pt-BR, not duplication.
+  assert.deepEqual(pickSiblingLocales(origin, 'pt-br'), ['pt-br']);
+
+  const result = applyTextEdit(origin, 'Carregando…', TWO_PT, pickSiblingLocales(origin, 'pt-br'));
+  assert.ok(result.newSource);
+  assert.match(result.newSource, /'loading': 'Carregando…',/u);
+  assert.match(result.newSource, /'loading': 'A carregar o painel',/u);
+});
+
+test('the catalog order follows the MAP, not the const declarations', () => {
+  // The map is what getMessageKey enumerates, so its first key is the runtime fallback.
+  const reordered = TWO_PT.replace(
+    `const pageMessages: { [key: string]: T } = { 'pt': pageMessage_pt, 'pt-br': pageMessage_pt_br, 'en': pageMessage_en };`,
+    `const pageMessages: { [key: string]: T } = { 'en': pageMessage_en, 'pt-br': pageMessage_pt_br, 'pt': pageMessage_pt };`,
+  );
+  assert.deepEqual(readDeclaredLocales(reordered), ['en', 'pt-br', 'pt']);
+  assert.equal(pickLocale(readDeclaredLocales(reordered), 'de'), 'en');
 });

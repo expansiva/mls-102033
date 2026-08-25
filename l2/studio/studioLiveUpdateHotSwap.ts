@@ -26,6 +26,8 @@
 // documented purpose and something the whole studio already depends on.
 //
 // LIMITS (documented on purpose — this mode is chosen for text/i18n edits)
+//  - PRIVATE CLASS FIELDS (`#field`) make the patch IMPOSSIBLE, not just imperfect — the guard below
+//    refuses instead of breaking the component. See usesPrivateFields.
 //  - Copying members is ADDITIVE: a member deleted in the new version stays on the registered class.
 //  - `static styles` is not swapped, so a CSS change does not arrive through here.
 //  - `document.createElement(tag)` still runs the OLD constructor, so a property ADDED by the edit
@@ -43,6 +45,34 @@ interface LitLikeConstructor extends CustomElementConstructor {
 
 interface LitLikeElement extends HTMLElement {
   requestUpdate?: () => void;
+}
+
+/** Compiled JS of a target — already produced by the compile that precedes every live update. */
+function readCompiledJs(target: IStudioEditTarget): string {
+  return (target.model as mls.editor.IModelTS).compilerResults?.prodJS || '';
+}
+
+/**
+ * True when a module's code touches PRIVATE CLASS FIELDS (`#field`).
+ *
+ * THIS IS WHY THE PATCH HAS TO BE REFUSED. A private field is branded onto the instance by the class
+ * that DECLARES it. Installing a member from the freshly evaluated module means installing a function
+ * closed over that module's own field storage (a fresh WeakMap once TypeScript downlevels `#`, the
+ * class's own brand when it does not) — while every instance was branded by the OLD module: the live
+ * ones, and the future ones too, since `document.createElement(tag)` keeps running the OLD
+ * constructor. Every access then throws
+ *
+ *   TypeError: Cannot read private member from an object whose class did not declare it
+ *
+ * on each render, which stops the component from rendering at all. Measured: the pages the current
+ * generator emits carry 8 `__classPrivateField` calls each (the `#msgLang`/`#msgCache` cache of the
+ * `msg` getter); the previous generation's carry none, which is why this went unnoticed there.
+ *
+ * There is no fix from this side: the field storage is module-private, and re-branding would mean
+ * reconstructing the instances — which is a remount, not a hot swap.
+ */
+function usesPrivateFields(js: string): boolean {
+  return js.includes('__classPrivateField') || /this\.#/u.test(js);
 }
 
 interface IFreshModuleUrl {
@@ -162,6 +192,16 @@ export const hotSwapMode: ILiveUpdateMode = {
       return { ok: false, message: `tag "${ctx.pageTag}" não está registrada` };
     }
 
+    // BEFORE evaluating anything: installing members of a class that declares private fields breaks
+    // every instance (see usesPrivateFields). Refusing keeps the app running; the honest way to see
+    // the edit is `studioLiveUpdate.set('reload')`.
+    if (usesPrivateFields(readCompiledJs(ctx.edited))) {
+      return {
+        ok: false,
+        message: 'não dá para aplicar ao vivo: a classe usa campos privados (#) — recarregue para ver ao navegar',
+      };
+    }
+
     const compiled = await freshModuleUrl(ctx.edited);
     if (!compiled.url) {
       return { ok: false, message: `nada a aplicar: ${compiled.reason}` };
@@ -180,6 +220,17 @@ export const hotSwapMode: ILiveUpdateMode = {
     else relinkBaseClass(registered, fresh);
 
     mergeElementProperties(registered, fresh);
+
+    // Relinking the base is inert when the PAGE declares its own `msg`: the current generator copies
+    // the shared strings into the page's catalog at module evaluation
+    // (`{...fromShared(sharedMessages['pt'])}`), so the page shadows whatever the new base holds.
+    // Saying "applied" here would be a lie.
+    if (!isPageItself && Object.getOwnPropertyDescriptor(registered.prototype, 'msg')) {
+      return {
+        ok: false,
+        message: 'a página tem catálogo próprio: a mudança no shared só aparece após reload',
+      };
+    }
 
     // Live instances keep their state; they just re-render against the new code.
     let repainted = 0;

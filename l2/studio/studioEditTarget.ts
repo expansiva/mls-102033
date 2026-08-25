@@ -65,10 +65,16 @@ export function findPageElement(host: HTMLElement): HTMLElement | null {
   return null;
 }
 
-/** Current app language, reduced to the primary subtag: `message_pt`, never `message_pt-br`. */
+/**
+ * Current app language, RAW (e.g. `pt-br`).
+ *
+ * It used to be reduced to the primary subtag, which silently wrote the edit into the wrong catalog:
+ * the current generator declares `pt` AND `pt-br` as separate objects, so an app in `pt-br` had its
+ * edit applied to `pt` and nothing changed on screen. Matching against the locales a catalog actually
+ * declares is `pickLocale`'s job (studioTextEdit) — it needs the unreduced value.
+ */
 export function currentLanguage(): string {
-  const lang = (document.documentElement.lang || 'en').trim();
-  return (lang.split('-')[0] || 'en').toLowerCase();
+  return (document.documentElement.lang || 'en').trim().toLowerCase();
 }
 
 /**
@@ -181,6 +187,51 @@ async function sharedFolderFromModule(project: number, folder: string): Promise<
  *
  * Same shortName, different folder. Returns null quietly: a page without a shared base is normal.
  */
+/**
+ * Organism files of a page: siblings named `<pageShortName>_O<k>.ts`, each with its OWN i18n catalog.
+ *
+ * The current generator can split a page's organisms into separate modules that export plain render
+ * FUNCTIONS (`renderProjectHeader(host)`), called from the page's template
+ * (`mls-102045/.../projectDetailWorkspace_O1.ts`). Their text renders inside the page's element but
+ * lives in a third file — neither the page nor the shared base — so without them in the chain that
+ * text is unreachable.
+ *
+ * Sorted by index so the chain order is stable.
+ */
+export async function resolveOrganismTargets(target: IStudioEditTarget): Promise<IStudioEditTarget[]> {
+  const { project, shortName, folder } = target;
+  const prefix = `${shortName}_O`;
+
+  const candidates = Object.values(mls.stor.files)
+    .filter((f) => f.project === project
+      && f.level === 2
+      && f.folder === folder
+      && f.extension === '.ts'
+      && f.shortName.startsWith(prefix)
+      && /^\d+$/u.test(f.shortName.slice(prefix.length)))
+    .sort((a, b) => Number(a.shortName.slice(prefix.length)) - Number(b.shortName.slice(prefix.length)));
+
+  const targets: IStudioEditTarget[] = [];
+  for (const storFile of candidates) {
+    try {
+      const { createModel } = await import('/_102027_/l2/libModel.js');
+      const model = await createModel(storFile, true, false);
+      if (!model) continue;
+      targets.push({
+        project,
+        shortName: storFile.shortName,
+        folder,
+        page: `_${project}_${folder ? `${folder}/` : ''}${storFile.shortName}`,
+        storFile,
+        model,
+      });
+    } catch (err) {
+      console.warn(`[studioEdit] organism model failed for ${storFile.shortName}:`, err);
+    }
+  }
+  return targets;
+}
+
 export async function resolveSharedTarget(target: IStudioEditTarget): Promise<IStudioEditTarget | null> {
   const { project, shortName, folder } = target;
 
