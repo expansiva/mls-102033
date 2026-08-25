@@ -22,15 +22,22 @@ test.afterEach(() => {
   }
 });
 
+function httpFetchResponse(status: number, body: unknown) {
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => text,
+  };
+}
+
 test('execBff returns successful envelopes unchanged', async () => {
-  globalThis.fetch = ((async () => ({
-    json: async () => ({
-      ok: true,
-      data: {
-        id: '123',
-      },
-      error: null,
-    }),
+  globalThis.fetch = ((async () => httpFetchResponse(200, {
+    ok: true,
+    data: {
+      id: '123',
+    },
+    error: null,
   })) as unknown) as typeof fetch;
 
   const response = await execBff<{ id: string }>('demo.load', {});
@@ -122,4 +129,34 @@ test('execBff imports Studio transport module when configured', async () => {
   assert.equal(response.ok, true);
   assert.equal(response.data?.routine, 'demo.imported');
   assert.equal(response.data?.source, 'test');
+});
+
+test('execBff keeps a JSON envelope on HTTP 400 — never "Erro do servidor (400)"', async () => {
+  globalThis.fetch = ((async () => httpFetchResponse(400, {
+    ok: false,
+    data: null,
+    error: {
+      code: 'VALIDATION_ERROR',
+      message: 'Invalid task status: concluida',
+    },
+  })) as unknown) as typeof fetch;
+
+  const response = await execBff('todo.changeTaskStatus.cmdDecideNewTaskStatus', { status: 'concluida' });
+  assert.equal(response.ok, false);
+  assert.equal(response.error?.code, 'VALIDATION_ERROR');
+  assert.equal(response.error?.message, 'Invalid task status: concluida');
+});
+
+test('execBff synthesizes a transport error only when the body is not an envelope', async () => {
+  globalThis.fetch = ((async () => httpFetchResponse(400, '<html>bad gateway</html>')) as unknown) as typeof fetch;
+  const badJson = await execBff('demo.load', {});
+  assert.equal(badJson.ok, false);
+  assert.equal(badJson.error?.code, 'HTTP_400');
+  assert.equal(badJson.error?.message, 'Erro do servidor (400).');
+
+  globalThis.fetch = ((async () => httpFetchResponse(404, 'not found')) as unknown) as typeof fetch;
+  const notFound = await execBff('demo.missing', {});
+  assert.equal(notFound.ok, false);
+  assert.equal(notFound.error?.code, 'HTTP_404');
+  assert.match(notFound.error?.message || '', /404/);
 });
