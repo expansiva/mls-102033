@@ -17,6 +17,13 @@ import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/boo
  */
 export const AURA_HEADER_HEIGHT_PX = 66;
 
+/**
+ * Height of the brand mark inside the band. The mark is sized by HEIGHT with `width: auto`, so a
+ * wide wordmark and a square glyph both keep their proportions — exported so a preview elsewhere
+ * can show it at the size it will really have.
+ */
+export const AURA_HEADER_LOGO_PX = 28;
+
 /** Mobile breakpoint of the header band (the shell keeps its own for the region layout). */
 export const AURA_MOBILE_BREAKPOINT_PX = 768;
 
@@ -343,7 +350,7 @@ ${tag} .aura-header-brand-text {
 ${tag} .aura-header-logo {
   display: block;
   width: auto;
-  height: 28px;
+  height: ${AURA_HEADER_LOGO_PX}px;
 }
 
 /* Inlined mark: same box as the img, painted by the nav text color (currentColor). */
@@ -360,7 +367,7 @@ ${tag} span.aura-header-logo {
 ${tag} .aura-header-logo svg {
   display: block;
   width: auto;
-  height: 28px;
+  height: ${AURA_HEADER_LOGO_PX}px;
 }
 
 ${tag} .aura-header-title {
