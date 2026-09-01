@@ -6,11 +6,13 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
+  ADD_GROUPS,
   ANIMATION_GROUPS,
   MISSING_IN_SOURCE,
   MOTION_SAFE_HINT,
   NOT_LOCATED,
   NO_OPTIONS,
+  addableProperties,
   animationScreen,
   describeMissingLiteral,
   editScope,
@@ -66,6 +68,14 @@ function idsFromCore(): string[] {
     }
   }
 
+  // The "+" catalog: there a property id is a CHIP, so every entry needs words of its own. Two
+  // contexts because the catalog is filtered by what the element is — a `grid` hides the display
+  // entry, a plain element hides the ones that need a flex or a grid.
+  for (const context of ['grid', 'span']) {
+    for (const entry of addableProperties(context, { childCount: 4 })) add(entry.property);
+  }
+  for (const group of ADD_GROUPS) add(`group.${group}`);
+
   // Row labels: every family and variant this module can name.
   const samples = [
     'p-3', 'px-3', 'mx-auto', 'space-y-4', 'rounded-md', 'text-sm', 'text-gray-400', 'text-left',
@@ -93,6 +103,16 @@ test('every id the core can produce has words in the catalog', () => {
   // one would render as `prop.whatever` on screen.
   const missing = idsFromCore().filter((id) => !CATALOG.has(id));
   assert.deepEqual(missing, [], 'ids with no entry in the catalog');
+});
+
+test('every id the PANEL asks for has words too', () => {
+  // The core is not the only source of ids: most of the panel's own words are written as `t('...')`
+  // right in the markup, and a typo there renders the id on screen. The dynamic ones (`group.${…}`,
+  // the property of a "+" chip) come through the core list above.
+  const panel = readFileSync(`${STUDIO_DIR}classPickerPanel.ts`, 'utf8');
+  const asked = [...panel.matchAll(/\bt\('([a-zA-Z][\w.]*)'/gu)].map((match) => match[1]);
+  assert.ok(asked.length > 40, 'the scan found the calls');
+  assert.deepEqual([...new Set(asked.filter((id) => !CATALOG.has(id)))], []);
 });
 
 test('the catalog answers in both languages, and the params land', () => {

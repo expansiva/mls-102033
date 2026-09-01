@@ -190,7 +190,7 @@ const message_pt = {
     + ' marcação — o picker não reescreve expressão',
   'reason.mixedClass': 'as classes deste elemento misturam texto fixo e código — o picker não reescreve'
     + ' expressão',
-  'reason.noClassAttr': 'este elemento não tem atributo `class`',
+  'reason.classComputed': 'a classe deste elemento é montada no código (class=${…}) — dá para editar só na fonte',
   'reason.noDsTokens': 'nenhum token do design system carregado nesta sessão',
   'reason.noRoleForFamily': 'nenhum papel do design system serve para {family}',
   'reason.moleculeShared': 'este elemento vem de uma molécula (projeto {project}), compartilhada por'
@@ -231,7 +231,7 @@ const message_pt = {
   'panel.close': 'fechar',
   'panel.tabClasses': 'Classes atuais',
   'panel.tabAnimations': 'Animações',
-  'panel.noClasses': 'nenhuma classe neste elemento',
+  'panel.noClasses': 'nenhuma classe ainda — comece acrescentando uma propriedade',
   'panel.jitOff': 'JIT do Tailwind inativo — só ofereço classes que já existem no CSS construído',
   'panel.previewHint': 'passe o mouse num chip para ver o efeito antes de aplicar',
   'panel.jitOnly': 'existe só via JIT — para o cliente vale a partir do próximo publish',
@@ -272,6 +272,23 @@ const message_pt = {
   'panel.keepPlaceHint': 'Marcado, largura, altura, posição, z e span ficam como estão aqui e não vêm'
     + ' da origem — é o caso do botão que precisa continuar w-full. Todo o resto continua vindo.',
 
+  // ── Adding and removing a property ────────────────────────────────────────
+  'panel.addProperty': '+ propriedade',
+  'panel.addTitle': 'acrescentar uma propriedade que este elemento ainda não tem',
+  'panel.addPick': 'Qual propriedade',
+  'panel.addNothing': 'este elemento já tem tudo que sei acrescentar',
+  'panel.addColor': 'escolha o papel do design system para começar',
+  'panel.removeProperty': 'remover esta propriedade',
+  'panel.removeLast': 'a última classe deste elemento não pode sair: não consegui localizá-lo pela'
+    + ' posição no template, então é por ela que ele é encontrado na fonte',
+  'panel.typedOpen': 'digitar um valor em {unit} (entre {min} e {max})',
+  'group.spacing': 'espaçamento',
+  'group.color': 'cor',
+  'group.text': 'texto',
+  'group.border': 'borda',
+  'group.layout': 'layout',
+  'group.effect': 'efeito',
+
   // ── Status (the toast the editor shows) ───────────────────────────────────
   'status.applying': 'aplicando...',
   'status.localOnly': '(alteração local, ainda não gravada no projeto)',
@@ -290,6 +307,8 @@ const message_pt = {
   'status.copied': 'estilo copiado de <{tag}> — selecione outro elemento para colar',
   'status.nothingToCopy': 'este elemento não tem classes para copiar',
   'status.pasted': 'estilo de <{tag}>',
+  'status.propertyAdded': 'nova propriedade: {property}',
+  'status.propertyRemoved': 'propriedade removida: {property}',
 
   // ── Animations: groups, options and screens ───────────────────────────────
   'anim.group.continuous': 'Animação contínua',
@@ -643,7 +662,7 @@ const message_en: typeof message_pt = {
     + ' the picker does not rewrite an expression',
   'reason.mixedClass': "this element's classes mix fixed text and code — the picker does not rewrite"
     + ' an expression',
-  'reason.noClassAttr': 'this element has no `class` attribute',
+  'reason.classComputed': 'this element builds its class in code (class=${…}) — it can only be edited at the source',
   'reason.noDsTokens': 'no design system tokens loaded in this session',
   'reason.noRoleForFamily': 'no design system role fits {family}',
   'reason.moleculeShared': 'this element comes from a molecule (project {project}), shared by several'
@@ -683,7 +702,7 @@ const message_en: typeof message_pt = {
   'panel.close': 'close',
   'panel.tabClasses': 'Current classes',
   'panel.tabAnimations': 'Animations',
-  'panel.noClasses': 'no classes on this element',
+  'panel.noClasses': 'no classes yet — start by adding a property',
   'panel.jitOff': 'Tailwind JIT is off — only classes already in the built CSS are offered',
   'panel.previewHint': 'hover a chip to see the effect before applying it',
   'panel.jitOnly': 'exists only through the JIT — for the client it applies after the next publish',
@@ -724,6 +743,23 @@ const message_en: typeof message_pt = {
   'panel.keepPlaceHint': 'Checked, width, height, position, z and span stay as they are here instead'
     + ' of coming from the source — the button that has to stay w-full. Everything else still comes.',
 
+  // ── Adding and removing a property ────────────────────────────────────────
+  'panel.addProperty': '+ property',
+  'panel.addTitle': 'add a property this element does not have yet',
+  'panel.addPick': 'Which property',
+  'panel.addNothing': 'this element already has everything I know how to add',
+  'panel.addColor': 'pick the design-system role to start from',
+  'panel.removeProperty': 'remove this property',
+  'panel.removeLast': 'the last class of this element cannot go: it could not be located by its'
+    + ' position in the template, so the literal is how it is found in the source',
+  'panel.typedOpen': 'type a value in {unit} (between {min} and {max})',
+  'group.spacing': 'spacing',
+  'group.color': 'colour',
+  'group.text': 'text',
+  'group.border': 'border',
+  'group.layout': 'layout',
+  'group.effect': 'effect',
+
   'status.applying': 'applying...',
   'status.localOnly': '(local change, not written to the project yet)',
   'status.busy': 'wait for the previous change to finish',
@@ -741,6 +777,8 @@ const message_en: typeof message_pt = {
   'status.copied': 'style copied from <{tag}> — select another element to paste it',
   'status.nothingToCopy': 'this element has no classes to copy',
   'status.pasted': 'style from <{tag}>',
+  'status.propertyAdded': 'new property: {property}',
+  'status.propertyRemoved': 'property removed: {property}',
 
   'anim.group.continuous': 'Continuous animation',
   'anim.group.speed': 'Speed',

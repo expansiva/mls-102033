@@ -22,8 +22,13 @@
 //  - the MARKING (hover/selection/box model) is a `position: fixed` layer on the body, using viewport
 //    coordinates. It cannot sit inside the page subtree (rule 1), and on the body it never inherits a
 //    clipping or transformed ancestor.
-//  - the STATUS toast lives INSIDE the service element (`chromeHost`), absolutely positioned. On the
-//    body it rendered as an app-wide notification, escaping the panel it reports about.
+//  - the CHROME (the status toast and the class picker) sits on the BODY too, above the marking
+//    (99991/99992 against 99990). It used to be a child of the service element, which is what made
+//    it read as feedback from this panel instead of an app-wide notification — but nesting also
+//    trapped it: `z-index` only compares inside a stacking context, so a transformed or layered
+//    ancestor put the marking OVER the picker. Being where it is drawn is now `positionChrome`'s
+//    job, not the parent's: it pins both to the visible part of the app's region (`chromeHost`),
+//    which also fixed them hanging below the fold on a page with scroll.
 
 import {
   applyTextEdit,
@@ -44,6 +49,8 @@ import { t, tr, type IMessageRef } from '/_102033_/l2/studio/studioMessages.js';
 import {
   activeAnimations,
   applyAnimationOption,
+  NOT_LOCATED,
+  classAttrSpan,
   editScope,
   describeMissingLiteral,
   findClassAttrs,
@@ -108,7 +115,15 @@ const CONTROL_CLASS = 'se-control';
 /** How to find the literal again in the file: by DOM position, or by counting occurrences. */
 type ClassAnchor =
   | { kind: 'structural'; path: IDomPathStep[] }
-  | { kind: 'occurrence'; occurrence: number };
+  | { kind: 'occurrence'; occurrence: number }
+  /**
+   * The element has NO class attribute: the edit writes one.
+   *
+   * Only structural — there is no literal to count, and the position in the template is the only
+   * thing that identifies the element. The very first write turns it into a `structural` anchor like
+   * any other, because by then the element has a literal.
+   */
+  | { kind: 'insert'; path: IDomPathStep[] };
 
 interface IClassPanelState {
   el: HTMLElement;
@@ -133,6 +148,8 @@ export class StudioEditor {
   private selectedEl: HTMLElement | null = null;
   private lastHoveredEl: HTMLElement | null = null;
   private target: IStudioEditTarget | null = null;
+  /** Why the page's file could not be resolved — the panel says this instead of guessing. */
+  private targetFailure: IMessageRef | null = null;
   /**
    * Files that can hold this page's text, resolved lazily: page, organism files, shared base class.
    * Null until the first edit needs it.
@@ -148,10 +165,13 @@ export class StudioEditor {
   private hostResizeObserver: ResizeObserver | null = null;
   private overlayHidden = false;
   private lastPageTag = '';
-  /** Where the editor's own chrome (the status toast) lives — the SERVICE element, not the body. */
+  /**
+   * Where the editor's own chrome (the toast and the class picker) lives — the SERVICE element, not
+   * the body. It is only the PARENT: both are `fixed`, so nothing here has to become a containing
+   * block, and the client's own styling is left exactly as it was.
+   */
   private chromeHost: HTMLElement | null = null;
   private statusEl: HTMLDivElement | null = null;
-  private chromePositionPatched = false;
 
   /** The class picker (TASK-102033-class-picker): panel element + what the current selection resolved to. */
   private classPanelEl: ClassPickerPanel | null = null;
@@ -228,6 +248,9 @@ export class StudioEditor {
     // change, splitter collapse), independently of the service framework.
     this.hostResizeObserver = new ResizeObserver(() => {
       this.setOverlayVisible(this.isHostVisible());
+      // The nav3 splitter changes the region's width without a window resize: the chrome is pinned to
+      // that region, so it has to be re-pinned here too.
+      this.positionChrome();
     });
     this.hostResizeObserver.observe(host);
   }
@@ -282,9 +305,6 @@ export class StudioEditor {
     this.classPanel = null;
     this.builtClasses = null;
     this.dsRoles = null;
-    // Only undo what we changed: the service's own styling must survive disarming.
-    if (this.chromePositionPatched && this.chromeHost) this.chromeHost.style.position = '';
-    this.chromePositionPatched = false;
     this.chromeHost = null;
     // The head belongs to the CLIENT app: leaving editor CSS behind after disarming is a leak.
     document.getElementById(STYLE_ID)?.remove();
@@ -343,10 +363,12 @@ export class StudioEditor {
     this.candidates = null;
     if (result.ok) {
       this.target = result.target;
+      this.targetFailure = null;
       this.statusText = '';
       this.events.onTarget?.(this.target, '');
     } else {
       this.target = null;
+      this.targetFailure = result.reason;
       // Translated here: the owner gets a sentence it can show, not an id it would have to resolve.
       this.statusText = tr(result.reason);
       this.events.onTarget?.(null, this.statusText);
@@ -494,6 +516,7 @@ export class StudioEditor {
   private onScrollResize = (): void => {
     if (this.currentMode() === 'off') return;
     this.drawSelection();
+    this.positionChrome();
   };
 
   // --- Element resolution ---
@@ -868,33 +891,26 @@ export class StudioEditor {
   // --- Class picker (TASK-102033-class-picker / -picker-web-component) ---
 
   /**
-   * The picker panel, next to the status toast: INSIDE the service element.
+   * The picker panel, next to the status toast, on the BODY.
    *
-   * Neither of the other two layers can hold it. The marking overlay is pointer-events none by design
-   * (it must never eat a click meant for the page), so it cannot carry controls; and the service BODY
-   * is the adopted app region, where nothing may be inserted or the shell remounts the screen on its
-   * next render. What is left is the service element itself — the toast's home.
+   * Not in the app's own region: that is the adopted subtree, where nothing may be inserted or the
+   * shell remounts the screen on its next render. Not in the marking overlay either — that layer is
+   * `pointer-events: none` by design, so it can never carry controls. It is a sibling of the marking
+   * instead, one z-index above it, and `positionChrome` puts it over the app's region.
    *
    * It is a WEB COMPONENT (classPickerPanel): the editor feeds it the selection and listens to what the
    * user asked for. Everything about words, chips and screens lives there.
    */
   private createClassPanel(): void {
     if (this.classPanelEl) return;
-    const container = this.chromeHost;
-    if (!container) return;
-
-    if (getComputedStyle(container).position === 'static') {
-      container.style.position = 'relative';
-      this.chromePositionPatched = true;
-    }
-
     this.classPanelEl = document.createElement(CLASS_PICKER_TAG) as ClassPickerPanel;
     this.classPanelEl.hidden = true;
     this.classPanelEl.addEventListener('picker-apply', this.onPickerApply as EventListener);
     this.classPanelEl.addEventListener('picker-preview', this.onPickerPreview as EventListener);
     this.classPanelEl.addEventListener('picker-status', this.onPickerStatus as EventListener);
     this.classPanelEl.addEventListener('picker-close', this.onPickerClose);
-    container.appendChild(this.classPanelEl);
+    // Same layer as the marking and the toast — see createStatusEl.
+    document.body.appendChild(this.classPanelEl);
   }
 
   private hideClassPanel(): void {
@@ -969,8 +985,11 @@ export class StudioEditor {
       this.renderClassPanel();
     };
 
-    if (!literal.trim()) {
-      state.refusal = { id: 'reason.noClassAttr' };
+    // FIRST, because everything below is judged against this page's own file: without it there is no
+    // way to tell a molecule from the page's own element, and the panel would blame the wrong thing.
+    // The reason the resolution failed is kept from refreshTarget and shown as it is.
+    if (!this.target) {
+      state.refusal = this.targetFailure ?? { id: 'reason.noTargetFile' };
       show();
       return;
     }
@@ -984,13 +1003,9 @@ export class StudioEditor {
       return;
     }
 
-    if (!this.target) {
-      state.refusal = { id: 'reason.noTargetFile' };
-      show();
-      return;
-    }
-
-    // Which file, and where in it — structural first, counting as the fallback (resolveClassAnchor).
+    // Which file, and where in it — structural first, counting as the fallback. An element with NO
+    // class attribute goes through here too: it is editable now that the panel can ADD a property,
+    // anchored by position alone, and the first write inserts the attribute.
     await this.resolveClassAnchor(el, literal, state);
     show();
   }
@@ -1032,8 +1047,17 @@ export class StudioEditor {
     file: IStudioEditTarget,
     literal: string,
     anchor: ClassAnchor,
-  ): { startOffset: number; endOffset: number } | null {
+  ): { startOffset: number; endOffset: number; insert?: boolean } | null {
     const source = file.model.model.getValue();
+
+    if (anchor.kind === 'insert') {
+      const resolved = resolveStructuralAnchor(scanTemplateTree(source), anchor.path);
+      // Still without a class of its own: if one appeared since the panel opened, writing a second
+      // attribute would produce `<div class="a" class="b">`.
+      if (!resolved.ok || resolved.element.literal !== null || resolved.element.classComputed) return null;
+      const at = resolved.element.insertAt;
+      return { startOffset: at, endOffset: at, insert: true };
+    }
 
     if (anchor.kind === 'structural') {
       const resolved = resolveStructuralAnchor(scanTemplateTree(source), anchor.path);
@@ -1062,6 +1086,26 @@ export class StudioEditor {
   private async resolveClassAnchor(el: HTMLElement, literal: string, state: IClassPanelState): Promise<void> {
     const path = this.domPathOf(el);
     const candidates = await this.resolveCandidates();
+
+    // No class attribute at all: nothing to match on, so the position in the template is the whole
+    // anchor. The element found there must have no class of its own — an element whose class is
+    // COMPUTED (`class=${classMap(…)}`) already has the attribute and would end up with two.
+    if (!literal) {
+      for (const candidate of path.length ? candidates : []) {
+        const resolved = resolveStructuralAnchor(scanTemplateTree(candidate.model.model.getValue()), path);
+        if (!resolved.ok || resolved.element.literal !== null) continue;
+        if (resolved.element.classComputed) {
+          state.refusal = { id: 'reason.classComputed' };
+          return;
+        }
+        state.file = candidate;
+        state.anchor = { kind: 'insert', path };
+        state.warning = resolved.renders > 1 ? repeatedRenderWarning(resolved.renders) : undefined;
+        return;
+      }
+      state.refusal = NOT_LOCATED;
+      return;
+    }
 
     if (path.length) {
       for (const candidate of candidates) {
@@ -1114,12 +1158,22 @@ export class StudioEditor {
     return { domCount: matches.length, domIndex: matches.indexOf(el) };
   }
 
-  /** Project a custom-element tag resolves to, when it is NOT this page's project. */
+  /**
+   * Project a custom-element tag resolves to, when it is NOT this page's project.
+   *
+   * Nothing is foreign while OUR OWN project is unknown. Without this guard, a page whose file could
+   * not be resolved (`target === null`) compared every tag against `undefined` — so the page's own
+   * element read as a molecule from another project, and almost every click on that page was refused
+   * with "this element comes from a molecule (project 102046)", naming the client's own project.
+   * The real problem there is the target, and that is what has to be said.
+   */
   private foreignProjectOfTag(el: HTMLElement): number | null {
+    const own = this.target?.project;
+    if (!own) return null;
     const tag = el.tagName.toLowerCase();
     if (!tag.includes('-')) return null;
     const info = tagToFileInfo(tag);
-    if (!info?.project || info.project === this.target?.project) return null;
+    if (!info?.project || info.project === own) return null;
     return info.project;
   }
 
@@ -1170,8 +1224,11 @@ export class StudioEditor {
       refusal: state.refusal,
       warning: state.warning,
       childCount: this.elementChildCount(state.el),
+      canRemoveLast: state.anchor?.kind !== 'occurrence',
     };
     panel.hidden = false;
+    // Only measurable once it is showing — and its size depends on what the selection carries.
+    this.positionChrome();
   }
 
   /** Current value of a design-system role, for the swatch and the `var(--role, FALLBACK)` written. */
@@ -1309,7 +1366,9 @@ export class StudioEditor {
     // A preview in flight would put the OLD attribute back on top of the real change.
     this.previewAnimation(null);
 
-    el.setAttribute('class', newLiteral);
+    // Nothing left means no attribute at all, in the DOM as in the source (see classAttrSpan).
+    if (newLiteral) el.setAttribute('class', newLiteral);
+    else el.removeAttribute('class');
     if (this.hasEntrance(newLiteral)) this.replayEntrance(el);
     this.drawSelection();
 
@@ -1322,7 +1381,19 @@ export class StudioEditor {
       return;
     }
 
-    const newSource = source.slice(0, match.startOffset) + newLiteral + source.slice(match.endOffset);
+    // An insertion carries the attribute's own syntax; a replacement is just the literal; and an
+    // empty result takes the whole attribute out instead of leaving `class=""` behind.
+    let { startOffset, endOffset } = match;
+    let written = match.insert ? ` class="${newLiteral}"` : newLiteral;
+    if (!newLiteral && !match.insert) {
+      const span = classAttrSpan(source, match.startOffset, match.endOffset);
+      if (span) {
+        startOffset = span.start;
+        endOffset = span.end;
+        written = '';
+      }
+    }
+    const newSource = source.slice(0, startOffset) + written + source.slice(endOffset);
     const model = file.model.model;
     model.pushEditOperations(
       [],
@@ -1384,10 +1455,11 @@ export class StudioEditor {
         white-space: nowrap;
       }
 
-      /* Absolute inside the SERVICE element, not fixed on the viewport: a toast on the body reads as
-         an app-wide notification instead of feedback from this panel. */
+      /* A child of the SERVICE element, so it reads as feedback from this panel and not as an
+         app-wide notification — but positioned against the VIEWPORT, or a scrolling page would leave
+         it at the bottom of the content (see positionChrome). */
       .se-status {
-        position: absolute; bottom: 12px; left: 50%;
+        position: fixed; bottom: 12px; left: 50%;
         transform: translateX(-50%);
         z-index: 99991;
         max-width: 80%;
@@ -1445,18 +1517,12 @@ export class StudioEditor {
    */
   private createStatusEl(): void {
     if (this.statusEl) return;
-    const container = this.chromeHost;
-    if (!container) return;
-
-    if (getComputedStyle(container).position === 'static') {
-      container.style.position = 'relative';
-      this.chromePositionPatched = true;
-    }
-
     this.statusEl = document.createElement('div');
     this.statusEl.className = `${CONTROL_CLASS} se-status`;
     this.statusEl.hidden = true;
-    container.appendChild(this.statusEl);
+    // On the BODY, like the marking layer: `positionChrome` is what keeps it over the app's region,
+    // and being a sibling of the marking is what lets z-index decide which one is on top.
+    document.body.appendChild(this.statusEl);
   }
 
   /**
@@ -1488,6 +1554,8 @@ export class StudioEditor {
     const visible = Boolean(this.statusText) && this.mode !== 'off' && !this.overlayHidden;
     this.statusEl.hidden = !visible;
     this.statusEl.textContent = visible ? this.statusText : '';
+    // The text just changed, so the width did too: the centring is recomputed from what it now is.
+    this.positionChrome();
   }
 
   private drawStatusOnly(): void {
@@ -1509,6 +1577,74 @@ export class StudioEditor {
 
     // The status lives in its own element inside the service — never in this overlay.
     this.overlayEl.innerHTML = html;
+  }
+
+  /** Distance from the edge of the app's region — the same for both pieces of chrome. */
+  private static readonly CHROME_GAP = 12;
+
+  /**
+   * Pins the editor's own chrome to the VISIBLE part of the app's region.
+   *
+   * Both pieces are children of the service element on purpose (a toast on the body reads as an
+   * app-wide notification), and they used to be `absolute` in it — which anchors `bottom: 12px` to
+   * the bottom of the whole scrollable content. On a page with scroll they were simply below the
+   * fold. Now they are `fixed`, and this is what keeps them inside the region instead of in the
+   * window's corner: the region's visible rectangle, recomputed on every scroll and resize.
+   */
+  private positionChrome(): void {
+    const host = this.chromeHost;
+    if (!host) return;
+
+    const region = host.getBoundingClientRect();
+    const right = Math.min(region.right, window.innerWidth);
+    const bottom = Math.min(region.bottom, window.innerHeight);
+    const left = Math.max(region.left, 0);
+    // The region itself can be scrolled out of view; the chrome then goes to the window's own corner
+    // rather than following it off-screen.
+    const visible = right > 0 && bottom > 0 && left < window.innerWidth;
+    const edgeRight = visible ? right : window.innerWidth;
+    const edgeBottom = visible ? bottom : window.innerHeight;
+    const gap = StudioEditor.CHROME_GAP;
+
+    const panel = this.classPanelEl;
+    if (panel && !panel.hidden) {
+      this.pin(panel, { right: edgeRight - gap, bottom: edgeBottom - gap });
+    }
+    const status = this.statusEl;
+    if (status && !status.hidden) {
+      const centre = visible ? (left + right) / 2 : window.innerWidth / 2;
+      this.pin(status, { centre, bottom: edgeBottom - gap });
+    }
+  }
+
+  /**
+   * Puts one element at a viewport position, then CORRECTS it by what it actually got.
+   *
+   * `fixed` answers to the viewport only while no ancestor has a transform, a filter or `contain` —
+   * any of those becomes the containing block and the same numbers land somewhere else. The host here
+   * is the shell's, not ours, so instead of forbidding that the element is placed, measured, and
+   * shifted by the difference.
+   *
+   * Anchored by `right`/`bottom` (never `top`/`left`): the panel changes height as the user moves
+   * between tabs and screens, and a bottom-anchored box stays put while it grows.
+   */
+  private pin(el: HTMLElement, target: { right?: number; centre?: number; bottom: number }): void {
+    const gap = StudioEditor.CHROME_GAP;
+    if (typeof target.right === 'number') el.style.right = `${Math.max(gap, window.innerWidth - target.right)}px`;
+    if (typeof target.centre === 'number') el.style.left = `${target.centre}px`;
+    el.style.bottom = `${Math.max(gap, window.innerHeight - target.bottom)}px`;
+
+    const rect = el.getBoundingClientRect();
+    if (typeof target.right === 'number') {
+      const dx = target.right - rect.right;
+      if (Math.abs(dx) > 0.5) el.style.right = `${parseFloat(el.style.right) - dx}px`;
+    }
+    if (typeof target.centre === 'number') {
+      const dx = target.centre - (rect.left + rect.width / 2);
+      if (Math.abs(dx) > 0.5) el.style.left = `${parseFloat(el.style.left) + dx}px`;
+    }
+    const dy = target.bottom - rect.bottom;
+    if (Math.abs(dy) > 0.5) el.style.bottom = `${parseFloat(el.style.bottom) - dy}px`;
   }
 
   private drawSelection(): void {

@@ -22,6 +22,7 @@
 import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import {
+  ADD_GROUPS,
   ANIMATION_GROUPS,
   CASCADE_MAX_CHILDREN,
   CASCADE_STEPS,
@@ -34,26 +35,37 @@ import {
   applyAnimationOption,
   applyAnimationState,
   applyCascade,
+  applyTypedValue,
+  addUtility,
+  addableProperties,
+  addableProperty,
   buildAnimationClass,
   chipAvailability,
   classesInCategories,
   colorOf,
   diffLiterals,
+  newRoleOptions,
   pasteCategories,
   pasteStyle,
   readAnimationCustom,
   readAnimationState,
   readCascade,
+  readTypedValue,
   removeAnimationCustom,
   removeCascade,
+  removeUtility,
   replaceUtility,
+  typedValueSpec,
   roleLabel,
   roleVar,
   splitUtilities,
   utilityLabel,
   utilityOptions,
+  type AddGroup,
   type AnimationScreen,
   type AnimationStateKey,
+  type IAddableProperty,
+  type ITypedValueSpec,
   type IAnimationGroup,
   type IAnimationOption,
   type IAnimationState,
@@ -77,6 +89,14 @@ export interface IPickerTarget {
   warning?: IMessageRef;
   /** Element children of the selection — the cascade row needs to know. */
   childCount: number;
+  /**
+   * Whether the element can still be found with NO classes at all.
+   *
+   * True for a structural anchor (its position in the template identifies it); false when the editor
+   * had to fall back to COUNTING the literal in the source, because there the literal is the address
+   * and an element without one could not be reached again — not even to put a class back.
+   */
+  canRemoveLast: boolean;
 }
 
 /** What the panel asks the editor to write. */
@@ -135,10 +155,19 @@ export class ClassPickerPanel extends LitElement {
   @state() private clipboard: IStyleClipboard | null = null;
   /** Hold this element's place instead of taking the source's (see the paste block). */
   @state() private keepPlace = false;
+  /** Group of the "+" whose properties are showing. */
+  @state() private addGroup: AddGroup | null = null;
+  /** Property whose design-system palette is open in the "+" (colour does not seed a value). */
+  @state() private addColor: string | null = null;
+  /** Token index whose typed-value input is open. */
+  @state() private typedEditing: number | null = null;
 
   static styles = css`
     :host {
-      position: absolute; bottom: 12px; right: 12px;
+      /* FIXED, not absolute: absolute inside the service element anchors the bottom edge to the end
+         of the whole scrollable content, so on a page with scroll the panel sat below the fold. The
+         editor re-pins it to the visible part of the app region on every scroll (positionChrome). */
+      position: fixed; bottom: 12px; right: 12px;
       z-index: 99992;
       width: 340px; max-width: calc(100% - 24px);
       max-height: 55%; overflow: auto;
@@ -171,16 +200,21 @@ export class ClassPickerPanel extends LitElement {
     .note.warning { background: rgba(245,166,35,0.14); color: #ffd8a1; }
     .note.refusal { background: rgba(229,57,53,0.16); color: #ffc9c7; }
 
-    .rows { padding: 6px 4px 8px; }
-    .block { display: block; padding: 6px 6px 2px; }
-    .block + .block { border-top: 1px solid rgba(245,247,250,0.06); }
+    /* One group has to read as one group: the room below the chips is what separates it from the
+       next label, and the rule is only there to help — space does the work. */
+    .rows { padding: 4px 4px 10px; }
+    .block { display: block; padding: 9px 6px; }
+    .block + .block { border-top: 1px solid rgba(245,247,250,0.10); }
     .block.readonly { opacity: 0.75; }
     .label {
-      display: block; margin-bottom: 4px; color: #b8c2cc; font-size: 11px;
+      display: block; margin-bottom: 6px; color: #b8c2cc; font-size: 11px;
       text-transform: uppercase; letter-spacing: 0.04em;
     }
-    .reason { display: block; color: #9aa5b1; line-height: 1.3; }
-    .chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    .reason { display: block; margin-top: 4px; color: #9aa5b1; line-height: 1.3; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+
+    /* The "+" is not another property of the element: it is the end of the list. */
+    .block.add { margin-top: 6px; border-top-color: rgba(245,247,250,0.18); }
 
     .chip {
       font-family: monospace; font-size: 11px; padding: 2px 6px; cursor: pointer;
@@ -235,6 +269,15 @@ export class ClassPickerPanel extends LitElement {
     .role-item.current { background: rgba(66,135,245,0.18); }
     .role-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .role-value { flex: 0 0 auto; font-family: monospace; color: #9aa5b1; }
+    .head-row { display: flex; align-items: baseline; gap: 6px; }
+    .head-row .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .remove {
+      flex: 0 0 auto; background: transparent; border: 0; cursor: pointer;
+      color: #9aa5b1; font-size: 13px; line-height: 1; padding: 0 2px;
+    }
+    .remove:hover:not([disabled]) { color: #fca5a5; }
+    .remove[disabled] { opacity: 0.3; cursor: not-allowed; }
+
     /* Copy/paste of a style */
     .copy {
       flex: 0 0 auto; background: transparent; border: 0; cursor: pointer;
@@ -273,6 +316,10 @@ export class ClassPickerPanel extends LitElement {
     const previous = changed.get('target') as IPickerTarget | undefined;
     if (changed.has('target') && previous && previous.literal !== this.target?.literal) {
       this.customEditing = null;
+      this.typedEditing = null;
+      // The "+" is answered by what the element already has, and that just changed.
+      this.addGroup = null;
+      this.addColor = null;
     }
     if (changed.has('target') && previous?.tag !== this.target?.tag) {
       this.pendingState = {};
@@ -309,14 +356,21 @@ export class ClassPickerPanel extends LitElement {
 
   // ─── Classes tab ───────────────────────────────────────────────────────────
 
+  /**
+   * The tab: what the element has, and what it could have.
+   *
+   * An element with NO class is not a dead end — it is exactly where the "+" earns its place. The
+   * editor anchors it by position alone and the first write inserts the attribute, so the only
+   * difference here is the line that says there is nothing yet.
+   */
   private renderClasses() {
     const tokens = splitUtilities(this.target?.literal ?? '');
-    if (!tokens.length) {
-      return html`<div class="rows"><div class="block readonly"><span class="reason">${t('panel.noClasses')}</span></div></div>`;
-    }
     return html`<div class="rows">
       ${this.renderPaste()}
-      ${tokens.map((token) => this.renderClassBlock(token))}
+      ${tokens.length
+    ? tokens.map((token) => this.renderClassBlock(token))
+    : html`<div class="block readonly"><span class="reason">${t('panel.noClasses')}</span></div>`}
+      ${this.renderAdd()}
     </div>`;
   }
 
@@ -334,7 +388,10 @@ export class ClassPickerPanel extends LitElement {
       ? [t(label.property), ...label.variants.map((part) => (part.id ? t(part.id, part.params) : part.raw ?? ''))].join(' · ')
       : token.raw;
 
-    const head = html`<span class="label" title=${token.raw}>${text}</span>`;
+    const head = html`<span class="head-row">
+      <span class="label" title=${token.raw}>${text}</span>
+      ${this.removeButton(token, text)}
+    </span>`;
 
     if (options.kind === 'none') {
       return html`<div class="block readonly">${head}<span class="reason">${tr(options.reason)}</span></div>`;
@@ -344,6 +401,7 @@ export class ClassPickerPanel extends LitElement {
     }
 
     const editable = this.target?.editable ?? false;
+    const typed = typedValueSpec(token, options.kind);
     return html`<div class="block">${head}<span class="chips">${options.options.map((option) => {
       const isCurrent = option === token.raw;
       const availability = chipAvailability(isCurrent, this.builtClasses.has(option), this.jitLive);
@@ -355,7 +413,133 @@ export class ClassPickerPanel extends LitElement {
         ?disabled=${!editable || isCurrent}
         @click=${() => this.applyLiteral(replaceUtility(this.literal, token.raw, option, token.index), `${token.raw} → ${option}`)}
       >${option.split(':').pop() ?? option}${jitOnly ? html`<span class="star">*</span>` : nothing}</button>`;
-    })}</span></div>`;
+    })}${typed ? this.renderTypedValue(token, typed) : nothing}</span></div>`;
+  }
+
+  /**
+   * The `×` of a row: the whole property leaves.
+   *
+   * The LAST class can go too. That used to be refused because the literal WAS the anchor; now the
+   * element is found by its position in the template, the write takes the whole `class="…"` attribute
+   * out, and the panel comes back offering the "+". The one exception is an element the editor could
+   * only find by COUNTING its literal — there the literal is the address (see canRemoveLast).
+   */
+  private removeButton(token: IUtilityToken, name: string) {
+    const editable = this.target?.editable ?? false;
+    const stranded = splitUtilities(this.literal).length <= 1 && !(this.target?.canRemoveLast ?? false);
+    return html`<button type="button" class="remove" ?disabled=${!editable || stranded}
+      title=${stranded ? t('panel.removeLast') : t('panel.removeProperty')}
+      @mouseenter=${() => { if (!stranded) this.previewLiteral(removeUtility(this.literal, token.raw)); }}
+      @mouseleave=${() => this.previewLiteral(null)}
+      @click=${() => this.applyLiteral(
+    removeUtility(this.literal, token.raw),
+    t('status.propertyRemoved', { property: name }),
+  )}>&times;</button>`;
+  }
+
+  /**
+   * The `...` of a numeric row: `p-[13px]`, `w-[320px]`.
+   *
+   * The core has always READ a typed value as the current value of its family (it leads the chips and
+   * the scale is the way back) — what was missing was the way in. Gated by the family AND by the kind,
+   * so the colour side of `text-*` never gets a px input.
+   */
+  private renderTypedValue(token: IUtilityToken, spec: ITypedValueSpec) {
+    const editable = this.target?.editable ?? false;
+
+    if (this.typedEditing === token.index) {
+      const current = readTypedValue(token);
+      return html`<span class="custom">
+        <input type="number" min=${spec.min} max=${spec.max} .value=${current === null ? '' : String(current)}
+          placeholder=${`${spec.min}–${spec.max}`}
+          @keydown=${this.onTypedKeydown}>
+        <span class="unit">${spec.unit}</span>
+        <button type="button" class="chip" @click=${() => this.commitTyped(token, spec)}>${t('panel.customApply')}</button>
+        <button type="button" class="link" @click=${() => { this.typedEditing = null; }}>${t('panel.customCancel')}</button>
+      </span>`;
+    }
+
+    return html`<button type="button" class="chip more" ?disabled=${!editable}
+      title=${t('panel.typedOpen', { unit: spec.unit, min: spec.min, max: spec.max })}
+      @click=${() => { this.typedEditing = token.index; this.focusTypedSoon(); }}>…</button>`;
+  }
+
+  /**
+   * The "+": a property this element does not have yet.
+   *
+   * Two steps, never a form — the category, then the property — because the catalog is ~20 entries and
+   * a flat list of twenty in a 340px panel is a scroll, not a menu. The new property is born with the
+   * value the project uses most; colour is the exception (no concentration to call a default), and it
+   * opens the design-system palette instead of guessing.
+   */
+  private renderAdd() {
+    const editable = this.target?.editable ?? false;
+    const options = addableProperties(this.literal, { childCount: this.target?.childCount ?? 0 });
+
+    if (!options.length) {
+      return html`<div class="block add readonly">
+        <span class="label">${t('panel.addProperty')}</span>
+        <span class="reason">${t('panel.addNothing')}</span>
+      </div>`;
+    }
+
+    if (this.addColor) {
+      const entry = addableProperty(this.addColor);
+      const roles = entry?.family ? newRoleOptions(entry.family, this.dsRoles, (cssVar) => this.resolveVar(cssVar)) : [];
+      return html`<div class="block add">
+        <span class="head-row">
+          <span class="label">${t(this.addColor)}</span>
+          <button type="button" class="link" @click=${() => { this.addColor = null; }}>${t('panel.customCancel')}</button>
+        </span>
+        ${roles.length
+    ? html`<span class="role-list">${roles.map((option) => html`<button type="button" class="role-item"
+            @click=${() => this.addSeed(this.addColor ?? '', option)}>${this.roleRow(option)}</button>`)}</span>`
+    : html`<span class="reason">${t('reason.noDsTokens')}</span>`}
+        <small class="hint">${t('panel.addColor')}</small>
+      </div>`;
+    }
+
+    if (this.addGroup) {
+      const group = this.addGroup;
+      return html`<div class="block add">
+        <span class="head-row">
+          <span class="label">${t('panel.addPick')} · ${t(`group.${group}`)}</span>
+          <button type="button" class="link" @click=${() => { this.addGroup = null; }}>${t('panel.customCancel')}</button>
+        </span>
+        <span class="chips">${options.filter((entry) => entry.group === group).map((entry) => this.addChip(entry))}</span>
+      </div>`;
+    }
+
+    // Only the groups that have something to offer for THIS element: an empty category is a promise
+    // the panel cannot keep.
+    const groups = ADD_GROUPS.filter((group) => options.some((entry) => entry.group === group));
+    return html`<div class="block add">
+      <span class="label" title=${t('panel.addTitle')}>${t('panel.addProperty')}</span>
+      <span class="chips">${groups.map((group) => html`<button type="button" class="chip" ?disabled=${!editable}
+        @click=${() => { this.addGroup = group; }}>${t(`group.${group}`)}</button>`)}</span>
+    </div>`;
+  }
+
+  private addChip(entry: IAddableProperty) {
+    const editable = this.target?.editable ?? false;
+    const seed = entry.seed;
+    // Same rule as every other chip: a class with no rule in the built css is marked, never silent.
+    const jitOnly = Boolean(seed) && !this.builtClasses.has(seed ?? '');
+    const title = seed
+      ? (jitOnly ? `${seed} — ${t('panel.publishNote')}` : seed)
+      : t('panel.addColor');
+
+    return html`<button type="button" class="chip ${jitOnly ? 'jit' : ''}" ?disabled=${!editable} title=${title}
+      @mouseenter=${() => { if (seed) this.previewLiteral(addUtility(this.literal, seed)); }}
+      @mouseleave=${() => this.previewLiteral(null)}
+      @click=${() => { if (seed) this.addSeed(entry.property, seed); else this.addColor = entry.property; }}
+    >${t(entry.property)}${jitOnly ? html`<span class="star">*</span>` : nothing}</button>`;
+  }
+
+  private addSeed(property: string, cls: string): void {
+    this.addGroup = null;
+    this.addColor = null;
+    this.applyLiteral(addUtility(this.literal, cls), t('status.propertyAdded', { property: t(property) }));
   }
 
   /**
@@ -467,15 +651,7 @@ export class ClassPickerPanel extends LitElement {
     const open = this.roleEditing === token.index;
     const editable = this.target?.editable ?? false;
 
-    const row = (option: string) => {
-      const value = this.resolveVar(roleVar(option));
-      const colour = colorOf(value);
-      return html`
-        <span class="swatch ${colour ? '' : 'empty'}" style=${colour ? `background:${colour}` : ''}></span>
-        <span class="role-name">${roleLabel(option)}</span>
-        <span class="role-value">${value}</span>
-      `;
-    };
+    const row = (option: string) => this.roleRow(option);
 
     return html`<span class="chips">
       <button type="button" class="role-btn" title=${t('panel.roleTitle')} ?disabled=${!editable}
@@ -493,6 +669,17 @@ export class ClassPickerPanel extends LitElement {
   }}>${row(option)}${isCurrent ? html`<span>✓</span>` : nothing}</button>`;
       })}</span>` : nothing}
     </span>`;
+  }
+
+  /** A swatch, the role name and the colour it resolves to — one line of the palette. */
+  private roleRow(option: string) {
+    const value = this.resolveVar(roleVar(option));
+    const colour = colorOf(value);
+    return html`
+      <span class="swatch ${colour ? '' : 'empty'}" style=${colour ? `background:${colour}` : ''}></span>
+      <span class="role-name">${roleLabel(option)}</span>
+      <span class="role-value">${value}</span>
+    `;
   }
 
   // ─── Animations tab ────────────────────────────────────────────────────────
@@ -723,6 +910,39 @@ export class ClassPickerPanel extends LitElement {
     this.customEditing = null;
     const group = ANIMATION_GROUPS.find((candidate) => candidate.id === groupId);
     this.applyLiteral(result.literal, `${t(group?.title ?? '')} ${result.value}${group?.custom?.unit ?? ''}`);
+  }
+
+  private commitTyped(token: IUtilityToken, spec: ITypedValueSpec): void {
+    const input = this.renderRoot.querySelector('input[type="number"]') as HTMLInputElement | null;
+    if (!input) return;
+    if (input.value.trim() === '' || !Number.isFinite(Number(input.value))) {
+      this.status(t('status.needNumber'));
+      return;
+    }
+    const next = applyTypedValue(this.literal, token, Number(input.value), spec);
+    this.typedEditing = null;
+    this.applyLiteral(next, `${token.raw} → ${splitUtilities(next)[token.index]?.raw ?? ''}`);
+  }
+
+  /** Enter applies, Escape cancels — contained, exactly like the animations input. */
+  private onTypedKeydown = (e: KeyboardEvent): void => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const token = splitUtilities(this.literal).find((candidate) => candidate.index === this.typedEditing);
+      const spec = token ? typedValueSpec(token, utilityOptions(token).kind) : null;
+      if (token && spec) this.commitTyped(token, spec);
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      this.typedEditing = null;
+    }
+  };
+
+  private focusTypedSoon(): void {
+    void this.updateComplete.then(() => {
+      (this.renderRoot.querySelector('input[type="number"]') as HTMLInputElement | null)?.focus();
+    });
   }
 
   /**

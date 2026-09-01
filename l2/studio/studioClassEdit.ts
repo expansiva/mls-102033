@@ -558,21 +558,52 @@ export function roleOptions(
   const current = parseVarValue(token.value);
   if (!current) return [];
 
-  const candidates = rolesForFamily(token.family, roles)
-    // Only roles that ARE colours. The design system also carries typography and spacing, and the
-    // families without a name rule (`fill`, `from`, …) fall back to every role — measured on the real
-    // 102046, that offered `fill-[var(--font-size-16)]`, which is nonsense wearing a valid class shape.
-    // Without a resolver there is no way to tell, so nothing is dropped.
-    .filter((role) => !resolve || Boolean(colorOf(resolve(role))));
+  const candidates = colourRoles(token.family, roles, resolve);
   const ordered = [current.cssVar, ...candidates.filter((role) => role !== current.cssVar)];
 
   return ordered.slice(0, limit).map((role) => {
     const resolved = role === current.cssVar && !resolve
       ? current.fallback
       : (resolve?.(role) ?? '').trim();
-    const fallback = resolved && !/\s/u.test(resolved) ? `,${resolved}` : '';
-    return composeUtility(token, `[var(${role}${fallback})]`);
+    return composeUtility(token, `[var(${role}${varFallback(resolved)})]`);
   });
+}
+
+/**
+ * Roles of a family that ARE colours.
+ *
+ * The design system also carries typography and spacing, and the families without a name rule
+ * (`fill`, `from`, …) fall back to every role — measured on the real 102046, that offered
+ * `fill-[var(--font-size-16)]`, which is nonsense wearing a valid class shape. Without a resolver
+ * there is no way to tell, so nothing is dropped.
+ */
+function colourRoles(family: string, roles: string[], resolve?: (cssVar: string) => string): string[] {
+  return rolesForFamily(family, roles).filter((role) => !resolve || Boolean(colorOf(resolve(role))));
+}
+
+/** `,#f8fafc` — dropped when the value has whitespace: a broken class is worse than no fallback. */
+function varFallback(resolved: string): string {
+  return resolved && !/\s/u.test(resolved) ? `,${resolved}` : '';
+}
+
+/**
+ * The palette for a family that has NO colour yet.
+ *
+ * `roleOptions` starts from the role the class already points at; this is the other entrance, used by
+ * the "+" — colour is the one property that does not seed a value (23% and 38% concentration over ~34
+ * distinct values is not a default), so the palette has to open before anything is written.
+ */
+export function newRoleOptions(
+  family: string,
+  roles: string[],
+  resolve?: (cssVar: string) => string,
+): string[] {
+  const token: IUtilityToken = {
+    raw: family, variants: [], base: family, negative: false,
+    family, value: '', arbitrary: false, index: 0, offset: 0,
+  };
+  return colourRoles(family, roles, resolve)
+    .map((role) => composeUtility(token, `[var(${role}${varFallback((resolve?.(role) ?? '').trim())})]`));
 }
 
 // --- Friendly names ---
@@ -2035,6 +2066,16 @@ export interface ITemplateElement {
   /** Offsets of the literal itself (past the opening quote, on the closing one). */
   literalStart: number;
   literalEnd: number;
+  /**
+   * The open tag carries a `class=` that is NOT a plain string (`class=${classMap(…)}`).
+   *
+   * `literal: null` alone cannot tell that from an element with no class at all, and the two need
+   * opposite answers: one can receive a brand new `class="…"`, the other already has one and would
+   * end up with two.
+   */
+  classComputed: boolean;
+  /** Where a new `class="…"` goes on an element that has none: just past the tag name. */
+  insertAt: number;
   /** Offset of the `<`. */
   openStart: number;
   /** Offset just past the element's close tag (or past `>` when void/self-closing). */
@@ -2177,6 +2218,8 @@ export function scanTemplateElements(source: string): ITemplateElement[] {
       const j = findOpenTagEnd(source, i + opening[0].length);
       const openTag = source.slice(i, j + 1);
       const classMatch = /(?<![\w-])class\s*=\s*"([^"]*)"/u.exec(openTag);
+      // A `class=` that did not match the static shape is a binding: `class=${classMap(…)}`.
+      const classComputed = !classMatch && /(?<![\w.?@-])class\s*=/u.test(openTag);
       const literalStart = classMatch
         ? i + classMatch.index + classMatch[0].length - classMatch[1].length - 1
         : -1;
@@ -2188,6 +2231,8 @@ export function scanTemplateElements(source: string): ITemplateElement[] {
         literal: classMatch ? classMatch[1] : null,
         literalStart,
         literalEnd: classMatch ? literalStart + classMatch[1].length : -1,
+        classComputed,
+        insertAt: i + opening[0].length,
         openStart: i,
         // An element left unclosed at the end of the template still needs an end.
         end: selfClosing ? j + 1 : source.length,
@@ -2705,4 +2750,263 @@ export function diffLiterals(before: string, after: string): IStyleDiff {
     added: to.filter((cls) => !from.includes(cls)),
     removed: from.filter((cls) => !to.includes(cls)),
   };
+}
+
+// --- Adding a property the element does not have (TASK-102033-picker-add-property) ---
+//
+// Until here the picker was a MODIFIER: it could swap `p-3` for `p-4`, but it could not put padding on
+// an element that has none. Anything needing a new property ("esse card precisa de sombra") went back
+// to editing code, which is what the tool exists to avoid.
+//
+// The catalog below is CURATED, and its two columns come from the 102046 pages, not from taste:
+//
+//   - what to offer: the properties those pages actually use (all of these are above 20 uses) AND that
+//     this module can keep editing afterwards. Offering something the picker cannot edit once created
+//     would leave a dead row behind, which is worse than not offering it.
+//   - what value it is born with: the most used value of that property in the same pages. Where that
+//     concentration is high the seed is obvious (`border` 100%, `w-full` 98%, `justify-between` 90%,
+//     `py-2` 69%, `text-sm` 62%). Where it is LOW there is no default to find — the two colours sit at
+//     23% and 38% over ~34 distinct values — so colour does not seed at all: it opens the palette.
+
+/** Where a property is found in the "+" menu. Browsing buckets, finer than `StyleCategory`. */
+export type AddGroup = 'spacing' | 'color' | 'text' | 'border' | 'layout' | 'effect';
+
+export const ADD_GROUPS: readonly AddGroup[] = ['spacing', 'color', 'text', 'border', 'layout', 'effect'];
+
+/** What the element must be for a property to make sense on it. */
+type AddRequirement = 'flexOrGrid' | 'grid' | 'children';
+
+export interface IAddableProperty {
+  /** Message id of the property — the same one the row label uses once it exists. */
+  property: string;
+  group: AddGroup;
+  /** The complete class to write. Null for colour: the palette opens instead of a guess. */
+  seed: string | null;
+  /** Family whose design-system roles the palette offers, when there is no seed. */
+  family?: string;
+  requires?: AddRequirement;
+}
+
+/**
+ * The catalog of the "+".
+ *
+ * Order inside a group is the order the chips appear, most used first.
+ */
+const ADDABLE: readonly IAddableProperty[] = [
+  // Spacing — `p-2` 44%, `px-3` 51%, `py-2` 69%, `mt-1` 42%, `mb-4` 48%, `gap-4` 36%, `space-y-4` 34%.
+  { property: 'prop.padding', group: 'spacing', seed: 'p-2' },
+  { property: 'prop.paddingX', group: 'spacing', seed: 'px-3' },
+  { property: 'prop.paddingY', group: 'spacing', seed: 'py-2' },
+  { property: 'prop.marginTop', group: 'spacing', seed: 'mt-1' },
+  { property: 'prop.marginBottom', group: 'spacing', seed: 'mb-4' },
+  { property: 'prop.gap', group: 'spacing', seed: 'gap-4', requires: 'flexOrGrid' },
+  // `space-y` is the ONE that is not about flex: measured 0 of its 408 uses on a flex/grid element —
+  // it is how a plain container spaces its children. What it needs is children.
+  { property: 'prop.spaceY', group: 'spacing', seed: 'space-y-4', requires: 'children' },
+
+  // Colour — no seed on purpose (23% and 38% over ~34 values is not a default, it is a coin toss).
+  { property: 'prop.bgColor', group: 'color', seed: null, family: 'bg' },
+  { property: 'prop.textColor', group: 'color', seed: null, family: 'text' },
+  { property: 'prop.borderColor', group: 'color', seed: null, family: 'border' },
+
+  // Text — `text-sm` 62%, `font-semibold` 58%, `text-left` 90%.
+  { property: 'prop.textSize', group: 'text', seed: 'text-sm' },
+  { property: 'prop.fontWeight', group: 'text', seed: 'font-semibold' },
+  { property: 'prop.textAlign', group: 'text', seed: 'text-left' },
+
+  // Border — `border` 100%, `rounded-md` 44%, `border-b` 100%.
+  { property: 'prop.borderWidth', group: 'border', seed: 'border' },
+  { property: 'prop.radius', group: 'border', seed: 'rounded-md' },
+  { property: 'prop.borderSideBottom', group: 'border', seed: 'border-b' },
+
+  // Layout — `block` 40%, `w-full` 98%, `grid-cols-2`, `items-center` 77%, `justify-between` 90%.
+  { property: 'prop.display', group: 'layout', seed: 'block' },
+  { property: 'prop.width', group: 'layout', seed: 'w-full' },
+  { property: 'prop.gridCols', group: 'layout', seed: 'grid-cols-2', requires: 'grid' },
+  { property: 'prop.items', group: 'layout', seed: 'items-center', requires: 'flexOrGrid' },
+  { property: 'prop.justify', group: 'layout', seed: 'justify-between', requires: 'flexOrGrid' },
+
+  // Effect — `shadow-sm` 85%, `cursor-pointer` 72%.
+  { property: 'prop.shadow', group: 'effect', seed: 'shadow-sm' },
+  { property: 'prop.cursor', group: 'effect', seed: 'cursor-pointer' },
+];
+
+/**
+ * Properties that cover the same ground from the other side.
+ *
+ * `p-4` on an element that already has `px-3 py-2` is an overlap nobody wrote by hand: measured on the
+ * 102046 pages, `p` next to a side is **0 occurrences**, and the same for margin, gap and radius. The
+ * "+" must not be the one to introduce it.
+ */
+const AXIS_CONFLICTS: Record<string, readonly string[]> = {
+  'prop.padding': ['prop.paddingX', 'prop.paddingY', 'prop.paddingTop', 'prop.paddingRight', 'prop.paddingBottom', 'prop.paddingLeft'],
+  'prop.margin': ['prop.marginX', 'prop.marginY', 'prop.marginTop', 'prop.marginRight', 'prop.marginBottom', 'prop.marginLeft'],
+  'prop.gap': ['prop.gapX', 'prop.gapY'],
+  'prop.radius': ['prop.radiusTop', 'prop.radiusRight', 'prop.radiusBottom', 'prop.radiusLeft'],
+};
+
+/** Both directions of the rule above: `p` blocks `px`, and `px` blocks `p`. */
+function conflictsWith(property: string): readonly string[] {
+  const own = AXIS_CONFLICTS[property] ?? [];
+  const inverse = Object.entries(AXIS_CONFLICTS)
+    .filter(([, parts]) => parts.includes(property))
+    .map(([whole]) => whole);
+  return [...own, ...inverse];
+}
+
+export interface IAddContext {
+  /** Element children — `space-y` has nothing to space without them. */
+  childCount: number;
+}
+
+const DISPLAY_FLEX = ['flex', 'inline-flex', 'grid', 'inline-grid'];
+
+/** What this element already IS, which decides what makes sense to add to it. */
+function meets(requirement: AddRequirement | undefined, literal: string, context: IAddContext): boolean {
+  if (!requirement) return true;
+  const bases = splitUtilities(literal).map((token) => token.base);
+  if (requirement === 'children') return context.childCount >= 2;
+  if (requirement === 'grid') return bases.includes('grid') || bases.includes('inline-grid');
+  return bases.some((base) => DISPLAY_FLEX.includes(base));
+}
+
+/**
+ * What the "+" may offer for this element: what it does not have, and what makes sense on it.
+ *
+ * The properties already present are read from the literal with the same `utilityLabel` the rows use,
+ * so "already has it" means exactly what the panel shows above.
+ */
+export function addableProperties(literal: string, context: IAddContext): IAddableProperty[] {
+  const present = new Set(
+    splitUtilities(literal)
+      // Only the BASE layer counts: a `md:p-6` does not give the element padding at every width, and
+      // writing variants is the layer task, not this one.
+      .filter((token) => !token.variants.length)
+      .map((token) => utilityLabel(token).property)
+      .filter((property): property is string => Boolean(property)),
+  );
+
+  return ADDABLE.filter((entry) => {
+    if (present.has(entry.property)) return false;
+    if (conflictsWith(entry.property).some((other) => present.has(other))) return false;
+    return meets(entry.requires, literal, context);
+  });
+}
+
+/** The catalog entry for a property, for whoever has only the id in hand. */
+export function addableProperty(property: string): IAddableProperty | undefined {
+  return ADDABLE.find((entry) => entry.property === property);
+}
+
+/**
+ * The span of the whole `class="…"` attribute around a literal, its leading space included.
+ *
+ * Taking the last class out has to take the ATTRIBUTE with it. A `class=""` left behind is not just
+ * noise in the client's file: an element with no classes is anchored by POSITION (the `insert`
+ * anchor), and that anchor only matches a tag with no class attribute at all — so an empty one would
+ * leave the element unreachable by the very panel that emptied it.
+ *
+ * Null when the text around the literal is not the attribute this expects; the caller then clears the
+ * literal and leaves the rest alone, which is always safe.
+ */
+export function classAttrSpan(
+  source: string,
+  literalStart: number,
+  literalEnd: number,
+): { start: number; end: number } | null {
+  let at = literalStart - 1;
+  if (source[at] !== '"' && source[at] !== "'") return null;
+  at -= 1;
+  while (at >= 0 && /\s/u.test(source[at])) at -= 1;
+  if (source[at] !== '=') return null;
+  at -= 1;
+  while (at >= 0 && /\s/u.test(source[at])) at -= 1;
+  if (source.slice(at - 4, at + 1) !== 'class') return null;
+  at -= 5;
+  // The separator before the attribute goes too, or the tag is left with a double space. Only spaces
+  // and tabs: eating a newline would pull the next attribute up into this line.
+  while (at >= 0 && /[^\S\n]/u.test(source[at])) at -= 1;
+  return { start: at + 1, end: literalEnd + 1 };
+}
+
+// --- A typed value in the classes tab ---
+//
+// The animations tab already had the `...`: `p-[13px]` and `w-[320px]` are legitimate values that the
+// core has always READ as the current value (see utilityOptions) — what was missing was the way in.
+
+export interface ITypedValueSpec {
+  unit: string;
+  min: number;
+  max: number;
+}
+
+/**
+ * Families that accept a typed value, with the range the input holds to.
+ *
+ * Only families whose scale is a LENGTH. A colour, a list (`justify-*`) or a keyword scale has nothing
+ * to type into, and offering an input there produces a class with no rule anywhere.
+ */
+const TYPED_FAMILIES: Record<string, ITypedValueSpec> = {
+  p: { unit: 'px', min: 0, max: 200 },
+  px: { unit: 'px', min: 0, max: 200 },
+  py: { unit: 'px', min: 0, max: 200 },
+  pt: { unit: 'px', min: 0, max: 200 },
+  pr: { unit: 'px', min: 0, max: 200 },
+  pb: { unit: 'px', min: 0, max: 200 },
+  pl: { unit: 'px', min: 0, max: 200 },
+  m: { unit: 'px', min: 0, max: 200 },
+  mx: { unit: 'px', min: 0, max: 200 },
+  my: { unit: 'px', min: 0, max: 200 },
+  mt: { unit: 'px', min: 0, max: 200 },
+  mr: { unit: 'px', min: 0, max: 200 },
+  mb: { unit: 'px', min: 0, max: 200 },
+  ml: { unit: 'px', min: 0, max: 200 },
+  gap: { unit: 'px', min: 0, max: 200 },
+  'gap-x': { unit: 'px', min: 0, max: 200 },
+  'gap-y': { unit: 'px', min: 0, max: 200 },
+  'space-x': { unit: 'px', min: 0, max: 200 },
+  'space-y': { unit: 'px', min: 0, max: 200 },
+  w: { unit: 'px', min: 0, max: 2000 },
+  h: { unit: 'px', min: 0, max: 2000 },
+  'min-w': { unit: 'px', min: 0, max: 2000 },
+  'min-h': { unit: 'px', min: 0, max: 2000 },
+  'max-w': { unit: 'px', min: 0, max: 2000 },
+  'max-h': { unit: 'px', min: 0, max: 2000 },
+  top: { unit: 'px', min: -500, max: 500 },
+  right: { unit: 'px', min: -500, max: 500 },
+  bottom: { unit: 'px', min: -500, max: 500 },
+  left: { unit: 'px', min: -500, max: 500 },
+  text: { unit: 'px', min: 8, max: 96 },
+  rounded: { unit: 'px', min: 0, max: 64 },
+  border: { unit: 'px', min: 0, max: 16 },
+};
+
+/**
+ * The typed-value spec for a token, or null when typing a number there means nothing.
+ *
+ * Gated by the KIND, not only by the family: `text-sm` is a size and takes `text-[15px]`, while
+ * `text-[var(--text-muted,#64748b)]` is a colour in the same family and must never get a px input.
+ */
+export function typedValueSpec(token: IUtilityToken, kind: UtilityOptionKind): ITypedValueSpec | null {
+  if (kind !== 'scale') return null;
+  return TYPED_FAMILIES[token.family] ?? null;
+}
+
+/** The value currently typed into a token (`p-[13px]` -> 13), or null when it is a scale step. */
+export function readTypedValue(token: IUtilityToken): number | null {
+  if (!token.arbitrary) return null;
+  const inner = token.value.replace(/^\[|\]$/gu, '').trim();
+  const match = /^(-?[\d.]+)(?:px|rem|em|%)?$/u.exec(inner);
+  return match ? Number(match[1]) : null;
+}
+
+/** The literal with a typed value in place of the token's current one, clamped to the spec. */
+export function applyTypedValue(
+  literal: string,
+  token: IUtilityToken,
+  value: number,
+  spec: ITypedValueSpec,
+): string {
+  const clamped = Math.min(spec.max, Math.max(spec.min, value));
+  return replaceUtility(literal, token.raw, composeUtility(token, `[${clamped}${spec.unit}]`), token.index);
 }

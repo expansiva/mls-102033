@@ -143,3 +143,54 @@ test('a pasted style is written like every other edit, and its preview is HELD',
   assert.ok(preview.includes('if (timeout)'), 'the timer is opt-in');
   assert.ok(EDITOR.includes('this.previewLiteral(applyAnimationOption('), 'and the animation asks for one');
 });
+
+test('the editor chrome follows the viewport, not the end of the document', () => {
+  // The bug: as `absolute` inside the service element, `bottom: 12px` hangs from the bottom of the
+  // whole scrollable content, so on any page long enough to scroll the panel sat below the fold.
+  assert.match(PANEL, /:host \{[\s\S]*?position: fixed/u, 'the panel is fixed');
+  assert.match(EDITOR, /\.se-status \{[\s\S]*?position: fixed/u, 'and so is the toast');
+
+  const scroll = EDITOR.slice(EDITOR.indexOf('private onScrollResize'));
+  assert.ok(scroll.slice(0, scroll.indexOf('};')).includes('positionChrome()'), 're-pinned on scroll and resize');
+
+  // Fixed means the host no longer has to be turned into a containing block — and the client's own
+  // styling was never ours to change.
+  assert.equal(codeLines(EDITOR).some((line) => line.includes("style.position = 'relative'")), false);
+
+  // The placement corrects itself: `fixed` answers to the viewport only while no ancestor has a
+  // transform, a filter or `contain`, and the host is the shell's, not ours.
+  const pin = EDITOR.slice(EDITOR.indexOf('private pin('));
+  assert.ok(pin.slice(0, pin.indexOf('\n  }')).includes('getBoundingClientRect'), 'placed, measured, corrected');
+});
+
+test('nothing is a foreign molecule while this page own file is unknown', () => {
+  // The bug: with `target === null` every tag was compared against `undefined`, so the page's OWN
+  // element read as a molecule from another project — "this element comes from a molecule (project
+  // 102046)" naming the client's own project, on almost every click of that page. The real problem
+  // was the target, and that is what has to be said.
+  const foreign = EDITOR.slice(EDITOR.indexOf('private foreignProjectOfTag'));
+  const body = foreign.slice(0, foreign.indexOf('\n  }'));
+  assert.ok(body.includes('const own = this.target?.project;'), 'it reads our own project first');
+  assert.ok(body.includes('if (!own) return null;'), 'and judges nothing without it');
+
+  // Order matters as much as the guard: the target failure is reported before the molecule check.
+  const show = EDITOR.slice(EDITOR.indexOf('private async showClassPanel'));
+  const flow = show.slice(0, show.indexOf('\n  }\n'));
+  assert.ok(flow.indexOf('if (!this.target)') < flow.indexOf('foreignProjectOfAncestor'), 'target first');
+  // And it says WHY the page could not be resolved instead of a generic sentence.
+  assert.ok(flow.includes('this.targetFailure'), 'the real reason is kept and shown');
+});
+
+test('an element with no class can be given one — and never a second', () => {
+  // The "+" made an element with no class attribute worth opening: the anchor is structural and the
+  // first write inserts the attribute.
+  assert.match(EDITOR, /\| \{ kind: 'insert'; path: IDomPathStep\[\] \}/u);
+
+  const locate = EDITOR.slice(EDITOR.indexOf("if (anchor.kind === 'insert')"));
+  const body = locate.slice(0, locate.indexOf('\n    }'));
+  assert.ok(body.includes('resolved.element.literal !== null'), 'a class that appeared meanwhile aborts');
+  assert.ok(body.includes('resolved.element.classComputed'), 'and so does a computed one');
+
+  // The write carries the attribute syntax only for an insertion.
+  assert.ok(EDITOR.includes('match.insert ? ` class="${newLiteral}"` : newLiteral'));
+});

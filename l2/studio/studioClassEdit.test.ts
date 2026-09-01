@@ -48,7 +48,14 @@ import {
   utilityLabel,
   utilityOptions,
   STYLE_CATEGORIES,
+  addableProperties,
+  addableProperty,
+  applyTypedValue,
   diffLiterals,
+  newRoleOptions,
+  classAttrSpan,
+  readTypedValue,
+  typedValueSpec,
   pasteCategories,
   pasteStyle,
   styleCategories,
@@ -1530,4 +1537,247 @@ test('an arbitrary value that is a LENGTH is a size, not a colour', () => {
   assert.ok(classes.includes('text-[var(--font-size-24,1.5rem)]'), 'the kept size survived');
   assert.ok(classes.includes('text-[var(--text-muted,#64748b)]'), 'and the colour came from the source');
   assert.equal(classes.includes('text-lg'), false, 'the source size gave way to the kept one');
+});
+
+// --- The "+": adding a property the element does not have ---
+
+const ANY = { childCount: 0 };
+
+/** The property ids the "+" offers for a literal. */
+function offered(literal: string, context = ANY): string[] {
+  return addableProperties(literal, context).map((entry) => entry.property);
+}
+
+test('the "+" never offers what the element already has', () => {
+  const literal = 'flex p-2 text-sm rounded-md bg-[var(--surface-bg,#ffffff)] shadow-sm';
+  const list = offered(literal);
+
+  for (const already of ['prop.padding', 'prop.textSize', 'prop.radius', 'prop.bgColor', 'prop.shadow']) {
+    assert.equal(list.includes(already), false, already);
+  }
+  // And it does offer what is missing.
+  assert.ok(list.includes('prop.marginTop'));
+  assert.ok(list.includes('prop.textColor'));
+});
+
+test('a variant is not the property: `md:p-6` still lets padding be added', () => {
+  // `md:p-6` gives the element padding from md up, not at every width — and writing variants is the
+  // layer task, not this one. Counting it as "already has padding" would leave no way to set the base.
+  assert.ok(offered('md:p-6 text-sm').includes('prop.padding'));
+});
+
+test('gap, justify and items are only offered inside a flex or a grid', () => {
+  // Measured on the 102046 pages: 399/399 gaps, 133/133 justifies and 136/136 items sit on an element
+  // that is flex or grid in its own classes. The pages never get this wrong; the picker must not be
+  // the one to introduce it.
+  const plain = offered('p-2 text-sm');
+  for (const contextual of ['prop.gap', 'prop.justify', 'prop.items']) {
+    assert.equal(plain.includes(contextual), false, contextual);
+  }
+
+  const flex = offered('flex p-2');
+  assert.ok(flex.includes('prop.gap'));
+  assert.ok(flex.includes('prop.justify'));
+  assert.ok(flex.includes('prop.items'));
+  assert.ok(offered('inline-grid p-2').includes('prop.gap'));
+});
+
+test('grid columns need a grid, and spacing between children needs children', () => {
+  assert.equal(offered('flex p-2').includes('prop.gridCols'), false, 'a flex has no columns');
+  assert.ok(offered('grid p-2').includes('prop.gridCols'));
+
+  // `space-y` is the one that is NOT about flex: 0 of its 408 uses in the real pages sit on a
+  // flex/grid element — it is how a plain container spaces its children.
+  assert.equal(offered('p-2', { childCount: 0 }).includes('prop.spaceY'), false);
+  assert.equal(offered('p-2', { childCount: 1 }).includes('prop.spaceY'), false, 'one child has no gaps');
+  assert.ok(offered('p-2', { childCount: 3 }).includes('prop.spaceY'));
+});
+
+test('the "+" does not create an axis overlap, in either direction', () => {
+  // `p-4` on an element that already has `px-3 py-2`: measured 0 occurrences in the real pages.
+  assert.equal(offered('px-3 py-2').includes('prop.padding'), false);
+  const whole = offered('p-2');
+  assert.equal(whole.includes('prop.paddingX'), false);
+  assert.equal(whole.includes('prop.paddingY'), false);
+  // The same rule for the other three pairs.
+  assert.equal(offered('mt-1').includes('prop.margin' as string), false);
+  assert.equal(offered('flex gap-x-2').includes('prop.gap'), false);
+  assert.equal(offered('rounded-t-md').includes('prop.radius'), false);
+});
+
+test('a property is born with the value the project uses most — and colour is not born at all', () => {
+  const seeds = new Map(addableProperties('span', ANY).map((entry) => [entry.property, entry.seed]));
+
+  assert.equal(seeds.get('prop.borderWidth'), 'border', '100% of the border widths in the pages');
+  assert.equal(seeds.get('prop.width'), 'w-full', '98%');
+  assert.equal(seeds.get('prop.textSize'), 'text-sm', '62%');
+  assert.equal(seeds.get('prop.padding'), 'p-2', '44%');
+
+  // The two colours sit at 23% and 38% over ~34 distinct values: there is no default to find, so the
+  // palette opens instead of a guess being written into the client's file.
+  for (const colour of ['prop.bgColor', 'prop.textColor', 'prop.borderColor']) {
+    assert.equal(seeds.get(colour), null, colour);
+    assert.ok(addableProperty(colour)?.family, 'and it says which palette to open');
+  }
+});
+
+test('everything the "+" offers can still be edited after it is created', () => {
+  // A property the picker cannot edit once written leaves a dead row behind — worse than not offering.
+  for (const entry of addableProperties('span', { childCount: 4 })) {
+    if (!entry.seed) {
+      assert.ok(['bg', 'text', 'border'].includes(entry.family ?? ''), entry.property);
+      continue;
+    }
+    const token = splitUtilities(entry.seed)[0];
+    assert.notEqual(utilityOptions(token).kind, 'none', `${entry.seed} would be a dead row`);
+    assert.equal(utilityLabel(token).property, entry.property, `${entry.seed} must read as ${entry.property}`);
+  }
+});
+
+test('emptying an element takes the whole class attribute with it', () => {
+  // The last class CAN go now that an element is anchored by its position in the template. What must
+  // not stay behind is `class=""`: the `insert` anchor only matches a tag with no class attribute at
+  // all, so an empty one would leave the element unreachable by the panel that emptied it.
+  const source = 'class X { render() { return html`<div class="p-2">a</div>`; } }';
+  const element = scanTemplateElements(source)[0];
+  const span = classAttrSpan(source, element.literalStart, element.literalEnd);
+  assert.ok(span);
+  assert.equal(source.slice(span.start, span.end), ' class="p-2"', 'the space before it goes too');
+
+  const emptied = source.slice(0, span.start) + source.slice(span.end);
+  assert.match(emptied, /<div>a<\/div>/u);
+  const after = scanTemplateElements(emptied)[0];
+  assert.equal(after.literal, null, 'and the tag is back to having no class');
+  assert.equal(after.classComputed, false);
+
+  // Anything that is not the attribute this expects is left alone.
+  assert.equal(classAttrSpan('const x = "p-2";', 12, 15), null);
+});
+
+test('a typed value is offered only where typing a number means something', () => {
+  const spec = (cls: string) => {
+    const token = tokenOf(cls, cls);
+    return typedValueSpec(token, utilityOptions(token).kind);
+  };
+
+  assert.deepEqual(spec('p-3'), { unit: 'px', min: 0, max: 200 });
+  assert.deepEqual(spec('w-24'), { unit: 'px', min: 0, max: 2000 });
+  assert.deepEqual(spec('text-sm'), { unit: 'px', min: 8, max: 96 });
+  // Same family, other meaning: a colour has nothing to type into.
+  assert.equal(spec('text-[var(--text-muted,#64748b)]'), null);
+  // A list is not a scale.
+  assert.equal(spec('justify-between'), null);
+  assert.equal(spec('block'), null);
+  assert.equal(spec('shadow-sm'), null);
+});
+
+test('a typed value is written, read back and clamped to its range', () => {
+  // The token has to come from the literal being edited: it carries the POSITION, which is what keeps
+  // a literal with the same class twice unambiguous.
+  const literal = 'flex p-3 text-sm';
+  const token = tokenOf(literal, 'p-3');
+  const spec = typedValueSpec(token, utilityOptions(token).kind);
+  assert.ok(spec);
+
+  assert.equal(applyTypedValue(literal, token, 13, spec), 'flex p-[13px] text-sm');
+  assert.equal(applyTypedValue(literal, token, 9999, spec), 'flex p-[200px] text-sm');
+  assert.equal(applyTypedValue(literal, token, -5, spec), 'flex p-[0px] text-sm');
+
+  assert.equal(readTypedValue(tokenOf('p-[13px]', 'p-[13px]')), 13);
+  assert.equal(readTypedValue(tokenOf('p-3', 'p-3')), null, 'a scale step is not a typed value');
+  assert.equal(readTypedValue(tokenOf('bg-[var(--x,#fff)]', 'bg-[var(--x,#fff)]')), null);
+
+  // And the typed value stays editable: it leads its own family.
+  const options = utilityOptions(tokenOf('p-[13px]', 'p-[13px]'));
+  assert.equal(options.options[0], 'p-[13px]');
+  assert.ok(options.options.includes('p-3'));
+});
+
+test('the typed value keeps the variant and the negative sign of the token it replaces', () => {
+  const responsive = tokenOf('md:p-3', 'md:p-3');
+  const spec = typedValueSpec(responsive, utilityOptions(responsive).kind);
+  assert.ok(spec);
+  assert.equal(applyTypedValue('md:p-3', responsive, 13, spec), 'md:p-[13px]');
+
+  const negative = tokenOf('-mt-2', '-mt-2');
+  const marginSpec = typedValueSpec(negative, utilityOptions(negative).kind);
+  assert.ok(marginSpec);
+  assert.equal(applyTypedValue('-mt-2', negative, 8, marginSpec), '-mt-[8px]');
+});
+
+test('the palette can open for a family that has no colour yet', () => {
+  const roles = ['--surface-bg', '--surface-alt-bg', '--text-muted', '--border-default', '--font-size-16'];
+  const resolve = (cssVar: string) => ({
+    '--surface-bg': '#ffffff',
+    '--surface-alt-bg': '#f8fafc',
+    '--text-muted': '#64748b',
+    '--border-default': '#e2e8f0',
+    '--font-size-16': '1rem',
+  }[cssVar] ?? '');
+
+  const backgrounds = newRoleOptions('bg', roles, resolve);
+  assert.deepEqual(backgrounds, ['bg-[var(--surface-bg,#ffffff)]', 'bg-[var(--surface-alt-bg,#f8fafc)]']);
+  assert.deepEqual(newRoleOptions('text', roles, resolve), ['text-[var(--text-muted,#64748b)]']);
+  assert.deepEqual(newRoleOptions('border', roles, resolve), ['border-[var(--border-default,#e2e8f0)]']);
+
+  // A size is not a colour, whatever the family filter lets through.
+  assert.equal(newRoleOptions('fill', roles, resolve).includes('fill-[var(--font-size-16,1rem)]'), false);
+});
+
+test('the scanner tells "no class" from "class built in code", and says where one would go', () => {
+  // The two need opposite answers: an element with no class can receive one, an element whose class
+  // is computed already has the attribute and would end up with two.
+  const source = [
+    `import { html } from 'lit';`,
+    `class X {`,
+    `  render() {`,
+    `    return html\``,
+    `      <div>`,
+    `        <span class="p-2">a</span>`,
+    `        <b class=\${classMap(this.kind)}>c</b>`,
+    `      </div>\`;`,
+    `  }`,
+    `}`,
+  ].join('\n');
+
+  const elements = scanTemplateElements(source);
+  const of = (tag: string) => elements.find((element) => element.tag === tag);
+
+  const div = of('div');
+  assert.ok(div);
+  assert.equal(div.literal, null);
+  assert.equal(div.classComputed, false, 'it simply has no class');
+  assert.equal(source.slice(div.openStart, div.insertAt), '<div', 'the insertion point is past the tag name');
+
+  const span = of('span');
+  assert.equal(span?.literal, 'p-2');
+  assert.equal(span?.classComputed, false);
+
+  const bound = of('b');
+  assert.equal(bound?.literal, null);
+  assert.equal(bound?.classComputed, true, 'class=${…} is an attribute that is already there');
+
+  // And the insertion produces valid markup, not a second attribute.
+  const written = `${source.slice(0, div.insertAt)} class="p-4"${source.slice(div.insertAt)}`;
+  assert.match(written, /<div class="p-4">/u);
+  assert.equal(scanTemplateElements(written).find((element) => element.tag === 'div')?.literal, 'p-4');
+});
+
+test('the insertion point survives an open tag that already has other attributes', () => {
+  const source = [
+    `class X {`,
+    `  render() {`,
+    `    return html\``,
+    `      <button type="button" @click=\${() => this.go()} ?disabled=\${this.busy}>ok</button>\`;`,
+    `  }`,
+    `}`,
+  ].join('\n');
+
+  const button = scanTemplateElements(source).find((element) => element.tag === 'button');
+  assert.ok(button);
+  assert.equal(button.literal, null);
+  assert.equal(button.classComputed, false, 'an event binding is not a class');
+  const written = `${source.slice(0, button.insertAt)} class="p-4"${source.slice(button.insertAt)}`;
+  assert.match(written, /<button class="p-4" type="button"/u);
+  assert.equal(scanTemplateElements(written).find((element) => element.tag === 'button')?.literal, 'p-4');
 });
