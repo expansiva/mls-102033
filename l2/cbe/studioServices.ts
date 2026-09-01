@@ -14,7 +14,19 @@ export const SERVICE_APP = '_102033_/l2/cbe/serviceClientApp';
 // The runtime DECLARES the studio widgets it uses. It does not ask 100554's
 // plugin index what exists: that is what brought 16 services (411 KB never
 // mounted) into a client app.
-export const RUNTIME_STUDIO_SERVICES = ['_100554_serviceDetail', '_100554_serviceReportBug'] as const;
+export const RUNTIME_STUDIO_SERVICES = [
+  '_100554_serviceDetail',
+  '_100554_serviceReportBug',
+] as const;
+
+// serviceSource/serviceUnit (level 2, both sides) and serviceSourceL1 (level 1, both sides) sit on
+// BOTH sides of their level — RUNTIME_STUDIO_SERVICES can't express "one level, both sides" (it is
+// always right-side/every-level), so these are declared instead in
+// mls-102020/l2/pluginCollabCoreIndex.ts (scope: l<N>ServicesLeft + l<N>ServicesRight) and reach the
+// runtime through the normal scan of 102020 (a real dependency of every Aura client). dropScannedStudio
+// must let exactly these through even though they carry the _100554_ prefix, or the blanket 100554
+// filter below strips them right back out.
+const SCANNED_STUDIO_ALLOWLIST = new Set(['_100554_serviceSource', '_100554_serviceUnit', '_100554_serviceSourceL1', '_100554_serviceSave', '_100554_serviceProject']);
 
 type Nav2State = Element & { state_?: Record<number, Record<string, string>> };
 
@@ -27,7 +39,7 @@ function dropScannedStudio(csv: string): string {
   return csv.split(',').filter((widget) =>
     widget
     && !widget.endsWith('serviceCollabMessages')
-    && !widget.startsWith('_100554_')
+    && (SCANNED_STUDIO_ALLOWLIST.has(widget) || !widget.startsWith('_100554_'))
   ).join(',');
 }
 

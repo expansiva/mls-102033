@@ -92,19 +92,34 @@ test('the constructed list declares only the studio widgets the runtime uses', a
 
 test('an undeclared _100554_ widget from the scan is dropped, not kept', () => {
   const services = withRuntimeServices([
-    `_100554_serviceSource;_100554_servicePreview,${RUNTIME_STUDIO_SERVICES[0]}`,
+    `_100554_serviceUser;_100554_servicePreview,${RUNTIME_STUDIO_SERVICES[0]}`,
     '', '', '', '', '', '', '',
   ]);
   assert.deepEqual(studioWidgets(services), [...RUNTIME_STUDIO_SERVICES]);
-  assert.equal(widgetsOn(services[0], 'left').includes('_100554_serviceSource'), false);
+  assert.equal(widgetsOn(services[0], 'left').includes('_100554_serviceUser'), false);
   assert.equal(widgetsOn(services[0], 'right').includes('_100554_servicePreview'), false);
+});
+
+test('serviceSource/serviceUnit survive the scan filter, but only at the level they were placed', () => {
+  const services = withRuntimeServices([
+    '', '',
+    `_100554_serviceSource,_102020_someOtherLeft;_100554_serviceUnit,${RUNTIME_STUDIO_SERVICES[0]}`, // level 2
+    '', '', '', '', '',
+  ]);
+  assert.equal(widgetsOn(services[2], 'left').includes('_100554_serviceSource'), true);
+  assert.equal(widgetsOn(services[2], 'right').includes('_100554_serviceUnit'), true);
+  for (const [level, entry] of services.entries()) {
+    if (level === 2) continue;
+    assert.equal(widgetsOn(entry, 'left').includes('_100554_serviceSource'), false, `level ${level} left`);
+    assert.equal(widgetsOn(entry, 'right').includes('_100554_serviceUnit'), false, `level ${level} right`);
+  }
 });
 
 test('anonymous fallback still gets the declared pair on the right of every level', () => {
   const services = withRuntimeServices(ANONYMOUS_SERVICES);
   assert.deepEqual(studioWidgets(services), [...RUNTIME_STUDIO_SERVICES]);
   for (const entry of services) {
-    assert.deepEqual(widgetsOn(entry, 'right').slice(0, 3), [
+    assert.deepEqual(widgetsOn(entry, 'right').slice(0, 1 + RUNTIME_STUDIO_SERVICES.length), [
       SERVICE_APP,
       ...RUNTIME_STUDIO_SERVICES,
     ]);

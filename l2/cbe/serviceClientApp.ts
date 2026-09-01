@@ -13,6 +13,8 @@ import { ServiceBase, type IService, type IServiceMenu, type IToolbarContent } f
 // TYPE-ONLY: erased at compile time, so the studio editor is never pulled into the client-mode
 // path. The runtime import is dynamic, inside armEditor().
 import type { StudioEditor } from '/_102033_/l2/studio/studioEditor.js';
+// Same reasoning: dynamic import, inside syncLiveUpdateWatcher().
+import type { StudioLiveUpdateWatcher } from '/_102033_/l2/studio/studioLiveUpdateWatcher.js';
 
 /**
  * The nav1 level that means "editing the page".
@@ -45,6 +47,11 @@ export class ServiceClientApp extends ServiceBase {
   /** Stable reference: mls.events removes a subscriber by identity. */
   private readonly onToolBarSelected = () => { void this.syncEditMode(); };
   private levelSubscribed = false;
+  // Bridges edits made through the studio's OWN file editor (ServiceSource) to the running page —
+  // independent of editArmed/EDIT_LEVEL, which only cover the inline overlay (see
+  // studioLiveUpdateWatcher.ts). Gated on studio mode alone: ServiceSource can be open while this
+  // service sits on any level, not just EDIT_LEVEL.
+  private liveUpdateWatcher?: StudioLiveUpdateWatcher;
 
   public menu: IServiceMenu = {
     title: '',
@@ -77,6 +84,7 @@ export class ServiceClientApp extends ServiceBase {
     this.watchStudioMode();
     this.watchLevel();
     void this.syncEditMode();
+    void this.syncLiveUpdateWatcher();
   }
 
   disconnectedCallback() {
@@ -89,6 +97,8 @@ export class ServiceClientApp extends ServiceBase {
     this.editor?.detach();
     this.editor = undefined;
     this.editArmed = false;
+    this.liveUpdateWatcher?.stop();
+    this.liveUpdateWatcher = undefined;
   }
 
   /**
@@ -104,7 +114,10 @@ export class ServiceClientApp extends ServiceBase {
     if (this.studioModeObserver) return;
     const shell = this.closest('collab-aura-shell');
     if (!shell) return;
-    this.studioModeObserver = new MutationObserver(() => { void this.syncEditMode(); });
+    this.studioModeObserver = new MutationObserver(() => {
+      void this.syncEditMode();
+      void this.syncLiveUpdateWatcher();
+    });
     this.studioModeObserver.observe(shell, { attributes: true, attributeFilter: ['data-studio-mode'] });
   }
 
@@ -141,6 +154,27 @@ export class ServiceClientApp extends ServiceBase {
   /** True only in studio mode: the shell publishes it, so no shell change is needed. */
   private isStudioMode(): boolean {
     return this.closest('collab-aura-shell')?.getAttribute('data-studio-mode') === 'true';
+  }
+
+  /**
+   * Starts/stops the ServiceSource live-update bridge with studio mode.
+   *
+   * Deliberately independent of editArmed/EDIT_LEVEL: someone editing exclusively through the
+   * studio's own file editor never arms the inline overlay, but the hot swap must still reach the
+   * running page.
+   */
+  private async syncLiveUpdateWatcher(): Promise<void> {
+    const host = this.regionHost();
+    if (!this.isStudioMode() || !host) {
+      this.liveUpdateWatcher?.stop();
+      return;
+    }
+    if (!this.liveUpdateWatcher) {
+      // Dynamic on purpose: never pulled into the client-mode bundle (same reasoning as StudioEditor).
+      const { StudioLiveUpdateWatcher } = await import('/_102033_/l2/studio/studioLiveUpdateWatcher.js');
+      this.liveUpdateWatcher = new StudioLiveUpdateWatcher();
+    }
+    this.liveUpdateWatcher.start(host);
   }
 
   /**
@@ -221,6 +255,7 @@ export class ServiceClientApp extends ServiceBase {
         // The editor binds to the region host, so an arming attempt that ran BEFORE the adoption found
         // nothing to bind to and gave up. Connecting straight on the edit level is exactly that order.
         void this.syncEditMode();
+        void this.syncLiveUpdateWatcher();
       }
       return;
     }

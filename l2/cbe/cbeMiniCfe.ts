@@ -11,7 +11,7 @@
 //   mls.stor.localDB.getAllKeys()   -> keys persisted in IndexedDB (mlsDB)
 
 import { getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
-import { initStudio, setOrgActual } from '/_102033_/l2/cbe/initStudio.js';
+import { setOrgActual } from '/_102033_/l2/cbe/initStudio.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 
 // Base project of the studio environment (the studio core, mls-100554). Same
@@ -115,14 +115,11 @@ export async function initCbeMiniCfe(): Promise<void> {
     const mls = window.mls;
     if (!mls) return;
 
-    // Kicked off in parallel with login/preload below — Monaco is a large,
-    // independent download (only needs window.latest.monaco), no reason to
-    // serialize it behind the login round-trip. Awaited before the "ready"
-    // signal so nothing races ahead of window.monacoReady (unlike the
-    // studio, this env has no initCompileMonaco-style guard downstream).
-    const studioReady = initStudio(mls).catch((err) => {
-      console.warn('[cbeMiniCfe] monaco init failed — TS compile features unavailable:', err);
-    });
+    // Monaco is NOT loaded here anymore — it used to download unconditionally for every
+    // visitor (a multi-MB payload nobody but a developer or the message previews below ever
+    // needed at boot). It now loads on demand: from the Ctrl+Alt+S studio switch
+    // (shell.ts's loadStudioDefinitions), and from collabMessagesTaskPreviewFlexible/Agent
+    // (mls-102025) the first time either actually needs to render an editor.
 
     // The service worker backs the js cache used by updateProjectFilesInfo —
     // without it the files processing awaits navigator.serviceWorker.ready
@@ -164,7 +161,6 @@ export async function initCbeMiniCfe(): Promise<void> {
     // from the IndexedDB the login just filled (the driver is only consulted
     // on a cache miss), so no external call happens on the VM.
     await preloadStorFiles(mls);
-    await studioReady;
 
     const keys = await mls.stor.localDB.getAllKeys();
     // Signals the shell that the mini-studio env is FULLY ready (login done,

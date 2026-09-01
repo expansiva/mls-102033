@@ -345,17 +345,26 @@ export class CollabAuraShell extends LitElement {
   }
 
   /**
-   * Registers the TypeScript definition models of the project chain (Monaco resolves the
-   * cross-project imports through them).
+   * Loads Monaco (if not already loaded) and registers the TypeScript definition models of the
+   * project chain, so Monaco resolves the cross-project imports through them.
    *
-   * Deferred to the studio switch on purpose: an app user never opens an editor, so this cost
-   * has no reason to be paid at login. Idempotent — repeated toggles do nothing.
+   * Both deferred to the studio switch on purpose: an app user never opens an editor, so neither
+   * cost has a reason to be paid at login. Monaco used to download unconditionally for every
+   * visitor from cbeMiniCfe.ts — it's claimed here instead now (idempotent either way, so a
+   * concurrent load kicked off elsewhere, e.g. a message preview, is just awaited, not repeated).
    */
   private loadStudioDefinitions(): void {
     const project = Number(this.bootConfig?.projectId) || 0;
     if (!project) return;
     void import('/_102033_/l2/cbe/initStudio.js')
-      .then((module) => (module as { loadProjectDefinitions?: (project: number) => Promise<void> }).loadProjectDefinitions?.(project))
+      .then(async (module) => {
+        const mod = module as {
+          initStudio?: (mls: unknown) => Promise<void>;
+          loadProjectDefinitions?: (project: number) => Promise<void>;
+        };
+        if (window.mls) await mod.initStudio?.(window.mls);
+        await mod.loadProjectDefinitions?.(project);
+      })
       .catch((error) => console.warn('[aura-shell] could not load the project definitions', error));
   }
 
