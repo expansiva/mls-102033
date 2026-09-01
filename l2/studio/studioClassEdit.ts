@@ -2564,9 +2564,14 @@ export interface IEditScope {
 /**
  * Whether an edit may proceed, and what the user has to know BEFORE choosing.
  *
- * A molecule is used by many projects, and there is no undo — so a class edit there is refused while
- * that is true, exactly like the task's scope says. Editing the molecule's own file from a client
- * app would change every project that renders it, and nobody clicking a chip in a page expects that.
+ * A molecule is used by many projects: editing its own file from a client app would change every
+ * project that renders it, and nobody clicking a chip in a page expects that. So it is refused.
+ *
+ * OPEN DECISION (TASK-102033-picker-undo, item 6): the original reason for the refusal was "and there
+ * is no undo", which stopped being true — there is one now (studioEditHistory), it covers this same
+ * write path, and it revalidates before touching anything. Turning this into a WARNING is therefore
+ * possible; it is deliberately NOT done here, because "many projects change at once" is a product
+ * call, not a technical one, and it should be turned on only after the undo has been smoke-tested.
  */
 export function editScope(file: string, moleculeProject: number | null): IEditScope {
   if (moleculeProject !== null) {

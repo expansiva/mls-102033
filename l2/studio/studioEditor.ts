@@ -45,6 +45,7 @@ import {
   type IPickerApply,
   type IPickerPreview,
 } from '/_102033_/l2/studio/classPickerPanel.js';
+import { EditHistory } from '/_102033_/l2/studio/studioEditHistory.js';
 import { t, tr, type IMessageRef } from '/_102033_/l2/studio/studioMessages.js';
 import {
   activeAnimations,
@@ -125,6 +126,42 @@ type ClassAnchor =
    */
   | { kind: 'insert'; path: IDomPathStep[] };
 
+/**
+ * One undoable edit.
+ *
+ * It carries BOTH directions on purpose. `anchorBefore` finds the text the edit replaced (that is how
+ * it is redone) and `anchorAfter` finds what it wrote (that is how it is undone) — and they are not
+ * the same anchor: an edit that CREATED the class attribute is undone by removing it (`insert` one
+ * way, `structural` the other), and a literal located by counting can be the 3rd `p-2` before and the
+ * 1st `p-4` after.
+ *
+ * The element is a `WeakRef`: a step can outlive the node (a re-render, a navigation), and holding
+ * dead DOM for the whole session to show a status line would be a leak. What the file needs to be
+ * undone is all text.
+ */
+type EditStep =
+  | {
+    kind: 'class';
+    file: IStudioEditTarget;
+    anchorBefore: ClassAnchor;
+    anchorAfter: ClassAnchor;
+    before: string;
+    after: string;
+    what: string;
+    el: WeakRef<HTMLElement>;
+  }
+  | {
+    kind: 'text';
+    /** Where the text is, as the text editor resolves it: by i18n key, or by occurrence. */
+    i18nKey: string | null;
+    occurrence: number;
+    before: string;
+    after: string;
+    what: string;
+    node: WeakRef<Text>;
+    el: WeakRef<HTMLElement>;
+  };
+
 interface IClassPanelState {
   el: HTMLElement;
   /** The element's class attribute, exactly as authored — what has to be found in the source. */
@@ -150,6 +187,13 @@ export class StudioEditor {
   private target: IStudioEditTarget | null = null;
   /** Why the page's file could not be resolved — the panel says this instead of guessing. */
   private targetFailure: IMessageRef | null = null;
+  /**
+   * Every edit of this session, newest last.
+   *
+   * Not the Monaco stack: that one undoes the TEXT and leaves the screen, the compile, the live
+   * update and the local copy behind (see studioEditHistory).
+   */
+  private readonly history = new EditHistory<EditStep>();
   /**
    * Files that can hold this page's text, resolved lazily: page, organism files, shared base class.
    * Null until the first edit needs it.
@@ -305,6 +349,8 @@ export class StudioEditor {
     this.classPanel = null;
     this.builtClasses = null;
     this.dsRoles = null;
+    // The stack is the session's: the models it points at are being dropped right here.
+    this.history.clear();
     this.chromeHost = null;
     // The head belongs to the CLIENT app: leaving editor CSS behind after disarming is a leak.
     document.getElementById(STYLE_ID)?.remove();
@@ -391,6 +437,10 @@ export class StudioEditor {
     // fixed-position highlights would drift away from the element otherwise.
     window.addEventListener('scroll', this.onScrollResize, true);
     window.addEventListener('resize', this.onScrollResize);
+    // CAPTURE, and it stops there: the page underneath and the shell's own Ctrl+Z (the code editor)
+    // must never see the editor's undo. Capture also means this runs before anything deeper, which
+    // is the only way to be sure of that.
+    window.addEventListener('keydown', this.onUndoKey, true);
   }
 
   private removeListeners(): void {
@@ -405,6 +455,7 @@ export class StudioEditor {
     }
     window.removeEventListener('scroll', this.onScrollResize, true);
     window.removeEventListener('resize', this.onScrollResize);
+    window.removeEventListener('keydown', this.onUndoKey, true);
   }
 
   /**
@@ -512,6 +563,36 @@ export class StudioEditor {
     this.lastHoveredEl = null;
     this.drawSelection();
   };
+
+  /**
+   * Ctrl+Z / Ctrl+Shift+Z (and Ctrl+Y) while the editor is armed.
+   *
+   * Two things it must NOT do: fire while the user is typing — a field has its own undo, and taking
+   * it over would be the worst kind of surprise — and leak. The typing check reads
+   * `composedPath()[0]` rather than `target`, because a field inside the panel's shadow root is
+   * retargeted to the panel element by the time the event reaches the window.
+   */
+  private onUndoKey = (e: KeyboardEvent): void => {
+    if (this.currentMode() === 'off') return;
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const key = e.key.toLowerCase();
+    if (key !== 'z' && key !== 'y') return;
+    if (this.editSpan || this.isTypingTarget(e)) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    void (key === 'y' || e.shiftKey ? this.redo() : this.undo());
+  };
+
+  /** Whether the keystroke belongs to something the user is typing into. */
+  private isTypingTarget(e: KeyboardEvent): boolean {
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+    const el = (path[0] ?? e.target) as HTMLElement | null;
+    if (!el) return false;
+    if (el.isContentEditable) return true;
+    const tag = el.tagName?.toLowerCase();
+    return tag === 'input' || tag === 'textarea' || tag === 'select';
+  }
 
   private onScrollResize = (): void => {
     if (this.currentMode() === 'off') return;
@@ -680,7 +761,22 @@ export class StudioEditor {
       this.applyCursor();
 
       if (newText !== oldText) {
-        void this.applyTextEditToSource(oldText, newText, occurrenceIndex, editParent, restoredNode, i18nKey);
+        void this.applyTextEditToSource(oldText, newText, occurrenceIndex, editParent, restoredNode, i18nKey)
+          .then((result) => {
+            // Only a write that landed goes on the stack: an edit refused as dynamic text changed
+            // nothing, and offering to undo it would undo the previous one instead.
+            if (!result.ok) return;
+            this.history.push({
+              kind: 'text',
+              i18nKey,
+              occurrence: occurrenceIndex,
+              before: oldText,
+              after: newText,
+              what: result.what ?? t('status.textLabel'),
+              node: new WeakRef(restoredNode),
+              el: new WeakRef(editParent),
+            });
+          });
       }
 
       span.removeEventListener('blur', onBlur);
@@ -730,19 +826,30 @@ export class StudioEditor {
    * preview runs with empty data, the app with real data), so it is reported as information, not as
    * a failure.
    */
+  /**
+   * Writes a text change into whichever file really owns that text.
+   *
+   * The DOM arguments are optional because this is also the UNDO path: a step can outlive its node
+   * (a re-render, a navigation), and the file still has to be put right. When they are there, they
+   * are the rollback — the screen already shows the new text, and a failure has to take it back.
+   */
   private async applyTextEditToSource(
     oldText: string,
     newText: string,
     occurrenceIndex: number,
-    editTarget: HTMLElement,
-    restoredNode: Text,
+    editTarget: HTMLElement | null,
+    restoredNode: Text | null,
     i18nKey: string | null,
-  ): Promise<void> {
+  ): Promise<{ ok: boolean; what?: string }> {
+    const rollback = (message: string): { ok: false } => {
+      if (restoredNode) restoredNode.textContent = oldText;
+      if (editTarget) this.flashError(editTarget);
+      this.setStatus(message);
+      return { ok: false };
+    };
+
     if (!this.target) {
-      restoredNode.textContent = oldText;
-      this.flashError(editTarget);
-      this.setStatus(this.statusText || t('reason.noTargetFile'));
-      return;
+      return rollback(this.statusText || t('reason.noTargetFile'));
     }
 
     const pageSource = this.target.model.model.getValue();
@@ -776,10 +883,7 @@ export class StudioEditor {
     }
 
     if (origin.type === 'dynamic') {
-      restoredNode.textContent = oldText;
-      this.flashError(editTarget);
-      this.setStatus(t('status.textIsData'));
-      return;
+      return rollback(t('status.textIsData'));
     }
 
     // Against the locales the catalog DECLARES, not the document language reduced to its primary
@@ -797,10 +901,7 @@ export class StudioEditor {
 
     const result = applyTextEdit(origin, newText, activeSource, locales);
     if (!result.success || !result.newSource) {
-      restoredNode.textContent = oldText;
-      this.flashError(editTarget);
-      this.setStatus(result.error || t('status.textEditFailed'));
-      return;
+      return rollback(result.error || t('status.textEditFailed'));
     }
 
     const model = editTargetFile.model.model;
@@ -852,6 +953,7 @@ export class StudioEditor {
     // `setContents` clears it after a successful write), so a change never showed up in IndexedDB.
     this.setStatus(`${what} ${where} — ${live.message}${scope} ${t('status.localOnly')}`);
     this.events.onEdited?.(editTargetFile);
+    return { ok: true, what };
   }
 
   /** The shared base class of the current page, resolved once per page. */
@@ -909,6 +1011,8 @@ export class StudioEditor {
     this.classPanelEl.addEventListener('picker-preview', this.onPickerPreview as EventListener);
     this.classPanelEl.addEventListener('picker-status', this.onPickerStatus as EventListener);
     this.classPanelEl.addEventListener('picker-close', this.onPickerClose);
+    this.classPanelEl.addEventListener('picker-undo', this.onPickerUndo);
+    this.classPanelEl.addEventListener('picker-redo', this.onPickerRedo);
     // Same layer as the marking and the toast — see createStatusEl.
     document.body.appendChild(this.classPanelEl);
   }
@@ -948,6 +1052,14 @@ export class StudioEditor {
 
   private onPickerClose = (): void => {
     this.hideClassPanel();
+  };
+
+  private onPickerUndo = (): void => {
+    void this.undo();
+  };
+
+  private onPickerRedo = (): void => {
+    void this.redo();
   };
 
   /**
@@ -1225,6 +1337,8 @@ export class StudioEditor {
       warning: state.warning,
       childCount: this.elementChildCount(state.el),
       canRemoveLast: state.anchor?.kind !== 'occurrence',
+      undo: this.history.peekUndo()?.what ?? '',
+      redo: this.history.peekRedo()?.what ?? '',
     };
     panel.hidden = false;
     // Only measurable once it is showing — and its size depends on what the selection carries.
@@ -1363,29 +1477,73 @@ export class StudioEditor {
       return;
     }
 
+    const result = await this.writeClassLiteral({
+      file, anchor, el, from: literal, to: newLiteral, what, warning: state.warning,
+    });
+    if (!result.ok) return;
+
+    this.history.push({
+      kind: 'class',
+      file,
+      anchorBefore: anchor,
+      anchorAfter: this.reverseAnchor(anchor, newLiteral, result.occurrence),
+      before: literal,
+      after: newLiteral,
+      what,
+      el: new WeakRef(el),
+    });
+  }
+
+  /**
+   * The ONE place a class literal is written — for a chip, for a paste, and for an undo.
+   *
+   * Undo taking a shortcut is how the file and the screen drift apart, so it comes through here like
+   * everything else: live element first, then the source, the local copy, the compile and the live
+   * update. The element is optional because an undo can outlive it (a re-render, a navigation): the
+   * file is still put right, and the status says the screen only catches up on a reload.
+   */
+  private async writeClassLiteral(write: {
+    file: IStudioEditTarget;
+    anchor: ClassAnchor;
+    el: HTMLElement | null;
+    /** What the source must hold right now — revalidated, never assumed. */
+    from: string;
+    to: string;
+    what: string;
+    warning?: IMessageRef;
+  }): Promise<{ ok: boolean; occurrence: number }> {
+    const { file, anchor, from, to, what } = write;
+    const el = write.el?.isConnected ? write.el : null;
+    const failed = { ok: false, occurrence: -1 };
+
     // A preview in flight would put the OLD attribute back on top of the real change.
     this.previewAnimation(null);
 
-    // Nothing left means no attribute at all, in the DOM as in the source (see classAttrSpan).
-    if (newLiteral) el.setAttribute('class', newLiteral);
-    else el.removeAttribute('class');
-    if (this.hasEntrance(newLiteral)) this.replayEntrance(el);
-    this.drawSelection();
+    if (el) {
+      // Nothing left means no attribute at all, in the DOM as in the source (see classAttrSpan).
+      if (to) el.setAttribute('class', to);
+      else el.removeAttribute('class');
+      if (this.hasEntrance(to)) this.replayEntrance(el);
+      this.drawSelection();
+    }
 
     const source = file.model.model.getValue();
-    const match = this.locateLiteral(file, literal, anchor);
+    const match = this.locateLiteral(file, from, anchor);
     if (!match) {
-      el.setAttribute('class', literal);
-      this.flashError(el);
+      if (el) {
+        if (from) el.setAttribute('class', from);
+        else el.removeAttribute('class');
+        this.flashError(el);
+      }
       this.setStatus(t('status.stale'));
-      return;
+      return failed;
     }
 
     // An insertion carries the attribute's own syntax; a replacement is just the literal; and an
     // empty result takes the whole attribute out instead of leaving `class=""` behind.
     let { startOffset, endOffset } = match;
-    let written = match.insert ? ` class="${newLiteral}"` : newLiteral;
-    if (!newLiteral && !match.insert) {
+    let written = match.insert ? ` class="${to}"` : to;
+    if (!to && !match.insert) {
       const span = classAttrSpan(source, match.startOffset, match.endOffset);
       if (span) {
         startOffset = span.start;
@@ -1407,7 +1565,7 @@ export class StudioEditor {
     const where = file === this.target
       ? t('status.onThisPage')
       : t('status.onFile', { file: file.shortName, folder: file.folder });
-    const warning = state.warning ? ` — ${tr(state.warning)}` : '';
+    const warning = write.warning ? ` — ${tr(write.warning)}` : '';
     this.setStatus(`${what} ${where} — ${t('status.applying')}`, true);
 
     await compileAfterEdit(file);
@@ -1421,6 +1579,117 @@ export class StudioEditor {
     // Reaching those is the SAVE's job (see saveTarget, which the editor does not call).
     this.setStatus(`${what} ${where} — ${live.message}${warning} ${t('status.localOnly')}`);
     this.events.onEdited?.(file);
+
+    // Where the new literal ended up, so the reverse step can find it by counting as well.
+    const literalOffset = match.insert ? startOffset + ' class="'.length : startOffset;
+    const occurrence = to
+      ? findClassAttrs(newSource, to).findIndex((attr) => attr.startOffset === literalOffset)
+      : -1;
+    return { ok: true, occurrence };
+  }
+
+  // --- Undo (TASK-102033-picker-undo) ---
+
+  /** Undoes the last edit of this session. */
+  public async undo(): Promise<void> {
+    await this.travel('undo');
+  }
+
+  /** Redoes the last undone edit. */
+  public async redo(): Promise<void> {
+    await this.travel('redo');
+  }
+
+  /**
+   * One step back or forward, through the SAME write as any other edit.
+   *
+   * Nothing is popped on faith: the step is peeked, applied — and the write revalidates, because it
+   * looks for the exact text the step says the file should hold — and only then does it cross to the
+   * other stack. A step that no longer matches takes the whole branch with it (see EditHistory), so a
+   * file rewritten from outside is never written over.
+   */
+  private async travel(direction: 'undo' | 'redo'): Promise<void> {
+    if (this.mode === 'off') return;
+
+    const step = direction === 'undo' ? this.history.peekUndo() : this.history.peekRedo();
+    if (!step) {
+      this.setStatus(t(direction === 'undo' ? 'status.nothingToUndo' : 'status.nothingToRedo'));
+      return;
+    }
+    // The same queue as the chips: undoing on top of a write still in flight would compute from a
+    // file that is about to change.
+    if (this.applying) {
+      this.setStatus(t('status.busy'));
+      return;
+    }
+
+    this.applying = true;
+    let ok = false;
+    try {
+      ok = await this.applyStep(step, direction);
+    } finally {
+      this.applying = false;
+    }
+
+    if (ok) {
+      if (direction === 'undo') this.history.commitUndo();
+      else this.history.commitRedo();
+    } else {
+      if (direction === 'undo') this.history.dropUndo();
+      else this.history.dropRedo();
+      this.setStatus(t('status.undoStale'));
+    }
+
+    // The literal (and where it repeats) just changed: the open panel has to be re-anchored, exactly
+    // as after a normal edit.
+    const el = step.el.deref();
+    if (el?.isConnected && this.selectedEl === el) await this.showClassPanel(el);
+    else this.renderClassPanel();
+  }
+
+  /** Replays one step in one direction. The two kinds differ only in which writer they call. */
+  private async applyStep(step: EditStep, direction: 'undo' | 'redo'): Promise<boolean> {
+    const undoing = direction === 'undo';
+    const from = undoing ? step.after : step.before;
+    const to = undoing ? step.before : step.after;
+    const what = t(undoing ? 'status.undone' : 'status.redone', { what: step.what });
+
+    if (step.kind === 'class') {
+      const el = step.el.deref() ?? null;
+      const result = await this.writeClassLiteral({
+        file: step.file,
+        anchor: undoing ? step.anchorAfter : step.anchorBefore,
+        el,
+        from,
+        to,
+        what,
+      });
+      // The file was put right but no screen shows it: without saying so, "undone" reads as a lie.
+      if (result.ok && !el?.isConnected) this.setStatus(`${this.statusText} — ${t('status.offscreen')}`);
+      return result.ok;
+    }
+
+    const node = step.node.deref() ?? null;
+    // The screen first, like every other edit — and it doubles as the rollback: a failed write puts
+    // `from` back into this very node.
+    if (node?.isConnected) node.textContent = to;
+    const result = await this.applyTextEditToSource(from, to, step.occurrence, step.el.deref() ?? null, node, step.i18nKey);
+    if (result.ok && !node?.isConnected) this.setStatus(`${this.statusText} — ${t('status.offscreen')}`);
+    return result.ok;
+  }
+
+  /**
+   * The anchor that finds the OTHER side of an edit.
+   *
+   * Two things change with the direction. An element that had no class attribute is found by position
+   * and nothing else (`insert`), but once the attribute exists it is found like any other literal —
+   * and the reverse of a removal is the same, backwards. And a literal found by COUNTING moves: the
+   * 3rd `p-2` of the file becomes the 1st `p-4`, so the count has to be the one measured after the
+   * write, not the one used before it.
+   */
+  private reverseAnchor(anchor: ClassAnchor, literal: string, occurrence: number): ClassAnchor {
+    if (anchor.kind === 'occurrence') return { kind: 'occurrence', occurrence };
+    return literal ? { kind: 'structural', path: anchor.path } : { kind: 'insert', path: anchor.path };
   }
 
   // --- Overlay ---

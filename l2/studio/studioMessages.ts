@@ -273,6 +273,10 @@ const message_pt = {
     + ' da origem — é o caso do botão que precisa continuar w-full. Todo o resto continua vindo.',
 
   // ── Adding and removing a property ────────────────────────────────────────
+  'panel.undo': 'nada para desfazer',
+  'panel.redo': 'nada para refazer',
+  'panel.undoOf': 'desfazer: {what}  (Ctrl+Z)',
+  'panel.redoOf': 'refazer: {what}  (Ctrl+Shift+Z)',
   'panel.addProperty': '+ propriedade',
   'panel.addTitle': 'acrescentar uma propriedade que este elemento ainda não tem',
   'panel.addPick': 'Qual propriedade',
@@ -307,6 +311,14 @@ const message_pt = {
   'status.copied': 'estilo copiado de <{tag}> — selecione outro elemento para colar',
   'status.nothingToCopy': 'este elemento não tem classes para copiar',
   'status.pasted': 'estilo de <{tag}>',
+  'status.undone': 'desfeito: {what}',
+  'status.redone': 'refeito: {what}',
+  'status.nothingToUndo': 'nada para desfazer nesta sessão',
+  'status.nothingToRedo': 'nada para refazer',
+  'status.undoStale': 'a fonte mudou desde essa edição — desfazer aqui sobrescreveria a mudança nova,'
+    + ' então parei e esqueci o histórico anterior',
+  'status.offscreen': 'o elemento não está mais na tela: o arquivo foi alterado, a tela só mostra'
+    + ' depois de recarregar (F5)',
   'status.propertyAdded': 'nova propriedade: {property}',
   'status.propertyRemoved': 'propriedade removida: {property}',
 
@@ -744,6 +756,10 @@ const message_en: typeof message_pt = {
     + ' of coming from the source — the button that has to stay w-full. Everything else still comes.',
 
   // ── Adding and removing a property ────────────────────────────────────────
+  'panel.undo': 'nothing to undo',
+  'panel.redo': 'nothing to redo',
+  'panel.undoOf': 'undo: {what}  (Ctrl+Z)',
+  'panel.redoOf': 'redo: {what}  (Ctrl+Shift+Z)',
   'panel.addProperty': '+ property',
   'panel.addTitle': 'add a property this element does not have yet',
   'panel.addPick': 'Which property',
@@ -777,6 +793,14 @@ const message_en: typeof message_pt = {
   'status.copied': 'style copied from <{tag}> — select another element to paste it',
   'status.nothingToCopy': 'this element has no classes to copy',
   'status.pasted': 'style from <{tag}>',
+  'status.undone': 'undone: {what}',
+  'status.redone': 'redone: {what}',
+  'status.nothingToUndo': 'nothing to undo in this session',
+  'status.nothingToRedo': 'nothing to redo',
+  'status.undoStale': 'the source changed since that edit — undoing here would overwrite the newer'
+    + ' change, so it stopped and dropped the history before it',
+  'status.offscreen': 'the element is no longer on screen: the file changed, the screen catches up'
+    + ' after a reload (F5)',
   'status.propertyAdded': 'new property: {property}',
   'status.propertyRemoved': 'property removed: {property}',
 

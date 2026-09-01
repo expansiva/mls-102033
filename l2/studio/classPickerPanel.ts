@@ -97,6 +97,14 @@ export interface IPickerTarget {
    * and an element without one could not be reached again — not even to put a class back.
    */
   canRemoveLast: boolean;
+  /**
+   * What the undo/redo buttons would undo and redo, already translated; empty when there is nothing.
+   *
+   * The stack lives in the editor (it covers text edits too, which never pass through this panel), so
+   * the panel only shows what it is told.
+   */
+  undo: string;
+  redo: string;
 }
 
 /** What the panel asks the editor to write. */
@@ -187,6 +195,12 @@ export class ClassPickerPanel extends LitElement {
     .tag { font-family: monospace; color: #7fb3ff; }
     .file { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b8c2cc; }
     .close { background: transparent; border: 0; color: #b8c2cc; font-size: 16px; line-height: 1; cursor: pointer; }
+    .history {
+      flex: 0 0 auto; background: transparent; border: 0; cursor: pointer;
+      color: #b8c2cc; font-size: 14px; line-height: 1; padding: 0 2px;
+    }
+    .history:hover:not([disabled]) { color: #f5f7fa; }
+    .history[disabled] { opacity: 0.3; cursor: default; }
 
     .tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid rgba(245,247,250,0.12); }
     .tab {
@@ -334,6 +348,8 @@ export class ClassPickerPanel extends LitElement {
     return html`
       <div class="head">
         <span class="tag">${target.tag}</span>
+        ${this.historyButton('undo')}
+        ${this.historyButton('redo')}
         <span class="file" title=${t('panel.fileTitle')}>${target.fileLabel || t('panel.noFile')}</span>
         <button type="button" class="copy" title=${t('panel.copyStyleTitle')}
           @click=${this.onCopy}>${t('panel.copyStyle')}</button>
@@ -347,6 +363,20 @@ export class ClassPickerPanel extends LitElement {
       ${target.warning ? html`<div class="note warning">${tr(target.warning)}</div>` : nothing}
       ${this.tab === 'animations' ? this.renderAnimations() : this.renderClasses()}
     `;
+  }
+
+  /**
+   * Undo or redo, with the name of what it would do in the tooltip.
+   *
+   * Disabled is the honest state when the stack is empty — and the shortcut (Ctrl+Z) does the same
+   * thing, so this is a reminder as much as a button.
+   */
+  private historyButton(direction: 'undo' | 'redo') {
+    const what = (direction === 'undo' ? this.target?.undo : this.target?.redo) ?? '';
+    return html`<button type="button" class="history" ?disabled=${!what}
+      title=${what ? t(`panel.${direction}Of`, { what }) : t(`panel.${direction}`)}
+      @click=${() => this.dispatchEvent(new CustomEvent(`picker-${direction}`, { bubbles: true, composed: true }))}
+    >${direction === 'undo' ? '\u21B6' : '\u21B7'}</button>`;
   }
 
   private tabButton(id: 'classes' | 'animations', label: string) {

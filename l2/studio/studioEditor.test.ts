@@ -192,5 +192,53 @@ test('an element with no class can be given one — and never a second', () => {
   assert.ok(body.includes('resolved.element.classComputed'), 'and so does a computed one');
 
   // The write carries the attribute syntax only for an insertion.
-  assert.ok(EDITOR.includes('match.insert ? ` class="${newLiteral}"` : newLiteral'));
+  assert.ok(EDITOR.includes('match.insert ? ` class="${to}"` : to'));
+});
+
+test('undo walks the same write as any other edit, and the shortcut stays contained', () => {
+  const code = codeLines(EDITOR);
+  // NOT the Monaco stack: `model.undo()` undoes the text and leaves the screen, the compile, the live
+  // update and the local copy behind — the file and the screen would drift apart.
+  assert.equal(code.some((line) => line.includes('model.undo(')), false, 'no shortcut through Monaco');
+
+  const inside = (name: string, end = '\n  }'): string => {
+    const start = EDITOR.indexOf(name);
+    assert.notEqual(start, -1, name);
+    return EDITOR.slice(start, EDITOR.indexOf(end, start));
+  };
+
+  const step = inside('private async applyStep');
+  assert.ok(step.includes('this.writeClassLiteral('), 'a class step goes through the normal write');
+  assert.ok(step.includes('this.applyTextEditToSource('), 'and a text step through the normal one');
+
+  // Nothing is popped on faith: peek, apply, and only then commit — or drop the whole branch.
+  const travel = inside('private async travel');
+  for (const call of ['peekUndo()', 'commitUndo()', 'dropUndo()', 'if (this.applying)']) {
+    assert.ok(travel.includes(call), call);
+  }
+
+  // The shortcut: captured, stopped, and never taken from a field that has its own undo.
+  const key = inside('private onUndoKey', '\n  };');
+  assert.ok(key.includes('e.stopPropagation()'), 'the page and the shell must not see it');
+  assert.ok(key.includes('this.editSpan || this.isTypingTarget(e)'), 'a field keeps its own undo');
+  assert.ok(EDITOR.includes("window.addEventListener('keydown', this.onUndoKey, true)"), 'capture phase');
+  assert.ok(EDITOR.includes("window.removeEventListener('keydown', this.onUndoKey, true)"), 'and removed');
+
+  // Only a write that landed is recorded — an edit refused as dynamic text changed nothing, and
+  // undoing it would undo the previous one instead.
+  assert.ok(EDITOR.includes('if (!result.ok) return;'), 'the text push is guarded by the outcome');
+});
+
+test('a step carries BOTH directions, because they are not the same anchor', () => {
+  // An edit that CREATED the class attribute is undone by removing it (`insert` one way, `structural`
+  // the other), and a literal found by counting can be the 3rd `p-2` before and the 1st `p-4` after.
+  assert.match(EDITOR, /anchorBefore: ClassAnchor;\s*\n\s*anchorAfter: ClassAnchor;/u);
+
+  const start = EDITOR.indexOf('private reverseAnchor');
+  const body = EDITOR.slice(start, EDITOR.indexOf('\n  }', start));
+  assert.ok(body.includes("kind: 'occurrence', occurrence"), 'the count is the one measured AFTER');
+  assert.ok(body.includes("literal ? { kind: 'structural'"), 'and the kind follows what is expected');
+
+  // The count comes from the write itself, not from a guess.
+  assert.ok(EDITOR.includes('findClassAttrs(newSource, to).findIndex'));
 });
