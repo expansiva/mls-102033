@@ -34,6 +34,31 @@ import {
   readSharedKeyMap,
   type TextOrigin,
 } from '/_102033_/l2/studio/studioTextEdit.js';
+import {
+  CLASS_PICKER_TAG,
+  type ClassPickerPanel,
+  type IPickerApply,
+  type IPickerPreview,
+} from '/_102033_/l2/studio/classPickerPanel.js';
+import { t, tr, type IMessageRef } from '/_102033_/l2/studio/studioMessages.js';
+import {
+  activeAnimations,
+  applyAnimationOption,
+  editScope,
+  describeMissingLiteral,
+  findClassAttrs,
+  parseClassAttr,
+  readAnimationState,
+  readDesignSystemRoles,
+  repeatedRenderWarning,
+  resolveAnchor,
+  resolveStructuralAnchor,
+  scanTemplateTree,
+  splitUtilities,
+  type IDomPathStep,
+  type IUtilityToken,
+} from '/_102033_/l2/studio/studioClassEdit.js';
+import { builtCssClassNames, isStudioTailwindLive } from '/_102033_/l2/cbe/studioTailwind.js';
 import { applyLiveUpdate } from '/_102033_/l2/studio/studioLiveUpdate.js';
 import {
   compileAfterEdit,
@@ -43,7 +68,7 @@ import {
   resolveEditTarget,
   resolveOrganismTargets,
   resolveSharedTarget,
-  saveTarget,
+  tagToFileInfo,
   type IStudioEditTarget,
 } from '/_102033_/l2/studio/studioEditTarget.js';
 
@@ -52,8 +77,18 @@ export type StudioEditMode = 'off' | 'select' | 'text' | 'inspect';
 export interface StudioEditorEvents {
   /** Target resolution changed (armed, page navigated, unresolvable). */
   onTarget?: (target: IStudioEditTarget | null, reason: string) => void;
-  /** A file was written to the VM. There is no save step — every edit persists immediately. */
-  onSaved?: (target: IStudioEditTarget) => void;
+  /**
+   * A file was edited LOCALLY (model + local store). Nothing was written to the project's files —
+   * that is the save's job — so this is "there is something to save", not "it is saved".
+   */
+  onEdited?: (target: IStudioEditTarget) => void;
+  /**
+   * An element was selected (null when the selection was dropped).
+   *
+   * The class picker itself lives HERE, next to the persistence machinery it needs — this hook is for
+   * an owner that wants to mirror the selection in its own chrome.
+   */
+  onSelect?: (el: HTMLElement | null) => void;
 }
 
 const STYLE_ID = 'se-editor-styles';
@@ -63,6 +98,32 @@ const STATUS_TIMEOUT_MS = 5000;
 
 /** Elements the editor itself puts on the page — never selectable, never counted. */
 const CONTROL_CLASS = 'se-control';
+
+/**
+ * What the current selection resolved to for the class picker.
+ *
+ * Resolved AT SELECTION TIME, not on the chip click: the user has to know which file changes, and
+ * whether the edit is refused, before choosing (the lesson of the `pt` vs `pt-br` round).
+ */
+/** How to find the literal again in the file: by DOM position, or by counting occurrences. */
+type ClassAnchor =
+  | { kind: 'structural'; path: IDomPathStep[] }
+  | { kind: 'occurrence'; occurrence: number };
+
+interface IClassPanelState {
+  el: HTMLElement;
+  /** The element's class attribute, exactly as authored — what has to be found in the source. */
+  literal: string;
+  tokens: IUtilityToken[];
+  /** File that receives the edit, or null when nothing was resolved. */
+  file: IStudioEditTarget | null;
+  /** Null while the element could not be located. */
+  anchor: ClassAnchor | null;
+  /** What the user must know before choosing: the M = 1 / N > 1 warning. */
+  warning?: IMessageRef;
+  /** Why the edit cannot happen. The panel is read-only while this is set. */
+  refusal?: IMessageRef;
+}
 
 export class StudioEditor {
 
@@ -92,6 +153,26 @@ export class StudioEditor {
   private statusEl: HTMLDivElement | null = null;
   private chromePositionPatched = false;
 
+  /** The class picker (TASK-102033-class-picker): panel element + what the current selection resolved to. */
+  private classPanelEl: ClassPickerPanel | null = null;
+  private classPanel: IClassPanelState | null = null;
+  /** Classes with a rule in the BUILT css, read once per selection (the sheet does not change mid-session). */
+  private builtClasses: Set<string> | null = null;
+  /** Design system roles, read from the injected `#ds-tokens` css — the vocabulary for arbitrary values. */
+  private dsRoles: string[] | null = null;
+  /**
+   * Live preview of an animation: the element, the class attribute to put back, and the timer.
+   *
+   * The ELEMENT is held here and not read from the panel state at restore time: a preview has to be
+   * undoable after the selection moved or the panel closed, and a preview left applied looks exactly
+   * like a class that is not in the source.
+   */
+  private previewEl: HTMLElement | null = null;
+  private previewRestore: string | null = null;
+  private previewTimer: number | null = null;
+  /** True while an edit is being written: the DOM must not be touched by anything else meanwhile. */
+  private applying = false;
+
   constructor(events: StudioEditorEvents = {}) {
     this.events = events;
   }
@@ -114,6 +195,7 @@ export class StudioEditor {
     this.injectStyles();
     this.createOverlay();
     this.createStatusEl();
+    this.createClassPanel();
     // The target is resolved when the editor is armed (setMode), not here: attaching while `off`
     // must not build a Monaco model nobody asked for.
     this.watchHost(host);
@@ -134,6 +216,8 @@ export class StudioEditor {
       this.lastPageTag = tag;
       this.selectedEl = null;
       this.lastHoveredEl = null;
+      this.hideClassPanel();
+      this.events.onSelect?.(null);
       void this.refreshTarget();
     });
     this.hostObserver.observe(host, { childList: true });
@@ -167,6 +251,7 @@ export class StudioEditor {
       this.selectedEl = null;
       this.lastHoveredEl = null;
       this.clearOverlay();
+      this.hideClassPanel();
     } else {
       this.drawSelection();
     }
@@ -192,6 +277,11 @@ export class StudioEditor {
     }
     this.statusEl?.remove();
     this.statusEl = null;
+    this.classPanelEl?.remove();
+    this.classPanelEl = null;
+    this.classPanel = null;
+    this.builtClasses = null;
+    this.dsRoles = null;
     // Only undo what we changed: the service's own styling must survive disarming.
     if (this.chromePositionPatched && this.chromeHost) this.chromeHost.style.position = '';
     this.chromePositionPatched = false;
@@ -231,6 +321,7 @@ export class StudioEditor {
       this.editSpan?.blur();
       this.removeListeners();
       this.clearOverlay();
+      this.hideClassPanel();
       this.selectedEl = null;
       this.lastHoveredEl = null;
       return;
@@ -256,8 +347,9 @@ export class StudioEditor {
       this.events.onTarget?.(this.target, '');
     } else {
       this.target = null;
-      this.statusText = result.reason;
-      this.events.onTarget?.(null, result.reason);
+      // Translated here: the owner gets a sentence it can show, not an id it would have to resolve.
+      this.statusText = tr(result.reason);
+      this.events.onTarget?.(null, this.statusText);
     }
     this.drawStatusOnly();
   }
@@ -348,6 +440,12 @@ export class StudioEditor {
     // clicked.
     this.lastHoveredEl = null;
     this.drawSelection();
+    this.events.onSelect?.(selectableEl);
+
+    // The picker resolves the source anchor for the SELECTION — the file that would change, and any
+    // refusal, are on screen BEFORE a chip is clicked. Async (it may have to open organism models);
+    // the text path below does not wait for it.
+    void this.showClassPanel(selectableEl);
 
     const textResult = this.findClickedTextNode(e, target);
     if (!textResult) return;
@@ -620,7 +718,7 @@ export class StudioEditor {
     if (!this.target) {
       restoredNode.textContent = oldText;
       this.flashError(editTarget);
-      this.setStatus(this.statusText || 'Sem arquivo-fonte resolvido para esta tela.');
+      this.setStatus(this.statusText || t('reason.noTargetFile'));
       return;
     }
 
@@ -657,7 +755,7 @@ export class StudioEditor {
     if (origin.type === 'dynamic') {
       restoredNode.textContent = oldText;
       this.flashError(editTarget);
-      this.setStatus('Esse texto é conteúdo (vem dos dados), não código — não há o que editar na fonte.');
+      this.setStatus(t('status.textIsData'));
       return;
     }
 
@@ -678,7 +776,7 @@ export class StudioEditor {
     if (!result.success || !result.newSource) {
       restoredNode.textContent = oldText;
       this.flashError(editTarget);
-      this.setStatus(result.error || 'Não foi possível aplicar a edição na fonte.');
+      this.setStatus(result.error || t('status.textEditFailed'));
       return;
     }
 
@@ -698,18 +796,18 @@ export class StudioEditor {
     const localeNote = origin.type === 'i18n' && Array.isArray(locales) && locales.length > 0
       ? ` (${locales.join(', ')})`
       : '';
-    const what = origin.type === 'i18n' ? `i18n "${origin.key}"${localeNote}` : 'texto';
+    const what = origin.type === 'i18n' ? `i18n "${origin.key}"${localeNote}` : t('status.textLabel');
     const where = editTargetFile === this.target
-      ? ' nesta página'
-      : ` em ${editTargetFile.shortName} (${editTargetFile.folder})`;
+      ? t('status.onThisPage')
+      : t('status.onFile', { file: editTargetFile.shortName, folder: editTargetFile.folder });
     // A shared key reached through the page's `fromShared` mapping is used by every page that maps
     // it — the edit is NOT local to this screen, and the user has no other way to know that.
     const scope = origin.type === 'i18n' && this.isSharedKey(pageSource, origin.key)
-      ? ' — atenção: essa chave é compartilhada, muda em toda página que a usa'
+      ? ` — ${t('status.sharedKey')}`
       : '';
     // Sticky: it is a progress message, always superseded below. Letting it time out would make the
     // toast blink out and back in whenever the save takes longer than the timeout.
-    this.setStatus(`${what} editado${where} — salvando...`, true);
+    this.setStatus(`${what} ${where} — ${t('status.applying')}`, true);
 
     // Compiles first: it fills `compilerResults.prodJS` (what the live update evaluates) and puts the
     // fresh JS in the SW cache (what a reload would serve).
@@ -724,17 +822,13 @@ export class StudioEditor {
       pageTag: this.pageTag() ?? '',
     });
 
-    // Persisted right away: there is no save step. Editing the model alone would only touch the
-    // browser (IndexedDB + SW cache) — the lib has no autosave hook, so without this the VM file
-    // tree, which is what publish syncs, would never see the edit.
-    try {
-      await saveTarget(editTargetFile, `studio edit: ${editTargetFile.page}`);
-      this.setStatus(`${what} salvo${where} — ${live.message}${scope}`);
-      this.events.onSaved?.(editTargetFile);
-    } catch (err) {
-      // saveTarget puts the dirty flag back, so the edit survives in the browser for a retry.
-      this.setStatus(`${what} editado${where}, mas FALHOU ao salvar: ${(err as Error).message}`, true);
-    }
+    // STOPS AT THE LOCAL STORE, on purpose. An edit here writes the model and the local copy
+    // (IndexedDB) and nothing else: reaching the project's files is the SAVE's job, not the editor's.
+    // An earlier version called `saveTarget` right here, which wrote straight through to the VM — the
+    // opposite of what the editing flow wants, and it also made the local copy disappear (the lib's
+    // `setContents` clears it after a successful write), so a change never showed up in IndexedDB.
+    this.setStatus(`${what} ${where} — ${live.message}${scope} ${t('status.localOnly')}`);
+    this.events.onEdited?.(editTargetFile);
   }
 
   /** The shared base class of the current page, resolved once per page. */
@@ -769,6 +863,493 @@ export class StudioEditor {
     } catch {
       return false;
     }
+  }
+
+  // --- Class picker (TASK-102033-class-picker / -picker-web-component) ---
+
+  /**
+   * The picker panel, next to the status toast: INSIDE the service element.
+   *
+   * Neither of the other two layers can hold it. The marking overlay is pointer-events none by design
+   * (it must never eat a click meant for the page), so it cannot carry controls; and the service BODY
+   * is the adopted app region, where nothing may be inserted or the shell remounts the screen on its
+   * next render. What is left is the service element itself — the toast's home.
+   *
+   * It is a WEB COMPONENT (classPickerPanel): the editor feeds it the selection and listens to what the
+   * user asked for. Everything about words, chips and screens lives there.
+   */
+  private createClassPanel(): void {
+    if (this.classPanelEl) return;
+    const container = this.chromeHost;
+    if (!container) return;
+
+    if (getComputedStyle(container).position === 'static') {
+      container.style.position = 'relative';
+      this.chromePositionPatched = true;
+    }
+
+    this.classPanelEl = document.createElement(CLASS_PICKER_TAG) as ClassPickerPanel;
+    this.classPanelEl.hidden = true;
+    this.classPanelEl.addEventListener('picker-apply', this.onPickerApply as EventListener);
+    this.classPanelEl.addEventListener('picker-preview', this.onPickerPreview as EventListener);
+    this.classPanelEl.addEventListener('picker-status', this.onPickerStatus as EventListener);
+    this.classPanelEl.addEventListener('picker-close', this.onPickerClose);
+    container.appendChild(this.classPanelEl);
+  }
+
+  private hideClassPanel(): void {
+    // Before dropping the state: a preview left on the element would read as a class that is not in
+    // the source, and the next selection would say exactly that.
+    this.previewAnimation(null);
+    this.classPanel = null;
+    if (!this.classPanelEl) return;
+    this.classPanelEl.hidden = true;
+    this.classPanelEl.target = undefined;
+  }
+
+  private onPickerApply = (e: CustomEvent<IPickerApply>): void => {
+    void this.applyLiteralChange(e.detail.literal, e.detail.what);
+  };
+
+  private onPickerPreview = (e: CustomEvent<IPickerPreview | null>): void => {
+    const detail = e.detail;
+    if (!detail) {
+      this.previewLiteral(null);
+      return;
+    }
+    // A paste asks for a whole class attribute; an animation asks for one option, which the editor
+    // still has to turn into a literal (and replay, when it is an entrance).
+    if (detail.literal !== undefined) {
+      this.previewLiteral(detail.literal);
+      return;
+    }
+    this.previewAnimation(detail.option ?? null);
+  };
+
+  private onPickerStatus = (e: CustomEvent<string>): void => {
+    this.setStatus(e.detail);
+  };
+
+  private onPickerClose = (): void => {
+    this.hideClassPanel();
+  };
+
+  /**
+   * Resolves the selection's class anchor and shows the panel.
+   *
+   * Everything the user needs BEFORE choosing is decided here: which file would change, whether the
+   * literal is ambiguous, whether the element belongs to a shared molecule. A chip that appears is a
+   * chip that will work.
+   */
+  private async showClassPanel(el: HTMLElement): Promise<void> {
+    if (!this.classPanelEl || this.overlayHidden) return;
+
+    // The anchor is resolved from the element's class attribute, so any preview has to be undone
+    // FIRST. Reading it mid-preview was the "classes are not in the source" that appeared right after
+    // an edit and went away on the next click: the pointer stays over the chips while the edit is
+    // written, a hover starts a preview, and the panel then looked for the previewed classes.
+    this.previewAnimation(null);
+
+    const literal = el.getAttribute('class') ?? '';
+    const state: IClassPanelState = {
+      el,
+      literal,
+      tokens: splitUtilities(literal),
+      file: null,
+      anchor: null,
+      warning: undefined,
+      refusal: undefined,
+    };
+
+    const show = (): void => {
+      // The selection can move while the models above are being opened; a panel for the previous
+      // element would offer chips that edit something the user is no longer looking at.
+      if (this.selectedEl !== el) return;
+      this.classPanel = state;
+      this.renderClassPanel();
+    };
+
+    if (!literal.trim()) {
+      state.refusal = { id: 'reason.noClassAttr' };
+      show();
+      return;
+    }
+
+    // A molecule ANCESTOR means this markup lives in the molecule's own file — shared by every
+    // project that renders it, and with no undo anywhere in the chain.
+    const ancestorProject = this.foreignProjectOfAncestor(el);
+    if (ancestorProject !== null) {
+      state.refusal = editScope(`${ancestorProject}`, ancestorProject).refusal;
+      show();
+      return;
+    }
+
+    if (!this.target) {
+      state.refusal = { id: 'reason.noTargetFile' };
+      show();
+      return;
+    }
+
+    // Which file, and where in it — structural first, counting as the fallback (resolveClassAnchor).
+    await this.resolveClassAnchor(el, literal, state);
+    show();
+  }
+
+  private domPathOf(el: HTMLElement): IDomPathStep[] {
+    const page = this.host ? findPageElement(this.host) : null;
+    if (!page) return [];
+
+    const chain: HTMLElement[] = [];
+    let current: HTMLElement | null = el;
+    while (current && current !== page) {
+      chain.unshift(current);
+      current = current.parentElement;
+    }
+    // `el` outside the mounted page (the tab bar, say) has no structural path into its template.
+    if (current !== page) return [];
+
+    const path: IDomPathStep[] = [];
+    for (const node of chain) {
+      const parent = node.parentElement;
+      if (!parent) return [];
+      const siblings = Array.from(parent.children).filter((sibling) => sibling.tagName === node.tagName
+        && !sibling.classList.contains('se-edit-span')
+        && !sibling.classList.contains(CONTROL_CLASS));
+      const index = siblings.indexOf(node);
+      if (index < 0) return [];
+      path.push({ tag: node.tagName.toLowerCase(), index, count: siblings.length });
+    }
+    return path;
+  }
+
+  /**
+   * Where the literal sits in a file, by the anchor resolved at selection time.
+   *
+   * Re-resolved at APPLY time rather than trusting stored offsets: the model can have changed since
+   * the panel was built (another edit, a save), and splicing stale offsets would corrupt the file.
+   */
+  private locateLiteral(
+    file: IStudioEditTarget,
+    literal: string,
+    anchor: ClassAnchor,
+  ): { startOffset: number; endOffset: number } | null {
+    const source = file.model.model.getValue();
+
+    if (anchor.kind === 'structural') {
+      const resolved = resolveStructuralAnchor(scanTemplateTree(source), anchor.path);
+      if (!resolved.ok) return null;
+      if (resolved.element.literal !== literal) return null;
+      return { startOffset: resolved.element.literalStart, endOffset: resolved.element.literalEnd };
+    }
+
+    const match = parseClassAttr(source, literal, anchor.occurrence);
+    return match ? { startOffset: match.startOffset, endOffset: match.endOffset } : null;
+  }
+
+  /**
+   * Which file, and where in it, the selected element's classes live.
+   *
+   * STRUCTURAL FIRST, counting as the fallback. Counting the literal cannot carry the common case:
+   * measured over the 102 real pages of the 102046, 63% of `class` attributes belong to a string that
+   * repeats in the same file (`p-2` 26 times in one page), and neither narrowing by tag (61% still
+   * ambiguous) nor scoping by the nearest unique ancestor (9% resolved) helps. Position does: sibling
+   * order in the DOM is sibling order in the template.
+   *
+   * Counting still earns its place as the fallback — a path that crosses into a helper method's
+   * template (reached through a `${this.renderX()}`, invisible structurally) does not resolve, and
+   * there the file-wide count is all there is.
+   */
+  private async resolveClassAnchor(el: HTMLElement, literal: string, state: IClassPanelState): Promise<void> {
+    const path = this.domPathOf(el);
+    const candidates = await this.resolveCandidates();
+
+    if (path.length) {
+      for (const candidate of candidates) {
+        const source = candidate.model.model.getValue();
+        const resolved = resolveStructuralAnchor(scanTemplateTree(source), path);
+        if (!resolved.ok || resolved.element.literal !== literal) continue;
+        state.file = candidate;
+        state.anchor = { kind: 'structural', path };
+        state.warning = resolved.renders > 1 ? repeatedRenderWarning(resolved.renders) : undefined;
+        return;
+      }
+    }
+
+    const { domCount, domIndex } = this.countLiteralInDom(el, literal);
+    for (const candidate of candidates) {
+      const count = findClassAttrs(candidate.model.model.getValue(), literal).length;
+      if (!count) continue;
+      const anchor = resolveAnchor({ sourceCount: count, domCount, domIndex });
+      if (!anchor.ok) {
+        state.refusal = anchor.reason;
+        return;
+      }
+      state.file = candidate;
+      state.anchor = { kind: 'occurrence', occurrence: anchor.occurrence };
+      state.warning = anchor.warning;
+      return;
+    }
+
+    const selfProject = this.foreignProjectOfTag(el);
+    state.refusal = selfProject !== null
+      // The element IS a molecule and its classes are not in the page: they come from the molecule's
+      // own template, so this is the shared-scope case, not a missing literal.
+      ? editScope(`${selfProject}`, selfProject).refusal
+      : describeMissingLiteral(this.target?.model.model.getValue() ?? '');
+  }
+
+
+  /**
+   * Elements rendering this EXACT class literal, and where the selected one sits among them.
+   *
+   * Counted over the region host (so the page element itself is included — it can be the selection),
+   * with the editor's own chrome excluded. This N is what turns "one literal in the source" into
+   * either "the only one" or "one inside a `.map()`" (resolveAnchor).
+   */
+  private countLiteralInDom(el: HTMLElement, literal: string): { domCount: number; domIndex: number } {
+    const root = this.host;
+    if (!root) return { domCount: 1, domIndex: 0 };
+    const matches = Array.from(root.querySelectorAll('[class]'))
+      .filter((node) => node.getAttribute('class') === literal && !(node as HTMLElement).closest(`.${CONTROL_CLASS}`));
+    return { domCount: matches.length, domIndex: matches.indexOf(el) };
+  }
+
+  /** Project a custom-element tag resolves to, when it is NOT this page's project. */
+  private foreignProjectOfTag(el: HTMLElement): number | null {
+    const tag = el.tagName.toLowerCase();
+    if (!tag.includes('-')) return null;
+    const info = tagToFileInfo(tag);
+    if (!info?.project || info.project === this.target?.project) return null;
+    return info.project;
+  }
+
+  /**
+   * Nearest ANCESTOR from another project — a molecule this element is rendered inside.
+   *
+   * Any foreign project counts, not only the 102040: the reason to refuse is that the file is shared
+   * with whoever imports it, which holds for every cross-project component. The element itself is
+   * excluded on purpose — a molecule USED by the page (`<ml-x class="p-3">`) carries the PAGE's own
+   * class attribute, and editing that is legitimate.
+   */
+  private foreignProjectOfAncestor(el: HTMLElement): number | null {
+    let current = el.parentElement;
+    while (current && current !== this.host) {
+      const project = this.foreignProjectOfTag(current);
+      if (project !== null) return project;
+      current = current.parentElement;
+    }
+    return null;
+  }
+
+  /** Feeds the component: what is selected, and what the vocabulary needs to be honest about. */
+  private renderClassPanel(): void {
+    const panel = this.classPanelEl;
+    const state = this.classPanel;
+    if (!panel) return;
+    if (!state || this.mode === 'off' || this.overlayHidden) {
+      panel.hidden = true;
+      panel.target = undefined;
+      return;
+    }
+
+    // Read once per session: the built sheet is a static file and does not change while the app runs.
+    if (!this.builtClasses) this.builtClasses = builtCssClassNames();
+    // `#ds-tokens` is rewritten when the user cycles the design system (Ctrl+Alt+D), so it is read per
+    // RENDER, not cached for the session: a stale role list would offer tokens that are gone.
+    this.dsRoles = readDesignSystemRoles(document.getElementById('ds-tokens')?.textContent ?? '');
+
+    panel.builtClasses = this.builtClasses;
+    panel.dsRoles = this.dsRoles;
+    panel.jitLive = isStudioTailwindLive();
+    panel.resolveVar = (cssVar: string) => this.resolveCssVar(cssVar);
+    panel.target = {
+      tag: state.el.tagName.toLowerCase(),
+      fileLabel: state.file ? `${state.file.shortName} (${state.file.folder})` : '',
+      literal: state.literal,
+      editable: !state.refusal && Boolean(state.file) && state.anchor !== null,
+      refusal: state.refusal,
+      warning: state.warning,
+      childCount: this.elementChildCount(state.el),
+    };
+    panel.hidden = false;
+  }
+
+  /** Current value of a design-system role, for the swatch and the `var(--role, FALLBACK)` written. */
+  private resolveCssVar(cssVar: string): string {
+    try {
+      return getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
+    } catch {
+      return '';
+    }
+  }
+
+  /** Element children, ignoring the editor's own nodes (a text edit leaves a span behind). */
+  private elementChildCount(el: HTMLElement): number {
+    return Array.from(el.children)
+      .filter((child) => !child.classList.contains('se-edit-span') && !child.classList.contains(CONTROL_CLASS))
+      .length;
+  }
+
+  /**
+   * Replays an entrance on the element, without touching anything else.
+   *
+   * `@starting-style` only applies the FIRST time an element is rendered, so applying "on appear" to
+   * something already on screen shows nothing at all — the user would click and conclude it is broken.
+   * Leaving and re-entering `display: none` counts as a first render, so the entrance runs again.
+   */
+  private replayEntrance(el: HTMLElement): void {
+    const previous = el.style.display;
+    el.style.display = 'none';
+    void el.offsetHeight; // forces the reflow: without it the two writes collapse into no change
+    el.style.display = previous;
+  }
+
+  /** True when the literal carries an entrance (its own or its children's). */
+  private hasEntrance(literal: string): boolean {
+    return literal.includes('starting:');
+  }
+
+  /**
+   * Shows an animation option on the selected element for a moment, WITHOUT writing anything.
+   *
+   * An animation is the one thing in this panel that cannot be judged by its label — and it undoes
+   * itself after a moment, because what it shows is motion, not a state.
+   *
+   * `previewAnimation(null)` is how the rest of the editor CANCELS any preview, whatever kind.
+   */
+  private previewAnimation(optionId: string | null): void {
+    const state = this.classPanel;
+    if (!optionId || !state) {
+      this.previewLiteral(null);
+      return;
+    }
+    // Already on the element: there is nothing to show that is not already showing.
+    if (activeAnimations(state.literal).includes(optionId)) {
+      this.previewLiteral(null);
+      return;
+    }
+    this.previewLiteral(applyAnimationOption(state.literal, optionId, readAnimationState(state.literal)), 1500);
+  }
+
+  /**
+   * Puts a whole class attribute on the selected element for as long as it is being shown.
+   *
+   * Pure DOM: the previous attribute is put back on cancel (or after the timer, when one is given),
+   * and no source, model or file is touched. Without a timer the preview is HELD — which is what a
+   * paste needs: the result stays on screen while the pointer is on the button and the eyes are on
+   * the summary, instead of vanishing mid-read.
+   */
+  private previewLiteral(literal: string | null, timeout?: number): void {
+    // Cancel first, ALWAYS — even with no panel state left. This is the undo of the previous preview.
+    if (this.previewTimer !== null) {
+      clearTimeout(this.previewTimer);
+      this.previewTimer = null;
+    }
+    if (this.previewEl && this.previewRestore !== null) {
+      this.previewEl.setAttribute('class', this.previewRestore);
+    }
+    this.previewEl = null;
+    this.previewRestore = null;
+
+    const state = this.classPanel;
+    if (!literal || !state || this.applying) return;
+
+    this.previewEl = state.el;
+    this.previewRestore = state.el.getAttribute('class') ?? '';
+    state.el.setAttribute('class', literal);
+    // An entrance has to be REPLAYED to be seen: the element is already rendered, and
+    // `@starting-style` only applies on a first render.
+    if (this.hasEntrance(literal)) this.replayEntrance(state.el);
+    if (timeout) this.previewTimer = window.setTimeout(() => this.previewLiteral(null), timeout);
+  }
+
+  /**
+   * Writes a new class attribute: the live element first, then the source.
+   *
+   * The order is the point of this whole task — setting the attribute on the live instance shows the
+   * result immediately, with no compile and no module re-evaluation. Everything after it is
+   * bookkeeping, and any failure puts the old attribute back, so the screen never claims an edit that
+   * did not land.
+   */
+  private async applyLiteralChange(newLiteral: string, what: string): Promise<void> {
+    const state = this.classPanel;
+    if (!state || !state.file || !state.anchor) return;
+    const { el, literal } = state;
+    if (newLiteral === literal) return;
+
+    // One edit at a time. A second click during the write would compute its change from the SAME
+    // starting literal and overwrite the first one — silently reverting a change the user just made.
+    if (this.applying) {
+      this.setStatus(t('status.busy'));
+      return;
+    }
+    this.applying = true;
+    try {
+      await this.writeLiteral(state, newLiteral, what);
+    } finally {
+      this.applying = false;
+    }
+    // Re-anchor: the literal, and how often it occurs, just changed in the DOM and in the source.
+    await this.showClassPanel(el);
+  }
+
+  /** The write itself. Split out so `applying` covers all of it, including the failure paths. */
+  private async writeLiteral(state: IClassPanelState, newLiteral: string, what: string): Promise<void> {
+    const { el, literal, file, anchor } = state;
+    if (!file || !anchor) return;
+
+    // A re-render (or a navigation) can drop the element after the panel was built. Writing the
+    // source for something no longer on screen would be an invisible edit — refuse and re-anchor.
+    if (!el.isConnected) {
+      this.hideClassPanel();
+      this.setStatus(t('status.gone'));
+      return;
+    }
+
+    // A preview in flight would put the OLD attribute back on top of the real change.
+    this.previewAnimation(null);
+
+    el.setAttribute('class', newLiteral);
+    if (this.hasEntrance(newLiteral)) this.replayEntrance(el);
+    this.drawSelection();
+
+    const source = file.model.model.getValue();
+    const match = this.locateLiteral(file, literal, anchor);
+    if (!match) {
+      el.setAttribute('class', literal);
+      this.flashError(el);
+      this.setStatus(t('status.stale'));
+      return;
+    }
+
+    const newSource = source.slice(0, match.startOffset) + newLiteral + source.slice(match.endOffset);
+    const model = file.model.model;
+    model.pushEditOperations(
+      [],
+      [{ range: model.getFullModelRange(), text: newSource }],
+      () => null,
+    );
+
+    // Straight to the local store, ahead of libModel's own debounced listener (see persistLocalEdit).
+    await persistLocalEdit(file, newSource);
+
+    const where = file === this.target
+      ? t('status.onThisPage')
+      : t('status.onFile', { file: file.shortName, folder: file.folder });
+    const warning = state.warning ? ` — ${tr(state.warning)}` : '';
+    this.setStatus(`${what} ${where} — ${t('status.applying')}`, true);
+
+    await compileAfterEdit(file);
+    const live = await applyLiveUpdate({
+      edited: file,
+      page: this.target ?? file,
+      pageTag: this.pageTag() ?? '',
+    });
+
+    // STOPS AT THE LOCAL STORE, on purpose: the model and the local copy, never the project's files.
+    // Reaching those is the SAVE's job (see saveTarget, which the editor does not call).
+    this.setStatus(`${what} ${where} — ${live.message}${warning} ${t('status.localOnly')}`);
+    this.events.onEdited?.(file);
   }
 
   // --- Overlay ---
@@ -816,6 +1397,9 @@ export class StudioEditor {
         font-family: "Segoe UI", sans-serif;
         box-shadow: 0 2px 8px rgba(0,0,0,0.25);
       }
+
+      /* The picker panel has no css here any more: it is a web component with its own shadow root
+         (classPickerPanel), which is also what stopped these rules from leaking into the client page. */
 
       .se-edit-span {
         display: inline;

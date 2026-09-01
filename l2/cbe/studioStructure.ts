@@ -30,6 +30,7 @@ import {
   SERVICE_MESSAGES,
   SERVICE_APP,
 } from '/_102033_/l2/cbe/studioHeader.js';
+import { setStudioTailwind } from '/_102033_/l2/cbe/studioTailwind.js';
 // Runtime services must be DEFINED before the nav3 instances them (the nav3
 // attaches directly when customElements.get(tag) resolves).
 import '/_102033_/l2/cbe/serviceClientApp.js';
@@ -64,6 +65,33 @@ export function showRuntimeServices(host: ParentNode): void {
   nav2Right?.selectServiceByWidget?.(SERVICE_APP);
 }
 
+let tailwindWatchInstalled = false;
+
+/**
+ * Follows `data-studio-mode` BOTH ways for the Tailwind JIT.
+ *
+ * This structure is built in every desktop session, the client's included, so the trigger cannot be
+ * the upgrade itself: what must stay conditional is the JIT DOWNLOAD, not the wiring. The shell
+ * already publishes `data-studio-mode` on itself (mls-102033/l2/shared/shell.ts:1198), so no shell
+ * change is needed — same channel serviceClientApp watches to show/hide its edit tools.
+ *
+ * The observer STAYS connected after the first activation: entering studio mode loads the JIT once
+ * (never twice), and leaving it makes the JIT's sheet inert, so the app falls back to exactly the css
+ * the client is served. Without that, a page edited in the studio would keep looking finished in
+ * client mode — masking the very problem the JIT works around.
+ */
+function watchStudioModeForTailwind(container: HTMLElement): void {
+  // The shell retries the upgrade up to 3 times (attemptStructureUpgrade) — one observer is enough.
+  if (tailwindWatchInstalled) return;
+  const shell = container.closest('collab-aura-shell');
+  if (!shell) return;
+  tailwindWatchInstalled = true;
+  const sync = () => setStudioTailwind(shell.getAttribute('data-studio-mode') === 'true');
+  // Only when it is ALREADY on: a first sync in client mode would be a pointless no-op.
+  if (shell.getAttribute('data-studio-mode') === 'true') sync();
+  new MutationObserver(sync).observe(shell, { attributes: true, attributeFilter: ['data-studio-mode'] });
+}
+
 function el(tag: string, attrs: Record<string, string>): HTMLElement {
   const node = document.createElement(tag);
   for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
@@ -77,6 +105,7 @@ function el(tag: string, attrs: Record<string, string>): HTMLElement {
  */
 export async function upgradeToStudioStructure(container: HTMLElement, siteProject: number): Promise<HTMLElement> {
   ensureStudioPageAssets();
+  watchStudioModeForTailwind(container);
   await Promise.all(STUDIO_MODULES.map((name) => import(`/_${STUDIO_PROJECT}_/l2/${name}.js`)));
   if (!customElements.get(NAV_TAGS[2]) && window.mls) {
     window.dispatchEvent(new Event('mls:ready'));

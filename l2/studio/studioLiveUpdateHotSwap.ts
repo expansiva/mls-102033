@@ -35,6 +35,7 @@
 // For a structural rewrite (an agent redoing the page) the honest mode is `reload`.
 
 import type { ILiveUpdateContext, ILiveUpdateMode, ILiveUpdateResult } from '/_102033_/l2/studio/studioLiveUpdate.js';
+import { t } from '/_102033_/l2/studio/studioMessages.js';
 import type { IStudioEditTarget } from '/_102033_/l2/studio/studioEditTarget.js';
 
 /** Lit's static surface we touch. `finalize` is protected in the typings but callable at runtime. */
@@ -90,15 +91,15 @@ interface IFreshModuleUrl {
 async function freshModuleUrl(target: IStudioEditTarget): Promise<IFreshModuleUrl> {
   const model = target.model as mls.editor.IModelTS;
   const results = model.compilerResults;
-  if (!results) return { url: null, reason: 'o arquivo não foi compilado' };
+  if (!results) return { url: null, reason: t('live.notCompiled') };
   if (results.errors && results.errors.length > 0) {
-    return { url: null, reason: `${results.errors.length} erro(s) de TypeScript no arquivo` };
+    return { url: null, reason: t('live.tsErrors', { count: results.errors.length }) };
   }
-  if (!results.cacheVersion) return { url: null, reason: 'compilação sem versão de cache' };
+  if (!results.cacheVersion) return { url: null, reason: t('live.noCacheVersion') };
 
   const { project, folder, shortName } = target.storFile;
   const url = await mls.stor.cache.getURL(project, folder, shortName, '.js', results.cacheVersion);
-  if (!url) return { url: null, reason: 'JS compilado não está no cache local (service worker pronto?)' };
+  if (!url) return { url: null, reason: t('live.notInCache') };
   return { url, reason: '' };
 }
 
@@ -184,12 +185,13 @@ function sameFile(a: IStudioEditTarget, b: IStudioEditTarget): boolean {
 
 export const hotSwapMode: ILiveUpdateMode = {
   name: 'hotSwap',
-  description: 'troca os membros da classe já registrada (mantém o estado da tela, sem reload)',
+  // English: devtools listing (see studioLiveUpdate).
+  description: 'patches the members of the already registered class (keeps the screen state, no reload)',
 
   async apply(ctx: ILiveUpdateContext): Promise<ILiveUpdateResult> {
     const registered = customElements.get(ctx.pageTag) as LitLikeConstructor | undefined;
     if (!registered) {
-      return { ok: false, message: `tag "${ctx.pageTag}" não está registrada` };
+      return { ok: false, message: t('live.tagNotRegistered', { tag: ctx.pageTag }) };
     }
 
     // BEFORE evaluating anything: installing members of a class that declares private fields breaks
@@ -198,7 +200,7 @@ export const hotSwapMode: ILiveUpdateMode = {
     if (usesPrivateFields(readCompiledJs(ctx.edited))) {
       return {
         ok: false,
-        message: 'não dá para aplicar ao vivo: a classe usa campos privados (#) — recarregue para ver ao navegar',
+        message: t('live.privateFields'),
       };
     }
 
@@ -210,7 +212,7 @@ export const hotSwapMode: ILiveUpdateMode = {
     const mod = await evaluateModule(compiled.url);
     const fresh = pickElementClass(mod);
     if (!fresh) {
-      return { ok: false, message: 'o módulo recompilado não exporta uma classe de elemento' };
+      return { ok: false, message: t('live.noElementClass') };
     }
 
     finalize(fresh);
@@ -228,7 +230,7 @@ export const hotSwapMode: ILiveUpdateMode = {
     if (!isPageItself && Object.getOwnPropertyDescriptor(registered.prototype, 'msg')) {
       return {
         ok: false,
-        message: 'a página tem catálogo próprio: a mudança no shared só aparece após reload',
+        message: t('live.pageOwnCatalog'),
       };
     }
 
@@ -242,8 +244,8 @@ export const hotSwapMode: ILiveUpdateMode = {
     return {
       ok: true,
       message: isPageItself
-        ? `aplicado ao vivo (página, ${repainted} instância(s))`
-        : `aplicado ao vivo (classe base, ${repainted} instância(s))`,
+        ? t('live.appliedPage', { count: repainted })
+        : t('live.appliedBase', { count: repainted }),
     };
   },
 };

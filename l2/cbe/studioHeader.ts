@@ -17,6 +17,7 @@
 // studio widgets the runtime uses; on any failure it falls back to anonymous.
 
 import { LitElement, html } from 'lit';
+import { t as tStudio } from '/_102033_/l2/studio/studioMessages.js';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 // The VM storage driver registration lives with the rest of the runtime studio bootstrap —
 // this header is only ONE of the paths that needs it (see initStudio.registerVmDriver).
@@ -249,7 +250,7 @@ export class CbeStudioHeader extends LitElement {
         : html`
             <div class="studio-placeholder">
               ${this.navsError
-            ? `Studio indisponível: ${this.navsError}`
+            ? tStudio('header.studioUnavailable', { error: this.navsError })
             : 'Carregando ambiente do studio...'}
             </div>
           `}

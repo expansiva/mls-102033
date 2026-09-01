@@ -12,6 +12,7 @@
 // verification on the VM (fase 1). If that premise does not hold, this mode shows the OLD text.
 
 import type { ILiveUpdateContext, ILiveUpdateMode, ILiveUpdateResult } from '/_102033_/l2/studio/studioLiveUpdate.js';
+import { t } from '/_102033_/l2/studio/studioMessages.js';
 
 // Long enough for the editor to paint its status strip before the page goes away — a reload with no
 // visible cause reads as a crash.
@@ -19,12 +20,13 @@ const RELOAD_DELAY_MS = 600;
 
 export const reloadMode: ILiveUpdateMode = {
   name: 'reload',
-  description: 'recarrega a página (fiel, mas perde o estado da tela)',
+  // English: devtools listing (see studioLiveUpdate).
+  description: 'reloads the page (faithful, but loses the screen state)',
 
   async apply(_ctx: ILiveUpdateContext): Promise<ILiveUpdateResult> {
     window.setTimeout(() => {
       location.reload();
     }, RELOAD_DELAY_MS);
-    return { ok: true, message: 'recarregando para aplicar...' };
+    return { ok: true, message: t('live.reloading') };
   },
 };

@@ -1,6 +1,7 @@
 /// <mls fileReference="_102033_/l2/studio/studioLiveUpdate.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { t } from '/_102033_/l2/studio/studioMessages.js';
 
 // Set BEFORE the module under test is imported: it assigns a devtools handle on `window` and reads
 // the persisted mode from `localStorage` at import time. The import is dynamic (inside the tests) so
@@ -68,5 +69,6 @@ test('applyLiveUpdate never throws — a broken mode becomes a reported failure'
     pageTag: 'x-y-1',
   });
   assert.equal(result.ok, true);
-  assert.match(result.message, /sem atualização ao vivo/u);
+  // The words come from the catalog now; what this test guards is that a broken mode is REPORTED.
+  assert.equal(result.message, t('live.off'));
 });

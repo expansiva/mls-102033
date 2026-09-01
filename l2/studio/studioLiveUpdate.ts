@@ -20,6 +20,7 @@
 //   studioLiveUpdate.get()
 
 import type { IStudioEditTarget } from '/_102033_/l2/studio/studioEditTarget.js';
+import { t } from '/_102033_/l2/studio/studioMessages.js';
 
 export interface ILiveUpdateContext {
   /** File that was edited — often the SHARED base class, not the page. */
@@ -54,9 +55,10 @@ const DEFAULT_MODE: LiveUpdateModeName = 'hotSwap';
  */
 const offMode: ILiveUpdateMode = {
   name: 'off',
-  description: 'não faz nada; a alteração aparece só no próximo reload',
+  // English: `studioLiveUpdate.list()` is a devtools listing, not panel copy.
+  description: 'does nothing; the change shows on the next reload',
   async apply() {
-    return { ok: true, message: 'sem atualização ao vivo (recarregue para ver ao navegar)' };
+    return { ok: true, message: t('live.off') };
   },
 };
 
@@ -92,7 +94,7 @@ export function getLiveUpdateMode(): LiveUpdateModeName {
 
 export function setLiveUpdateMode(name: string): LiveUpdateModeName {
   if (!isLiveUpdateMode(name)) {
-    throw new Error(`modo inválido: "${name}". Válidos: ${listLiveUpdateModes().join(', ')}`);
+    throw new Error(`invalid mode "${name}". Valid: ${listLiveUpdateModes().join(', ')}`);
   }
   activeMode = name;
   try {
@@ -113,7 +115,7 @@ export async function applyLiveUpdate(ctx: ILiveUpdateContext): Promise<ILiveUpd
     const mode = await LOADERS[name]();
     return await mode.apply(ctx);
   } catch (err) {
-    return { ok: false, message: `atualização ao vivo (${name}) falhou: ${(err as Error).message}` };
+    return { ok: false, message: t('live.failed', { mode: name, error: (err as Error).message }) };
   }
 }
 

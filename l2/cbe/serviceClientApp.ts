@@ -229,7 +229,8 @@ export class ServiceClientApp extends ServiceBase {
       this.editArmed = true;
       this.editor.setMode('select');
       // With no button, this is the only signal that clicks now select instead of reaching the app.
-      this.editor.showStatus(`Modo edição (L${EDIT_LEVEL}) — clique num texto para editar`);
+      const { t } = await import('/_102033_/l2/studio/studioMessages.js');
+      this.editor.showStatus(t('status.editMode', { level: EDIT_LEVEL }));
     } finally {
       this.editArming = false;
     }

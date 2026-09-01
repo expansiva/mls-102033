@@ -9,6 +9,8 @@
 // Everything is resolved from the tag alone, so this file has no dependency on 102020 (which is not
 // part of the app build — see the note in studioTextEdit.ts).
 
+import type { IMessageRef } from '/_102033_/l2/studio/studioMessages.js';
+
 /** A page source resolved from the DOM, ready to edit. */
 export interface IStudioEditTarget {
   project: number;
@@ -22,7 +24,7 @@ export interface IStudioEditTarget {
 
 export type StudioEditTargetResult =
   | { ok: true; target: IStudioEditTarget }
-  | { ok: false; reason: string };
+  | { ok: false; reason: IMessageRef };
 
 interface IResolvedFile {
   project: number;
@@ -85,12 +87,12 @@ export function currentLanguage(): string {
  */
 export async function resolveEditTarget(host: HTMLElement): Promise<StudioEditTargetResult> {
   const pageEl = findPageElement(host);
-  if (!pageEl) return { ok: false, reason: 'Nenhuma página montada nesta região.' };
+  if (!pageEl) return { ok: false, reason: { id: 'reason.noPageMounted' } };
 
   const tag = pageEl.tagName.toLowerCase();
   const info = tagToFileInfo(tag);
   if (!info || !info.project || !info.shortName) {
-    return { ok: false, reason: `Não sei qual arquivo é esta tela (tag "${tag}").` };
+    return { ok: false, reason: { id: 'reason.unknownScreen', params: { tag } } };
   }
 
   const { project, shortName, folder } = info;
@@ -106,7 +108,7 @@ export async function resolveEditTarget(host: HTMLElement): Promise<StudioEditTa
   const key = mls.stor.getKeyToFiles(project, 2, shortName, folder, '.ts');
   const storFile = mls.stor.files[key];
   if (!storFile) {
-    return { ok: false, reason: `Fonte não encontrada no projeto: ${key}` };
+    return { ok: false, reason: { id: 'reason.sourceNotFound', params: { key } } };
   }
 
   // Monaco backs the model. The studio switch kicks its download off (loadStudioDefinitions), which
@@ -115,7 +117,7 @@ export async function resolveEditTarget(host: HTMLElement): Promise<StudioEditTa
     try {
       await window.monacoReady;
     } catch {
-      return { ok: false, reason: 'Monaco não carregou — edição indisponível.' };
+      return { ok: false, reason: { id: 'reason.monacoMissing' } };
     }
   }
 
@@ -124,9 +126,9 @@ export async function resolveEditTarget(host: HTMLElement): Promise<StudioEditTa
     const { createModel } = await import('/_102027_/l2/libModel.js');
     model = await createModel(storFile, true, false);
   } catch (err) {
-    return { ok: false, reason: `Falha ao abrir o modelo: ${(err as Error).message}` };
+    return { ok: false, reason: { id: 'reason.modelFailed', params: { error: (err as Error).message } } };
   }
-  if (!model) return { ok: false, reason: 'Modelo do arquivo não disponível.' };
+  if (!model) return { ok: false, reason: { id: 'reason.modelUnavailable' } };
 
   return {
     ok: true,
@@ -154,6 +156,7 @@ export async function resolveEditTarget(host: HTMLElement): Promise<StudioEditTa
  * Structural first, `module.js` second (resolveSharedTarget): the convention holds in every project
  * checked (102051, 102043) and costs no request, while 102051 has no `module.ts` at all — so the
  * original preview path (import module.js, read shared[device].sharedPath) would resolve nothing
+import type { IMessageRef } from '/_102033_/l2/studio/studioMessages.js';
  * there.
  */
 export function deriveSharedFolder(folder: string): string | null {
@@ -267,6 +270,11 @@ export async function resolveSharedTarget(target: IStudioEditTarget): Promise<IS
 /**
  * Writes the edited source into the LOCAL store (IndexedDB), immediately.
  *
+ * This is where an in-place edit STOPS. The editor never writes to the project's files: the model plus
+ * this local copy is the whole persistence of an edit, and reaching disk is the save's job (today
+ * `_100554_serviceSave`, which the client app's studio chrome does not offer yet — see
+ * RUNTIME_STUDIO_SERVICES).
+ *
  * WHY THIS IS NOT REDUNDANT WITH EDITING THE MODEL
  * libModel wires a listener on model changes (via the MonacoModelCreated event) that ends up calling
  * `localStor.setContent` — but it is DEBOUNCED BY 400ms
@@ -310,6 +318,12 @@ export function isDirty(target: IStudioEditTarget): boolean {
 /**
  * Persists the source through the VM driver (DriverVm.setContents -> /exec -> VM file tree).
  *
+ * NOT CALLED BY THE EDITOR. It used to be, right after every edit, which wrote straight through to the
+ * VM — the opposite of what the flow wants — and had a side effect that looked like a bug: the lib's
+ * `setContents` clears the local copy after a successful write, so an edit never showed up in
+ * IndexedDB. Kept here because it is the machinery a save UI needs; the editor stops at
+ * `persistLocalEdit`.
+ *
  * `inLocalStorage` is deliberately LEFT ALONE (an earlier version cleared it, mirroring serviceSave,
  * which was wrong here): the lib's own `setContents` clears the local copy and lowers the flag itself
  * after a successful write, but ONLY for files still marked as local
@@ -323,7 +337,8 @@ export async function saveTarget(target: IStudioEditTarget, comment: string): Pr
   const saved = target.model.model.getValue();
   const results = await mls.stor.setContents([target.storFile], comment);
   if (results.some((r) => !r.result)) {
-    throw new Error(`Gravação recusada para o projeto ${target.project}.`);
+    // Developer-facing: it never reaches the panel, so it stays in English like every other throw.
+    throw new Error(`save refused by project ${target.project}`);
   }
   // The model-change listener is still pending (400ms debounce) and would compare the model against
   // the CRC of the content as it was when the model was created — finding a difference and marking
