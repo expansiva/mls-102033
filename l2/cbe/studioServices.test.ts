@@ -7,7 +7,10 @@ import {
   SERVICE_APP,
   SERVICE_MESSAGES,
   STUDIO_BASE_PROJECT,
+  STUDIO_TOOLS_SCOPE,
   buildStudioServices,
+  loadStudioTools,
+  resetStudioTools,
   withRuntimeServices,
   type MlsPluginApi,
 } from '/_102033_/l2/cbe/studioServices.js';
@@ -124,4 +127,70 @@ test('anonymous fallback still gets the declared pair on the right of every leve
       ...RUNTIME_STUDIO_SERVICES,
     ]);
   }
+});
+
+// --- Editing tools (TASK-102033-studio-to-102020) ---
+
+/** A plugin that declares one tool, plus the noise a real scan runs into. */
+function toolStub(loaded: string[], asked: string[]): MlsPluginApi {
+  return {
+    plugin: {
+      loadAll: async () => undefined,
+      getAllMenuActions: (project, { scope }) => {
+        asked.push(`${project}:${scope}`);
+        if (scope !== STUDIO_TOOLS_SCOPE) return [];
+        if (project !== DEP) return [];
+        return [
+          { widget: 'brokenWithoutProject', priority: 1 },
+          { widget: '_102020_/l2/aura/studio/studioEditTool', priority: 2 },
+        ];
+      },
+    },
+    l5: { getProjectDependencies: () => [DEP] },
+    stor: { server: { loadProjectInfoIfNeeded: async () => undefined } },
+  } satisfies MlsPluginApi & { plugin: { loadAll: unknown } } as MlsPluginApi;
+}
+
+test('the runtime asks the PLUGINS which editing tool to load — it never names one', async () => {
+  // The whole point of moving the studio folder out: the master frontend must not know that the
+  // editor lives in 102020. It asks for the `studioTools` scope and imports whatever comes back.
+  resetStudioTools();
+  const asked: string[] = [];
+  const loaded: string[] = [];
+
+  const result = await loadStudioTools(SITE, toolStub(loaded, asked), async (url) => {
+    loaded.push(url);
+  });
+
+  assert.deepEqual(loaded, ['/_102020_/l2/aura/studio/studioEditTool.js'], 'the widget IS the path');
+  assert.deepEqual(result, ['_102020_/l2/aura/studio/studioEditTool']);
+  assert.ok(asked.includes(`${SITE}:${STUDIO_TOOLS_SCOPE}`), 'the site project is scanned');
+  assert.ok(asked.includes(`${DEP}:${STUDIO_TOOLS_SCOPE}`), 'and so are its dependencies');
+});
+
+test('the same tool is imported once per session', async () => {
+  resetStudioTools();
+  const loaded: string[] = [];
+  const load = async (url: string) => { loaded.push(url); };
+
+  await loadStudioTools(SITE, toolStub(loaded, []), load);
+  const second = await loadStudioTools(SITE, toolStub(loaded, []), load);
+
+  assert.deepEqual(second, [], 'nothing new the second time');
+  assert.equal(loaded.length, 1);
+});
+
+test('no plugin means no tool, and that is not an error', async () => {
+  // A client app with no Studio simply has no editing tools — the intended behaviour, not a failure.
+  resetStudioTools();
+  assert.deepEqual(await loadStudioTools(SITE, {}, async () => undefined), []);
+  assert.deepEqual(await loadStudioTools(0, undefined, async () => undefined), []);
+});
+
+test('a tool that fails to load does not take the scan down', async () => {
+  resetStudioTools();
+  const result = await loadStudioTools(SITE, toolStub([], []), async () => {
+    throw new Error('404');
+  });
+  assert.deepEqual(result, [], 'reported as nothing loaded, not thrown');
 });

@@ -17,7 +17,7 @@
 // studio widgets the runtime uses; on any failure it falls back to anonymous.
 
 import { LitElement, html } from 'lit';
-import { t as tStudio } from '/_102033_/l2/studio/studioMessages.js';
+import { getRuntimeLanguage } from '/_102033_/l2/shared/languageRuntime.js';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 // The VM storage driver registration lives with the rest of the runtime studio bootstrap —
 // this header is only ONE of the paths that needs it (see initStudio.registerVmDriver).
@@ -93,6 +93,30 @@ export function ensureStudioPageAssets(): void {
 
 interface StudioNav1Element extends HTMLElement {
   services?: { services: string[] };
+}
+
+/**
+ * The two sentences this header shows on its own.
+ *
+ * They used to come from the studio catalog, which now lives in the Studio plugin — and importing a
+ * plugin from the master frontend for two strings is exactly the dependency this project is not
+ * supposed to have (TASK-102033-studio-to-102020). Both languages sit side by side, so neither can
+ * quietly go missing.
+ */
+const HEADER_TEXT = {
+  pt: {
+    unavailable: 'Studio indisponível: {error}',
+    loading: 'Carregando ambiente do studio...',
+  },
+  en: {
+    unavailable: 'Studio unavailable: {error}',
+    loading: 'Loading the studio environment...',
+  },
+} as const;
+
+function headerText(key: keyof typeof HEADER_TEXT['en']): string {
+  const language = getRuntimeLanguage(Object.keys(HEADER_TEXT), document.documentElement.lang || 'en');
+  return HEADER_TEXT[(language as keyof typeof HEADER_TEXT)] ? HEADER_TEXT[language as keyof typeof HEADER_TEXT][key] : HEADER_TEXT.en[key];
 }
 
 export class CbeStudioHeader extends LitElement {
@@ -250,8 +274,8 @@ export class CbeStudioHeader extends LitElement {
         : html`
             <div class="studio-placeholder">
               ${this.navsError
-            ? tStudio('header.studioUnavailable', { error: this.navsError })
-            : 'Carregando ambiente do studio...'}
+            ? headerText('unavailable').replace('{error}', this.navsError)
+            : headerText('loading')}
             </div>
           `}
     `;

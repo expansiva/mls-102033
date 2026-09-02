@@ -75,6 +75,7 @@ export interface MlsPluginApi {
     loadAll?: (project: number, force?: boolean) => Promise<unknown>;
     getAllMenuActions?: (project: number, options: { scope: string }) => Array<{ widget?: string; priority?: number }>;
   };
+  actualProject?: number;
   l5?: { getProjectDependencies?: (project: number, includeBase: boolean) => number[] };
   actual?: Array<{ setFullName: (widget: string) => { path?: string; getStorFileBase?: () => { shortName?: string } | undefined } }>;
   stor?: { server?: { loadProjectInfoIfNeeded?: (project: number) => Promise<unknown> } };
@@ -134,4 +135,62 @@ export async function buildStudioServices(
   }
   const hasAny = services.some((entry) => entry !== ';');
   return hasAny ? services : ANONYMOUS_SERVICES;
+}
+
+// --- Editing tools (TASK-102033-studio-to-102020) ---
+
+/**
+ * Scope a plugin uses to declare a module that plugs into the app's edit slot.
+ *
+ * Same channel the services use (`getAllMenuActions`), on a scope of its own: a tool is not a panel,
+ * it has no icon and no level — it is a module that attaches itself to the running app.
+ */
+export const STUDIO_TOOLS_SCOPE = 'studioTools';
+
+const loadedTools = new Set<string>();
+
+/**
+ * Loads whatever the site project (or one of its dependencies) declares as an editing tool.
+ *
+ * This is how the master frontend gets an editor without naming the project that provides one. The
+ * widget string IS the module path (`_102020_/l2/aura/studio/studioEditTool` ->
+ * `/_102020_/l2/aura/studio/studioEditTool.js`), the same shape the services use, and the module
+ * registers itself on the slot when it evaluates (studioEditSlot).
+ *
+ * Best-effort by design: no plugin, no tool, no error — a client app with no Studio simply has no
+ * editing tools, which is exactly the intended behaviour.
+ */
+export async function loadStudioTools(
+  siteProject?: number,
+  api: MlsPluginApi | undefined = (globalThis as unknown as { mls?: MlsPluginApi }).mls,
+  // Injected so a test can watch WHICH modules are asked for without a network or a real module.
+  load: (url: string) => Promise<unknown> = (url) => import(/* @vite-ignore */ url),
+): Promise<string[]> {
+  const project = siteProject || api?.actualProject || 0;
+  if (!project || !api?.plugin?.loadAll || !api.plugin.getAllMenuActions) return [];
+
+  const loaded: string[] = [];
+  for (const candidate of collectScanProjects(project, api)) {
+    try {
+      await api.stor?.server?.loadProjectInfoIfNeeded?.(candidate);
+      await api.plugin.loadAll(candidate, false);
+      const actions = api.plugin.getAllMenuActions(candidate, { scope: STUDIO_TOOLS_SCOPE }) ?? [];
+      for (const action of actions.sort((a, b) => (a.priority || 1) - (b.priority || 1))) {
+        const widget = action?.widget;
+        // Same guard as the services: a malformed entry produces requests like /_1_/l2/undefined.js.
+        if (!widget || !/^_\d{6,}_/u.test(widget) || loadedTools.has(widget)) continue;
+        loadedTools.add(widget);
+        await load(`/${widget}.js`);
+        loaded.push(widget);
+      }
+    } catch (err) {
+      console.warn('[studioServices] edit tool scan failed for', candidate, err);
+    }
+  }
+  return loaded;
+}
+
+/** Only for tests: forget which tools were already imported. */
+export function resetStudioTools(): void {
+  loadedTools.clear();
 }

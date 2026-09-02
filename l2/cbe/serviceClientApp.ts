@@ -10,11 +10,8 @@
 
 import { html } from 'lit';
 import { ServiceBase, type IService, type IServiceMenu, type IToolbarContent } from '/_102027_/l2/serviceBase.js';
-// TYPE-ONLY: erased at compile time, so the studio editor is never pulled into the client-mode
-// path. The runtime import is dynamic, inside armEditor().
-import type { StudioEditor } from '/_102033_/l2/studio/studioEditor.js';
-// Same reasoning: dynamic import, inside syncLiveUpdateWatcher().
-import type { StudioLiveUpdateWatcher } from '/_102033_/l2/studio/studioLiveUpdateWatcher.js';
+import { publishEditHost } from '/_102033_/l2/cbe/studioEditSlot.js';
+import { loadStudioTools } from '/_102033_/l2/cbe/studioServices.js';
 
 /**
  * The nav1 level that means "editing the page".
@@ -36,22 +33,17 @@ export class ServiceClientApp extends ServiceBase {
     level: [0, 1, 2, 3, 4, 5, 6, 7],
   };
 
-  // ─── Studio edit mode (TASK-102033-app-como-preview) ───────────────────────
-  // The mode belongs to THIS service on purpose: it is the one that shows the app, and the whole
-  // point of the flow is editing the page you are navigating. A separate service would just be the
-  // preview again, in another panel.
-  private editor?: StudioEditor;
-  private editArmed = false;
-  private editArming = false;
+  // ─── Studio edit tools (TASK-102033-app-como-preview, -studio-to-102020) ───
+  // The DECISION belongs to this service on purpose: it is the one that shows the app, and the whole
+  // point of the flow is editing the page you are navigating. The TOOLS do not: they are authoring,
+  // they live in the Studio plugin, and they plug in through the slot (studioEditSlot). This service
+  // used to own a StudioEditor, which is how authoring code ended up in the master frontend.
+  private toolsRequested = false;
+  private panelVisible = true;
   private studioModeObserver?: MutationObserver;
   /** Stable reference: mls.events removes a subscriber by identity. */
-  private readonly onToolBarSelected = () => { void this.syncEditMode(); };
+  private readonly onToolBarSelected = () => { this.publishEditState(); };
   private levelSubscribed = false;
-  // Bridges edits made through the studio's OWN file editor (ServiceSource) to the running page —
-  // independent of editArmed/EDIT_LEVEL, which only cover the inline overlay (see
-  // studioLiveUpdateWatcher.ts). Gated on studio mode alone: ServiceSource can be open while this
-  // service sits on any level, not just EDIT_LEVEL.
-  private liveUpdateWatcher?: StudioLiveUpdateWatcher;
 
   public menu: IServiceMenu = {
     title: '',
@@ -63,12 +55,12 @@ export class ServiceClientApp extends ServiceBase {
 
   public onServiceClick(visible: boolean, _reinit: boolean, _el: IToolbarContent | null): void {
     this.adoptAppHost();
-    // The editor overlay is a fixed layer on the body, so it does not disappear with this panel:
+    // A tool's overlay is a fixed layer on the body, so it does not disappear with this panel:
     // switching nav3 service used to leave the selection box floating over the other service.
-    this.editor?.setOverlayVisible(visible);
+    this.panelVisible = visible;
     // The nav3 sets `level` and `visible` together when it hands a level's service over, so this is
     // also the moment a level switch becomes observable.
-    void this.syncEditMode();
+    this.publishEditState();
   }
 
   createRenderRoot() {
@@ -83,8 +75,7 @@ export class ServiceClientApp extends ServiceBase {
     this.adoptAppHost();
     this.watchStudioMode();
     this.watchLevel();
-    void this.syncEditMode();
-    void this.syncLiveUpdateWatcher();
+    this.publishEditState();
   }
 
   disconnectedCallback() {
@@ -94,11 +85,8 @@ export class ServiceClientApp extends ServiceBase {
     // undefined/undefined removes the subscriber from every level and type it was added to.
     mls?.events?.removeEventListener(undefined, undefined, this.onToolBarSelected);
     this.levelSubscribed = false;
-    this.editor?.detach();
-    this.editor = undefined;
-    this.editArmed = false;
-    this.liveUpdateWatcher?.stop();
-    this.liveUpdateWatcher = undefined;
+    // Whoever plugged in tears itself down: the app region is going away.
+    publishEditHost(null);
   }
 
   /**
@@ -115,8 +103,7 @@ export class ServiceClientApp extends ServiceBase {
     const shell = this.closest('collab-aura-shell');
     if (!shell) return;
     this.studioModeObserver = new MutationObserver(() => {
-      void this.syncEditMode();
-      void this.syncLiveUpdateWatcher();
+      this.publishEditState();
     });
     this.studioModeObserver.observe(shell, { attributes: true, attributeFilter: ['data-studio-mode'] });
   }
@@ -135,7 +122,7 @@ export class ServiceClientApp extends ServiceBase {
    * only to 3 would arm the editor and never disarm it.
    *
    * Two consequences of using a selection event as a level signal, both acceptable because
-   * `syncEditMode` is idempotent: it also fires when the user picks another service in the same level
+   * `publishEditState` is idempotent: it also fires when the user picks another service in the level
    * (a free re-sync), and `fire` debounces 200ms by default, so arming lags the switch slightly. What
    * it does NOT cover: a level whose restore finds nothing to select emits no event at all — hence the
    * re-check in adoptAppHost, and `onServiceClick` calling the same sync.
@@ -157,28 +144,7 @@ export class ServiceClientApp extends ServiceBase {
   }
 
   /**
-   * Starts/stops the ServiceSource live-update bridge with studio mode.
-   *
-   * Deliberately independent of editArmed/EDIT_LEVEL: someone editing exclusively through the
-   * studio's own file editor never arms the inline overlay, but the hot swap must still reach the
-   * running page.
-   */
-  private async syncLiveUpdateWatcher(): Promise<void> {
-    const host = this.regionHost();
-    if (!this.isStudioMode() || !host) {
-      this.liveUpdateWatcher?.stop();
-      return;
-    }
-    if (!this.liveUpdateWatcher) {
-      // Dynamic on purpose: never pulled into the client-mode bundle (same reasoning as StudioEditor).
-      const { StudioLiveUpdateWatcher } = await import('/_102033_/l2/studio/studioLiveUpdateWatcher.js');
-      this.liveUpdateWatcher = new StudioLiveUpdateWatcher();
-    }
-    this.liveUpdateWatcher.start(host);
-  }
-
-  /**
-   * The region host the editor binds to.
+   * The region host a tool binds to.
    *
    * NOT the page element and NOT a wrapper around it: `mountRegion` reuses the mounted element by
    * comparing `host.firstElementChild.tagName` with the route tag, so anything inserted in between
@@ -189,51 +155,38 @@ export class ServiceClientApp extends ServiceBase {
   }
 
   /**
-   * Arms the editor while on the edit level, disarms otherwise. The single decision point.
+   * Publishes where the app is and what the user is doing. The single decision point.
    *
    * Studio mode is required on top of the level: leaving studio mode (Ctrl+Alt+S) does NOT reset the
-   * nav3 level, so without that condition the editor would stay armed in a client session — capturing
+   * nav3 level, so without that condition a tool would stay armed in a client session — capturing
    * every pointer event and making the app unusable.
+   *
+   * `editLevel` and `studioMode` are separate because the tools are: the in-place editor wants the
+   * level, and the live-update bridge does not (someone editing exclusively through the studio's own
+   * file editor never arms the overlay, and the hot swap must still reach the running page).
    */
-  private async syncEditMode(): Promise<void> {
-    const wanted = this.isStudioMode() && this.level === EDIT_LEVEL;
-
-    if (!wanted) {
-      if (this.editArmed) {
-        this.editArmed = false;
-        this.editor?.setMode('off');
-      }
+  private publishEditState(): void {
+    const host = this.regionHost();
+    if (!host || !this.isStudioMode()) {
+      publishEditHost(null);
       return;
     }
 
-    if (this.editArmed || this.editArming) return;
-
-    const host = this.regionHost();
-    if (!host) return;
-
-    // Guard against re-entrancy: loading the editor is async and the observers can fire again
-    // meanwhile (the nav3 sets `level` and `visible` in the same pass).
-    this.editArming = true;
-    try {
-      if (!this.editor) {
-        // Dynamic on purpose: the studio editor only loads when someone actually reaches the level.
-        const { StudioEditor } = await import('/_102033_/l2/studio/studioEditor.js');
-        this.editor = new StudioEditor();
-      }
-      // Re-check: the level may have changed while the import was in flight.
-      if (!this.isStudioMode() || this.level !== EDIT_LEVEL) return;
-
-      // `this` is the chrome host: the editor's status toast mounts inside the SERVICE, so feedback
-      // stays scoped to this panel instead of floating over the whole app.
-      this.editor.attach(host, this);
-      this.editArmed = true;
-      this.editor.setMode('select');
-      // With no button, this is the only signal that clicks now select instead of reaching the app.
-      const { t } = await import('/_102033_/l2/studio/studioMessages.js');
-      this.editor.showStatus(t('status.editMode', { level: EDIT_LEVEL }));
-    } finally {
-      this.editArming = false;
+    // The scan costs a plugin load, so it happens ONCE, and only for someone who reached studio mode.
+    // A client session never pays for it — and never loads a tool.
+    if (!this.toolsRequested) {
+      this.toolsRequested = true;
+      void loadStudioTools();
     }
+
+    publishEditHost({
+      host,
+      chromeHost: this,
+      studioMode: true,
+      editLevel: this.level === EDIT_LEVEL,
+      level: EDIT_LEVEL,
+      panelVisible: this.panelVisible,
+    });
   }
 
   // Bounded retry: the structure can now upgrade before the classic content
@@ -255,8 +208,7 @@ export class ServiceClientApp extends ServiceBase {
         this.applyRegionHeight();
         // The editor binds to the region host, so an arming attempt that ran BEFORE the adoption found
         // nothing to bind to and gave up. Connecting straight on the edit level is exactly that order.
-        void this.syncEditMode();
-        void this.syncLiveUpdateWatcher();
+        this.publishEditState();
       }
       return;
     }
