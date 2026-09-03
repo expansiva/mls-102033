@@ -1,0 +1,6 @@
+{
+  "_note": "Onde o Lit mora, para o app inteiro. UM lugar só, no master frontend aura. O build (mls-base/scripts/litRuntime.mjs) le este arquivo, emite os modulos do Lit em baseUrl e gera o <script type=importmap> dos shells a partir do exports map do pacote instalado. O esbuild marca 'lit' como external apontando para o mesmo importmap. Assim o mundo empacotado (dist/web) e o mundo cru (obj/compiled.zip) carregam O MESMO Lit — identidade de modulo e identidade de URL.",
+  "package": "lit",
+  "baseUrl": "/_libs/lit/",
+  "outDir": "_libs/lit"
+}

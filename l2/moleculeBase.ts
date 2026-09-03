@@ -9,6 +9,29 @@ import { propertyDataSource } from '/_102029_/l2/collabDecorators.js';
 // =============================================================================
 
 
+/**
+ * Registra a tag da molécula UMA vez.
+ *
+ * O runtime pode acabar com duas cópias do mesmo módulo no mesmo documento: o
+ * `dist/web` inlina a molécula num chunk, e o service worker do mls serve a
+ * forma crua (do IndexedDB) para imports sem extensão e para `.defs.js`/
+ * `.test.js` — caminho que o servidor nem vê. Com `@customElement`, a segunda
+ * avaliação lança `already been used with this registry`, o módulo fica marcado
+ * como falho no module map do browser e a rota morre até o reload.
+ *
+ * Isto só é seguro porque o Lit é UM só (mls-102033/l2/shared/litRuntime.json):
+ * as duas cópias estendem o mesmo `ReactiveElement`, então ficar com a primeira
+ * registrada é equivalente. Antes disso, a guarda seria máscara — deixaria um
+ * componente construído sobre a classe base errada, e em silêncio.
+ *
+ * Devolve `true` quando registrou, `false` quando já havia.
+ */
+export function defineMoleculeOnce(tag: string, ctor: CustomElementConstructor): boolean {
+  if (customElements.get(tag)) return false;
+  customElements.define(tag, ctor);
+  return true;
+}
+
 export class MoleculeAuraElement extends StateLitElement {
 
   // ===========================================================================

@@ -6,36 +6,16 @@
     <title>Collab Aura SPA</title>
     <link rel="stylesheet" href="/_102033_/l2/shared/tailwind.css" />
     <link rel="stylesheet" href="/_102033_/l2/shared/component-styles.css" />
-    <!-- Complete lit import map (same entries the studio index.html uses) so project
-         modules compiled against lit/* specifiers resolve on the runtime VM. -->
+    <!-- GERADO pelo build a partir de mls-102033/l2/shared/litRuntime.json (scripts/litRuntime.mjs).
+         Nao editar a mao: e este mapa que faz o mundo empacotado (dist/web, esbuild com
+         lit external) e o mundo cru (obj/compiled.zip) carregarem O MESMO Lit. Um mapa
+         vazio aqui no fonte e proposital — se a injecao falhar, a pagina falha alto em vez
+         de cair de volta num CDN. -->
+    <!-- collab:lit-importmap -->
     <script type="importmap">
-      {
-        "imports": {
-          "lit": "https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js",
-          "lit/decorators.js": "https://cdn.jsdelivr.net/npm/lit@3.0.0/decorators/+esm",
-          "lit/directives/unsafe-html.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/unsafe-html.js/+esm",
-          "lit/directives/class-map.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/class-map.js/+esm",
-          "lit/directives/style-map.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/style-map.js/+esm",
-          "lit/directives/repeat.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/repeat.js/+esm",
-          "lit/directives/if-defined.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/if-defined.js/+esm",
-          "lit/directives/when.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/when.js/+esm",
-          "lit/directives/choose.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/choose.js/+esm",
-          "lit/directives/map.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/map.js/+esm",
-          "lit/directives/range.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/range.js/+esm",
-          "lit/directives/join.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/join.js/+esm",
-          "lit/directives/cache.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/cache.js/+esm",
-          "lit/directives/keyed.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/keyed.js/+esm",
-          "lit/directives/ref.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/ref.js/+esm",
-          "lit/directives/live.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/live.js/+esm",
-          "lit/directives/until.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/until.js/+esm",
-          "lit/directives/async-append.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/async-append.js/+esm",
-          "lit/directives/async-replace.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/async-replace.js/+esm",
-          "lit/directives/guard.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/guard.js/+esm",
-          "lit/directives/template-content.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/template-content.js/+esm",
-          "lit/directives/unsafe-svg.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/unsafe-svg.js/+esm"
-        }
-      }
+      { "imports": {} }
     </script>
+    <!-- /collab:lit-importmap -->
     <!-- Frontend error capture (window.onerror/unhandledrejection -> telemetry queue ->
          piggybacks on the next BFF call). Loaded FIRST so boot errors are captured too. -->
     <script type="module" src="/_102029_/l2/telemetry.js"></script>

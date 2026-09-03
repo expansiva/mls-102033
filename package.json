@@ -8,6 +8,7 @@
   "author": "",
   "license": "ISC",
   "actionDependencies": {
+    "mls-102025": "git+https://github.com/expansiva/mls-102025.git",
     "mls-102029": "git+https://github.com/expansiva/mls-102029.git"
   }
 }
