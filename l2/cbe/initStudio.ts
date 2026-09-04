@@ -5,8 +5,8 @@
 // createModelProjectDefinition), which touches the global `monaco` object.
 // Mirrors the studio's own boot chain (mls-102041/l2/index.ts's loadMonaco +
 // mls-100554/l2/collabInit.ts's initCompileMonaco awaiting window.monacoReady)
-// — neither of those files runs on the VM runtime, so cbeMiniCfe.ts calls
-// initStudio() instead once window.mls is loaded.
+// — neither of those files runs on the VM runtime. cbeMiniCfe registers a
+// LoadMonaco listener that calls initStudio() on demand.
 
 import type { StudioMls } from './global.js'; 
 
@@ -46,6 +46,20 @@ function loadMonacoScript(mls: StudioMls): Promise<void> {
 export async function initStudio(mls: StudioMls): Promise<void> {
   await loadMonacoScript(mls);
   await mls.editor.InitMonaco();
+}
+
+async function onLoadMonaco(): Promise<void> {
+  const studio = window.mls;
+  if (!studio) return;
+  await initStudio(studio);
+}
+
+/**
+ * Cheap: does not load Monaco, only listens. The 102025 previews fire LoadMonaco
+ * and then await window.monacoReady — this host is the one that creates it.
+ */
+export function listenForLoadMonaco(): void {
+  mls.events?.addEventListener([2], ['LoadMonaco'], onLoadMonaco);
 }
 
 // ─── Organization context ─────────────────────────────────────────────────────

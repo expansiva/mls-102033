@@ -11,7 +11,7 @@
 //   mls.stor.localDB.getAllKeys()   -> keys persisted in IndexedDB (mlsDB)
 
 import { getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
-import { setOrgActual } from '/_102033_/l2/cbe/initStudio.js';
+import { setOrgActual, listenForLoadMonaco } from '/_102033_/l2/cbe/initStudio.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 
 // Base project of the studio environment (the studio core, mls-100554). Same
@@ -22,7 +22,7 @@ import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 const CBE_BASE_PROJECT = 100554;
 
 // Bump on every change so the console shows which build is live on the VM.
-const CBE_MINI_CFE_VERSION = '1.3.0';
+const CBE_MINI_CFE_VERSION = '1.3.1';
 
 const MLS_SCRIPT_ID = 'cbe-mls-lib';
 const MLS_LIB_SCRIPT_ID = 'cbe-mls-nodelibs';
@@ -118,8 +118,9 @@ export async function initCbeMiniCfe(): Promise<void> {
     // Monaco is NOT loaded here anymore — it used to download unconditionally for every
     // visitor (a multi-MB payload nobody but a developer or the message previews below ever
     // needed at boot). It now loads on demand: from the Ctrl+Alt+S studio switch
-    // (shell.ts's loadStudioDefinitions), and from collabMessagesTaskPreviewFlexible/Agent
-    // (mls-102025) the first time either actually needs to render an editor.
+    // (shell.ts's loadStudioDefinitions), and from LoadMonaco (102025 previews fire it
+    // the first time either actually needs to render an editor). Listen only — cheap.
+    listenForLoadMonaco();
 
     // The service worker backs the js cache used by updateProjectFilesInfo —
     // without it the files processing awaits navigator.serviceWorker.ready
