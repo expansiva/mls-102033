@@ -12,10 +12,10 @@ import { propertyDataSource } from '/_102029_/l2/collabDecorators.js';
 /**
  * Registra a tag da molécula UMA vez.
  *
- * O runtime pode acabar com duas cópias do mesmo módulo no mesmo documento: o
- * `dist/web` inlina a molécula num chunk, e o service worker do mls serve a
- * forma crua (do IndexedDB) para imports sem extensão e para `.defs.js`/
- * `.test.js` — caminho que o servidor nem vê. Com `@customElement`, a segunda
+ * O runtime pode acabar com duas cópias do mesmo módulo no mesmo documento:
+ * o service worker do mls serve a forma crua (do IndexedDB) para imports sem
+ * extensão e para `.defs.js`/`.test.js` — caminho que o servidor nem vê —
+ * enquanto o import com `.js` pede o zip. Com `@customElement`, a segunda
  * avaliação lança `already been used with this registry`, o módulo fica marcado
  * como falho no module map do browser e a rota morre até o reload.
  *
