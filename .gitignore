@@ -27,3 +27,4 @@ package-lock.json
 /dist/
 
 .collab-fs.json
+/obj/
