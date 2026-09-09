@@ -8,6 +8,7 @@
 
 import { setEnvironment, type CollabProgramMenu, type CollabProgramMenuItem } from '/_102036_/l2/environmentContract.js';
 import { notificationsRuntime } from '/_102025_/l2/notificationsRuntime.js';
+import { collabMessagesEnvironmentBase } from '/_102025_/l2/collabMessagesEnvironmentBase.js';
 
 interface ConfigNavItem { id?: string; label?: string; href?: string }
 interface ConfigModule { moduleId?: string; basePath?: string; navigation?: ConfigNavItem[] }
@@ -134,6 +135,7 @@ const appFrames = new Map<string, HTMLIFrameElement>();
  * a project-provided messages aside brings its own environment). */
 export function applyRuntimeMessagesEnvironment(): void {
   setEnvironment({
+    ...collabMessagesEnvironmentBase,
     notifications: notificationsRuntime,
     config: {
       getMenuMode: () => 'custom',
