@@ -11,6 +11,7 @@
     "mls-102025": "git+https://github.com/expansiva/mls-102025.git",
     "mls-102027": "git+https://github.com/expansiva/mls-102027.git",
     "mls-102029": "git+https://github.com/expansiva/mls-102029.git",
-    "mls-102036": "git+https://github.com/expansiva/mls-102036.git"
+    "mls-102036": "git+https://github.com/expansiva/mls-102036.git",
+    "mls-102041": "git+https://github.com/expansiva/mls-102041.git"
   }
 }
