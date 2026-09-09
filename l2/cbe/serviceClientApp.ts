@@ -10,6 +10,7 @@
 
 import { html } from 'lit';
 import { ServiceBase, type IService, type IServiceMenu, type IToolbarContent } from '/_102027_/l2/serviceBase.js';
+import { parseMsizeHeight } from '/_102033_/l2/shared/regionMsize.js';
 import { publishEditHost } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { loadStudioTools } from '/_102033_/l2/cbe/studioServices.js';
 
@@ -230,11 +231,11 @@ export class ServiceClientApp extends ServiceBase {
   }
 
   private applyRegionHeight(): void {
-    let height = parseFloat((this.getAttribute('msize') || '').split(',')[1] || '');
-    if (!Number.isFinite(height) || height <= 0) height = parseFloat(this.style.height || '');
+    const height = parseMsizeHeight(this.getAttribute('msize'), this.style.height);
+    if (height != null) this.style.height = `${height}px`;
     const region = this.querySelector('main[data-region="content"]') as HTMLElement | null;
     if (!region) return;
-    region.style.height = Number.isFinite(height) && height > 0 ? `${height}px` : '100%';
+    region.style.height = height != null ? `${height}px` : '100%';
   }
 
   render() {

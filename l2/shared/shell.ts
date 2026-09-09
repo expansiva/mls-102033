@@ -39,6 +39,12 @@ import {
 import { getCollabRouteChunkCache, loadAuraRouteChunk, matchAuraRoute } from '/_102033_/l2/shared/routeRuntime.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
 import { contentPageGenomeToPreserve } from '/_102033_/l2/shared/contentPageGenomePreserve.js';
+import {
+  attachViewportMsizeListeners,
+  createCoalescedRunner,
+  msizeForRect,
+  writeMsize,
+} from '/_102033_/l2/shared/regionMsize.js';
 import { LitElement, html } from 'lit';
 
 function traceLazy(event: string, details?: Record<string, unknown>) {
@@ -112,6 +118,12 @@ export class CollabAuraShell extends LitElement {
   isAsideOpen = false;
   activeRoute?: MasterFrontendRouteDefinition;
   private mobileMediaQuery?: MediaQueryList;
+  private detachViewportMsizeListeners?: () => void;
+  private readonly regionMsizeCoalesce = createCoalescedRunner(
+    () => this.syncAllHostedMsize(),
+    (cb) => requestAnimationFrame(cb),
+    (id) => cancelAnimationFrame(id),
+  );
   private unsubscribeInteraction?: () => void;
   private dynamicRegionRenderers: Partial<Record<AuraDynamicRegionName, AuraRegionRendererState>> = {};
   private dynamicRegionProps: Partial<Record<AuraDynamicRegionName, Record<string, unknown>>> = {};
@@ -196,12 +208,11 @@ export class CollabAuraShell extends LitElement {
       activateTab: this.activateContentTab,
       listTabs: () => ['app', ...this.contentTabs.map((tab) => tab.id)],
     };
-    window.addEventListener('resize', this.handleContentTabsResize);
     this.registerSitesControls();
     setTimeout(() => this.maybeUpgradeStructure(), 1200);
     this.mobileMediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`);
     this.mobileMediaQuery.addEventListener('change', this.handleViewportChange);
-    window.addEventListener('resize', this.handleViewportChange);
+    this.detachViewportMsizeListeners = attachViewportMsizeListeners(window, this.handleViewportChange);
     window.addEventListener(AURA_TOGGLE_ASIDE_EVENT, this.handleToggleAside as EventListener);
     window.addEventListener(AURA_OPEN_ASIDE_EVENT, this.handleOpenAside as EventListener);
     window.addEventListener(AURA_CLOSE_ASIDE_EVENT, this.handleCloseAside as EventListener);
@@ -221,9 +232,10 @@ export class CollabAuraShell extends LitElement {
     }
     delete window.collabMasterFrontendShellControls;
     delete window.collabRuntimeNav3;
-    window.removeEventListener('resize', this.handleContentTabsResize);
+    this.detachViewportMsizeListeners?.();
+    this.detachViewportMsizeListeners = undefined;
+    this.regionMsizeCoalesce.cancel();
     this.mobileMediaQuery?.removeEventListener('change', this.handleViewportChange);
-    window.removeEventListener('resize', this.handleViewportChange);
     window.removeEventListener(AURA_TOGGLE_ASIDE_EVENT, this.handleToggleAside as EventListener);
     window.removeEventListener(AURA_OPEN_ASIDE_EVENT, this.handleOpenAside as EventListener);
     window.removeEventListener(AURA_CLOSE_ASIDE_EVENT, this.handleCloseAside as EventListener);
@@ -253,6 +265,7 @@ export class CollabAuraShell extends LitElement {
 
   private readonly handleViewportChange = () => {
     this.syncResolvedDevice();
+    this.scheduleRegionMsizeSync();
   };
 
   private readonly handleToggleAside = () => {
@@ -839,19 +852,34 @@ export class CollabAuraShell extends LitElement {
   // Studio nav3 contract for hosted elements: msize="width,height,top,left" +
   // layout() on resize. serviceBase/monaco-based components size themselves
   // from it; plain elements simply ignore the attribute.
-  private readonly handleContentTabsResize = (): void => {
-    if (this.contentTabs.length > 0) this.updateContentTabsMsize();
-  };
+  private scheduleRegionMsizeSync(): void {
+    this.regionMsizeCoalesce.trigger();
+  }
+
+  private syncAllHostedMsize(): void {
+    this.syncHostedRegionMsize();
+    this.updateContentTabsMsize();
+  }
+
+  private syncHostedRegionMsize(): void {
+    for (const region of ['header', 'aside', 'content'] as const) {
+      const host = this.querySelector(`[data-region-host="${region}"]`) as HTMLElement | null;
+      if (!host) continue;
+      const rect = host.getBoundingClientRect();
+      const msize = msizeForRect(rect);
+      if (!msize) continue;
+      const target = (host.firstElementChild ?? host) as HTMLElement & { layout?: () => void };
+      writeMsize(target, msize);
+    }
+  }
 
   private updateContentTabsMsize(): void {
     const panels = this.querySelector('.nav3-panels');
     if (!panels) return;
-    const rect = panels.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-    const msize = [rect.width.toFixed(2), rect.height.toFixed(2), rect.top.toFixed(2), rect.left.toFixed(2)].join(',');
+    const msize = msizeForRect(panels.getBoundingClientRect());
+    if (!msize) return;
     for (const tab of this.contentTabs) {
-      tab.element.setAttribute('msize', msize);
-      (tab.element as HTMLElement & { layout?: () => void }).layout?.();
+      writeMsize(tab.element as HTMLElement & { layout?: () => void }, msize);
     }
   }
 
@@ -1208,6 +1236,7 @@ export class CollabAuraShell extends LitElement {
     this.mountRegion('header');
     this.mountRegion('aside');
     this.mountRegion('content');
+    this.scheduleRegionMsizeSync();
     this.syncContentTabPanels();
     // Redundant trigger: the connectedCallback timer can be lost across early
     // shell remounts (observed on some boots) — the attempted/mls guards make

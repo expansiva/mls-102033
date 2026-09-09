@@ -10,6 +10,7 @@
 
 import { html } from 'lit';
 import { ServiceBase, type IService, type IServiceMenu, type IToolbarContent } from '/_102027_/l2/serviceBase.js';
+import { parseMsizeHeight } from '/_102033_/l2/shared/regionMsize.js';
 
 export class ServiceRuntimeMessages extends ServiceBase {
   public details: IService = {
@@ -158,9 +159,12 @@ export class ServiceRuntimeMessages extends ServiceBase {
   private applyInnerHeight(): void {
     // msize is "width,height,top,left"; the inline height the nav3 layout
     // writes on this element is the fallback for the adoption moment.
-    let height = parseFloat((this.getAttribute('msize') || '').split(',')[1] || '');
-    if (!Number.isFinite(height) || height <= 0) height = parseFloat(this.style.height || '');
-    if (!Number.isFinite(height) || height <= 0) return;
+    // Prefer the attribute (current) over this.style.height: serviceBase
+    // writes style.height from the PREVIOUS this.msize (it reads the
+    // property before super.attributeChangedCallback updates it).
+    const height = parseMsizeHeight(this.getAttribute('msize'), this.style.height);
+    if (height == null) return;
+    this.style.height = `${height}px`;
     const inner = this.querySelector('collab-messages-102025') as HTMLElement | null;
     if (inner) {
       inner.style.height = `${height}px`;
