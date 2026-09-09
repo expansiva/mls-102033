@@ -7,6 +7,7 @@
 // and menu mode 'custom' (the nav3 toolbar owns the mode tabs).
 
 import { setEnvironment, type CollabProgramMenu, type CollabProgramMenuItem } from '/_102036_/l2/environmentContract.js';
+import { notificationsRuntime } from '/_102025_/l2/notificationsRuntime.js';
 
 interface ConfigNavItem { id?: string; label?: string; href?: string }
 interface ConfigModule { moduleId?: string; basePath?: string; navigation?: ConfigNavItem[] }
@@ -133,6 +134,7 @@ const appFrames = new Map<string, HTMLIFrameElement>();
  * a project-provided messages aside brings its own environment). */
 export function applyRuntimeMessagesEnvironment(): void {
   setEnvironment({
+    notifications: notificationsRuntime,
     config: {
       getMenuMode: () => 'custom',
       getApiUrl: () => `${window.location.origin}/msg`,
