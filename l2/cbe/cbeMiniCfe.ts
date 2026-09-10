@@ -12,6 +12,7 @@
 
 import { getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
 import { setOrgActual, listenForLoadMonaco } from '/_102033_/l2/cbe/initStudio.js';
+import { loadMlsScript } from '/_102033_/l2/cbe/cbeMiniCfeLoad.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 
 // Base project of the studio environment (the studio core, mls-100554). Same
@@ -22,74 +23,7 @@ import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 const CBE_BASE_PROJECT = 100554;
 
 // Bump on every change so the console shows which build is live on the VM.
-const CBE_MINI_CFE_VERSION = '1.3.1';
-
-const MLS_SCRIPT_ID = 'cbe-mls-lib';
-const MLS_LIB_SCRIPT_ID = 'cbe-mls-nodelibs';
-const MLS_LOAD_TIMEOUT_MS = 20000;
-
-/** '/libs/<version>' when window.latest carries it, plain '/libs' otherwise. */
-function getLibsBasePath(): string {
-  const libsVersion = window.latest?.libs;
-  return libsVersion ? `/libs/${libsVersion}` : '/libs';
-}
-
-/**
- * Same load chain as the studio index.html (loadNodeJSLibs -> loadMLS):
- * mlsLib.min.js (node polyfills) FIRST, then mls.js, then login. The origin
- * only publishes VERSIONED lib paths — without window.latest there is no
- * mlsLib URL, so it is skipped (login never needed it; only studio editing
- * features do) and mls.js falls back to the unversioned disk-cached copy.
- */
-function loadMlsScript(): Promise<void> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    if (window.mls) {
-      resolvePromise();
-      return;
-    }
-    if (document.getElementById(MLS_SCRIPT_ID)) {
-      waitForMls(resolvePromise, rejectPromise);
-      return;
-    }
-    const basePath = getLibsBasePath();
-    const loadMls = () => {
-      const script = document.createElement('script');
-      script.id = MLS_SCRIPT_ID;
-      script.type = 'module';
-      script.src = `${basePath}/mls.js`;
-      script.onerror = () => rejectPromise(new Error(`failed to load ${script.src}`));
-      script.onload = () => waitForMls(resolvePromise, rejectPromise);
-      document.head.appendChild(script);
-    };
-    if (window.latest?.libs && !document.getElementById(MLS_LIB_SCRIPT_ID)) {
-      const libScript = document.createElement('script');
-      libScript.id = MLS_LIB_SCRIPT_ID;
-      libScript.src = `${basePath}/mlsLib.min.js`;
-      libScript.onload = () => loadMls();
-      // mlsLib only backs studio editing features — mls.js loads without it.
-      libScript.onerror = () => loadMls();
-      document.head.appendChild(libScript);
-    } else {
-      loadMls();
-    }
-  });
-}
-
-function waitForMls(onReady: () => void, onTimeout: (err: Error) => void): void {
-  const startedAt = Date.now();
-  const poll = () => {
-    if (window.mls) {
-      onReady();
-      return;
-    }
-    if (Date.now() - startedAt > MLS_LOAD_TIMEOUT_MS) {
-      onTimeout(new Error('mls lib did not initialize (window.mls missing)'));
-      return;
-    }
-    setTimeout(poll, 50);
-  };
-  poll();
-}
+const CBE_MINI_CFE_VERSION = '1.3.2';
 
 export async function initCbeMiniCfe(): Promise<void> {
   // Embedded frames (foreign modules in nav3 content tabs) render content
