@@ -28,3 +28,4 @@ package-lock.json
 
 .collab-fs.json
 /obj/
+.collab-fs-trash/

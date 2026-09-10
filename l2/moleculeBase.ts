@@ -238,6 +238,14 @@ export class MoleculeAuraElement extends StateLitElement {
       if (nodes.length === 0) return;
       this._liveNodes.set(key, nodes);
       (source as HTMLElement).style.display = 'none';
+      // Which source a given anchor drained. Moving the nodes is what makes the projection cheap,
+      // and it is also what erases the only evidence of who they belong to: after this, every DOM
+      // path to the consumer's markup runs through the molecule's own wrappers. The studio editor
+      // walks BACK through this attribute to tell content the page passed in (editable, and in the
+      // page's file) from the molecule's internal markup (shared, and refused). `_liveRefs` is
+      // private and the anchor's key alone maps to nothing, so without this mark there is no way
+      // to reach the source from the DOM.
+      (source as HTMLElement).dataset.mlLiveSource = key;
     }
 
     // (Re)attach whenever the anchor is empty. This runs on EVERY update on purpose: an
