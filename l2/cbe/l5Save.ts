@@ -3,9 +3,10 @@
 // declared (projectSettings.driver). Same promotion as
 // serviceSave.onSavenewPullrequest: inLocalStorage = false before setContents,
 // otherwise stor.setContents keeps the write on the local copy.
-// After a successful write the cache entry is dropped: DriverVm.getVersionFromFiles
-// is a stub, so versionRef would not bump and a same-session reread would serve
-// the pre-edit content.
+// After a successful write, clearProjectsCache of the whole project:
+// cache.setContent(file, null) is a no-op (shouldSkipCacheAdd treats null as
+// unusable), and DriverVm.getVersionFromFiles is a stub, so versionRef would
+// not bump and a same-session reread would serve the pre-edit content.
 
 function setContentsSucceeded(result: unknown): boolean {
   if (result === false || result == null) return false;
@@ -28,6 +29,6 @@ export async function saveL5File(
   const saved = await mls.stor.setContents([file], comment);
   if (!setContentsSucceeded(saved)) return false;
 
-  await mls.stor.cache.setContent(file, null);
+  await mls.stor.cache.clearProjectsCache([project]);
   return true;
 }

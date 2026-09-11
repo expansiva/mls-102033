@@ -50,8 +50,8 @@ function installStor(opts: {
         return true;
       },
       cache: {
-        setContent: async (...args: unknown[]) => {
-          calls.push({ name: 'cache.setContent', args });
+        clearProjectsCache: async (...args: unknown[]) => {
+          calls.push({ name: 'cache.clearProjectsCache', args });
         },
       },
     },
@@ -86,18 +86,17 @@ test('T1: saveL5File with an existing file calls setContents once with inLocalSt
   }
 });
 
-test('T2: localStor.setContent runs before setContents, cache.setContent after', async () => {
+test('T2: localStor.setContent runs before setContents, clearProjectsCache after', async () => {
   const host = installStor({});
   try {
     await saveL5File(102099, 'project', '{"a":1}', 'c');
     assert.deepEqual(names(host.calls), [
       'localStor.setContent',
       'setContents',
-      'cache.setContent',
+      'cache.clearProjectsCache',
     ]);
-    const cacheArgs = host.calls.find((c) => c.name === 'cache.setContent')?.args;
-    assert.equal(cacheArgs?.[0], host.file);
-    assert.equal(cacheArgs?.[1], null);
+    const cacheArgs = host.calls.find((c) => c.name === 'cache.clearProjectsCache')?.args;
+    assert.deepEqual(cacheArgs?.[0], [102099]);
   } finally {
     host.restore();
   }
@@ -124,7 +123,7 @@ test('T4: setContents false returns false and does not invalidate the cache', as
   try {
     const ok = await saveL5File(102099, 'project', '{}', 'c');
     assert.equal(ok, false);
-    assert.equal(host.calls.filter((c) => c.name === 'cache.setContent').length, 0);
+    assert.equal(host.calls.filter((c) => c.name === 'cache.clearProjectsCache').length, 0);
   } finally {
     host.restore();
   }
@@ -141,7 +140,7 @@ test('T5: setContents throw bubbles and is not swallowed', async () => {
       () => saveL5File(102099, 'project', '{}', 'c'),
       (err: unknown) => err instanceof Error && err.message === 'driver: GitHub PAT missing',
     );
-    assert.equal(host.calls.filter((c) => c.name === 'cache.setContent').length, 0);
+    assert.equal(host.calls.filter((c) => c.name === 'cache.clearProjectsCache').length, 0);
   } finally {
     host.restore();
   }
