@@ -99,11 +99,16 @@ interface MlsDriverApi {
 
 let vmDriverRegistered = false;
 
+/** Clears the one-shot guard so tests can register again. */
+export function resetVmDriverRegistration(): void {
+  vmDriverRegistered = false;
+}
+
 /**
- * Registers the VM storage driver in the 'github' slot — the slot the cbe login marker points at
- * (see driverVm.ts for why it is that slot). Without it every source read resolves the GitHub
- * driver and fails with `Driver _<project>_GitHub not found`, since no driver is registered at all
- * on the VM.
+ * Registers the VM storage driver in 'vm' (its own slot) and in 'github' (transitional:
+ * older projects still resolve through getDefaultDriver as GitHub — see driverVm.ts).
+ * Without the github occupancy, a VM whose l5/config.json has not declared a destination
+ * would fail every source read with `Driver _<project>_GitHub not found`.
  *
  * Lives here, not in the studio header: that header only mounts through the `setHeader(2)` path,
  * while Ctrl+Alt+S never creates it — and both need the driver. Dynamic import on purpose
@@ -118,7 +123,9 @@ export async function registerVmDriver(): Promise<void> {
   }
   try {
     const { DriverVm } = await import('/_102033_/l2/cbe/driverVm.js');
-    others.addDriver(new DriverVm(), 'github');
+    const driver = new DriverVm();
+    others.addDriver(driver, 'vm');
+    others.addDriver(driver, 'github');
     vmDriverRegistered = true;
     console.info('[initStudio] VM storage driver registered');
   } catch (err) {

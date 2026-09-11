@@ -4,16 +4,12 @@
 // endpoint of the very server that serves this page (same origin, session by
 // cookie) — no network call ever leaves the VM.
 //
-// WHY IT REGISTERS AS 'github'
-// The cbe login stamps every VM project with the marker
-// `{"projectDriver":"GitHub","projectURL":"local"}` (cbeLogin.ts) because the
-// cfe REJECTS 'local'/'mls' as a driver name. The lib then resolves the driver
-// with a HARDCODED map (mls.js getDefaultDriver): only 'GitHub' -> 'github' and
-// 'GitLab' -> 'gitlab' exist; any other name throws. The registry itself is a
-// plain `drivers[provider] = driver` map, so the VM takes over the 'github'
-// slot — safe here because in the studio client no project lives on GitHub.
-// When the lib gains a real 'vm' driver name, only the marker in cbeLogin and
-// the key passed to addDriver change; everything below stays.
+// SLOTS
+// The driver's own slot is 'vm'. registerVmDriver also occupies 'github' with
+// the SAME instance: projects that have not declared projectSettings still
+// resolve through getDefaultDriver as "GitHub", and an empty github slot would
+// stop sources loading on the VM. The github occupancy is transitional — it
+// goes away once every project declares its destination.
 //
 // WHY THE SOURCES ARE NEEDED AT ALL
 // The login payload carries `jsContent` (compiled js), NOT the .ts source. So
