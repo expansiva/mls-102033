@@ -1,4 +1,13 @@
 /// <mls fileReference="_102033_/l2/shared/bootstrap.ts" enhancement="_blank" />
+// THIS IMPORT MUST STAY FIRST — it is not alphabetical, it is load-bearing.
+// elementSwapRegistry replaces `customElements.define` so every tag gets a swappable stand-in
+// (TASK-102020-live-update-stand-in). A tag already registered can never be adopted afterwards, so
+// arriving late means that tag is out of the live update for the whole session. Import order is
+// evaluation order, so anything moved above this line takes its own defines out of reach. The two
+// module scripts the shell templates load before this one (telemetry.js, cbeMiniCfe.js) register no
+// custom element, which is what makes the first line here early enough. Inert without the studio
+// flag: a client session keeps the native `define`.
+import '/_102033_/l2/shared/elementSwapRegistry.js';
 import '/_102033_/l2/shared/shell.js';
 // cbeMiniCfe is loaded by the shell templates (spa/pwa index.html) as an early
 // <head> module script, so the SW install + cbe login start in parallel with

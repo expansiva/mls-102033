@@ -38,6 +38,7 @@ import {
 } from '/_102033_/l2/shared/designSystemRuntime.js';
 import { getCollabRouteChunkCache, loadAuraRouteChunk, matchAuraRoute } from '/_102033_/l2/shared/routeRuntime.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
+import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
 import { contentPageGenomeToPreserve } from '/_102033_/l2/shared/contentPageGenomePreserve.js';
 import {
   attachViewportMsizeListeners,
@@ -459,7 +460,14 @@ export class CollabAuraShell extends LitElement {
       if (this.structureUpgraded) {
         this.studioModeOn = !this.studioModeOn;
         this.requestUpdate();
-        if (this.studioModeOn) this.loadStudioDefinitions();
+        if (this.studioModeOn) {
+          // Arms the live update of edited elements — on the NEXT boot, not this one. The stand-in
+          // has to be installed before the first `define`, which is long past by the time anyone can
+          // press this. So the first studio session on a browser costs one reload; from then on it
+          // is already armed (TASK-102020-live-update-stand-in).
+          rememberElementSwapForNextBoot();
+          this.loadStudioDefinitions();
+        }
         // Back to client mode: the banner returns, and the nav3s must show the client's own
         // services again. The toolbars remember the last service opened — by now a studio one —
         // so the runtime pair has to be forced, not restored.

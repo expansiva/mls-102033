@@ -8,6 +8,7 @@
 // environment with studio endpoints. Tab toolbar parity with the studio
 // service comes in a later pass.
 
+
 import { html } from 'lit';
 import { ServiceBase, type IService, type IServiceMenu, type IToolbarContent } from '/_102027_/l2/serviceBase.js';
 import { parseMsizeHeight } from '/_102033_/l2/shared/regionMsize.js';
@@ -60,7 +61,11 @@ export class ServiceRuntimeMessages extends ServiceBase {
 
   public menu: IServiceMenu = {
     title: '',
-    main: {},
+    main: {
+      // opReset: { text: 'Reset onboarding', icon: 'f2ea' },
+      opSettings2: { text: 'Settings', icon: 'f085' },
+      opAboutThis: 'About this content',
+    },
     tabs: {
       group: 'Mode',
       type: 'onlyicon',
@@ -74,7 +79,7 @@ export class ServiceRuntimeMessages extends ServiceBase {
       ],
     },
     tools: {},
-    onClickMain: () => { /* no menu actions yet */ },
+    onClickMain: this.onClickMain.bind(this),
     onClickTabs: (index: number) => this.setMessagesTab(index),
   };
 
@@ -83,6 +88,11 @@ export class ServiceRuntimeMessages extends ServiceBase {
     this.saveLastTab(name);
     const messages = this.querySelector('collab-messages-102025') as (HTMLElement & { activeTab?: string }) | null;
     if (messages) messages.activeTab = name;
+  }
+
+  public onClickMain(op: string) {
+    if (op === 'opAboutThis') this.showAboutThis();
+    if (op === 'opSettings2') this.openSettings();
   }
 
   public onServiceClick(_visible: boolean, _reinit: boolean, _el: IToolbarContent | null): void {
@@ -173,6 +183,58 @@ export class ServiceRuntimeMessages extends ServiceBase {
       // fixed height, so important is required here too.
       inner.style.setProperty('overflow-y', 'auto', 'important');
     }
+  }
+
+  private showAboutThis(): boolean {
+
+    const div = document.createElement('div');
+    div.style.padding = '1rem';
+
+    let name = 'nothing selected';
+
+    switch (this.activeTab) {
+      case 'CRM':
+        name = 'collab-messages-chat-102025';
+        break;
+      case 'TASK':
+        name = 'collab-messages-tasks-102025';
+        break;
+      case 'APPS':
+        name = 'collab-messages-apps-102025';
+        break;
+      case 'MOMENTS':
+        name = 'collab-messages-moments-102025';
+        break;
+      case 'CONNECT':
+        name = 'collab-messages-chat-102025';
+        break;
+      default:
+        name = 'nothing selected';
+    }
+
+    div.innerHTML = `
+        
+            <h3>About this content</h3>
+            <ul>
+                <li>Reference: ${name}</li>
+                <li>Level: ${this.level}</li>
+                <li>Position: ${this.position}</li>
+            </ul>
+        `;
+
+    if (this.menu.setMode) this.menu.setMode('page', div);
+    return true;
+
+  }
+
+  private openSettings() {
+    if (this.menu.setTabActive) this.menu.setTabActive(-1);
+    if (this.menu.setMode) {
+      const settings = document.createElement('collab-messages-settings-geral-102025');
+      (settings as any)['serviceBase'] = this;
+      this.menu.setMode('page', settings);
+    }
+    return true;
   }
 
   render() {
