@@ -148,9 +148,9 @@ export class CbeStudioHeader extends LitElement {
   private async loadNavModules(): Promise<void> {
     try {
       ensureStudioPageAssets();
-      // Before anything can read a SOURCE file: without it the cfe resolves the
-      // GitHub driver (the login marks every VM project as 'GitHub') and every
-      // cache miss goes to github.com with the bogus projectURL 'local'.
+      // Before anything can read a SOURCE file: without it the cfe has no driver
+      // registered in the 'vm' slot (the login marks every VM project as 'vm')
+      // and every cache miss throws "Driver _<project>_vm not found".
       await registerVmDriver();
       // Served by the mls service worker from the IndexedDB the cbe login
       // fills (server compiled.zip fallback covers the SW-less first load).

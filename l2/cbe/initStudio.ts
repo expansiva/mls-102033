@@ -105,10 +105,9 @@ export function resetVmDriverRegistration(): void {
 }
 
 /**
- * Registers the VM storage driver in 'vm' (its own slot) and in 'github' (transitional:
- * older projects still resolve through getDefaultDriver as GitHub — see driverVm.ts).
- * Without the github occupancy, a VM whose l5/config.json has not declared a destination
- * would fail every source read with `Driver _<project>_GitHub not found`.
+ * Registers the VM storage driver in its own 'vm' slot. The login now marks every VM
+ * project's projectDriver as 'vm' (mls-102034/cbeLogin.ts), so getDefaultDriver resolves
+ * here directly — no more borrowing the 'github' slot for projects with no declared destination.
  *
  * Lives here, not in the studio header: that header only mounts through the `setHeader(2)` path,
  * while Ctrl+Alt+S never creates it — and both need the driver. Dynamic import on purpose
@@ -125,7 +124,6 @@ export async function registerVmDriver(): Promise<void> {
     const { DriverVm } = await import('/_102033_/l2/cbe/driverVm.js');
     const driver = new DriverVm();
     others.addDriver(driver, 'vm');
-    others.addDriver(driver, 'github');
     vmDriverRegistered = true;
     console.info('[initStudio] VM storage driver registered');
   } catch (err) {
@@ -168,7 +166,7 @@ let definitionsLoaded = false;
 export async function loadProjectDefinitions(project: number): Promise<void> {
   if (definitionsLoaded || !project) return;
   // Creating the models reads project SOURCES on a cache miss — without the VM driver that read
-  // resolves the GitHub one and throws `Driver _<project>_GitHub not found`.
+  // has nothing registered in the 'vm' slot and throws `Driver _<project>_vm not found`.
   await registerVmDriver();
   // Called from the studio switch, which can happen before the Monaco download finishes — the
   // editor API below only exists after it. cbeMiniCfe sets this promise at boot.

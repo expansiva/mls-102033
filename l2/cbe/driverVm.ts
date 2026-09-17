@@ -5,11 +5,10 @@
 // cookie) — no network call ever leaves the VM.
 //
 // SLOTS
-// The driver's own slot is 'vm'. registerVmDriver also occupies 'github' with
-// the SAME instance: projects that have not declared projectSettings still
-// resolve through getDefaultDriver as "GitHub", and an empty github slot would
-// stop sources loading on the VM. The github occupancy is transitional — it
-// goes away once every project declares its destination.
+// The driver's own slot is 'vm'. registerVmDriver registers only there: the
+// login (mls-102034/cbeLogin.ts) marks every VM project's projectDriver as
+// 'vm', including ones with no declared projectSettings, so getDefaultDriver
+// always resolves through this slot — no more borrowing 'github'.
 //
 // WHY THE SOURCES ARE NEEDED AT ALL
 // The login payload carries `jsContent` (compiled js), NOT the .ts source. So
@@ -66,7 +65,10 @@ async function execAction<T>(action: string, payload: Record<string, unknown>): 
 
 export class DriverVm extends mls.stor.others.DriverIOBase {
 
-  /** The slot this driver occupies — see the header note. */
+  /** Diagnostic label only (DriverIOBase.shortName is typed mls.cbe.Provider, which has
+   * no 'vm' member) — actual slot registration is by the 'vm' string key passed to
+   * addDriver in registerVmDriver, not by this field. Kept as 'github' only because the
+   * abstract type requires a value from mls.cbe.Provider. */
   public shortName: mls.cbe.Provider = 'github';
   /** Not bound to a single project: it serves every project the VM hosts. */
   public project: number = 0;

@@ -41,17 +41,15 @@ function installDriverHost() {
   };
 }
 
-test('T6: registerVmDriver adds the same instance to vm and github', async () => {
+test('T6: registerVmDriver adds the driver only to its own vm slot', async () => {
   resetVmDriverRegistration();
   const host = installDriverHost();
   const origInfo = console.info;
   console.info = () => undefined;
   try {
     await registerVmDriver();
-    assert.equal(host.calls.length, 2);
+    assert.equal(host.calls.length, 1);
     assert.equal(host.calls[0]?.provider, 'vm');
-    assert.equal(host.calls[1]?.provider, 'github');
-    assert.equal(host.calls[0]?.driver, host.calls[1]?.driver);
   } finally {
     console.info = origInfo;
     host.restore();
@@ -66,7 +64,7 @@ test('T7: registerVmDriver is idempotent on a repeated call', async () => {
   try {
     await registerVmDriver();
     await registerVmDriver();
-    assert.equal(host.calls.length, 2, 'second call must not addDriver again');
+    assert.equal(host.calls.length, 1, 'second call must not addDriver again');
   } finally {
     console.info = origInfo;
     host.restore();
