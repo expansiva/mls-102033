@@ -117,7 +117,7 @@ export async function registerVmDriver(): Promise<void> {
   if (vmDriverRegistered) return;
   const others = (window as unknown as { mls?: MlsDriverApi }).mls?.stor?.others;
   if (!others?.addDriver) {
-    console.warn('[initStudio] mls.stor.others.addDriver unavailable — VM driver not registered');
+    console.warn('[initStudio] mls.stor.others.addDriver unavailable — VM driver not registered; any getDefaultDriver call for a "vm" project will throw "slot \'vm\' has no driver registered" until this resolves');
     return;
   }
   try {
@@ -127,7 +127,7 @@ export async function registerVmDriver(): Promise<void> {
     vmDriverRegistered = true;
     console.info('[initStudio] VM storage driver registered');
   } catch (err) {
-    console.warn('[initStudio] VM driver registration failed:', err);
+    console.warn('[initStudio] VM driver registration failed — VM project storage reads will throw "slot \'vm\' has no driver registered" until this succeeds:', err);
   }
 }
 
