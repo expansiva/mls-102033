@@ -5,75 +5,40 @@
 import { noChange, type ElementPart } from 'lit';
 import { AsyncDirective } from 'lit/async-directive.js';
 import { directive, PartType, type PartInfo } from 'lit/directive.js';
-import * as echarts from 'echarts/core';
-import type { ECharts as EChartsInstance } from 'echarts/core';
-import {
-  BarChart,
-  BoxplotChart,
-  CandlestickChart,
-  FunnelChart,
-  GaugeChart,
-  GraphChart,
-  HeatmapChart,
-  LineChart,
-  PieChart,
-  SankeyChart,
-  ScatterChart,
-  SunburstChart,
-  TreemapChart,
-} from 'echarts/charts';
-import {
-  AriaComponent,
-  DataZoomComponent,
-  DatasetComponent,
-  GridComponent,
-  LegendComponent,
-  MarkAreaComponent,
-  MarkLineComponent,
-  MarkPointComponent,
-  TitleComponent,
-  ToolboxComponent,
-  TooltipComponent,
-  TransformComponent,
-  VisualMapComponent,
-} from 'echarts/components';
-import { LabelLayout, UniversalTransition } from 'echarts/features';
-import { CanvasRenderer } from 'echarts/renderers';
+import type { ECharts as EChartsInstance, EChartsCoreOption } from 'echarts/core';
 
-echarts.use([
-  BarChart,
-  BoxplotChart,
-  CandlestickChart,
-  FunnelChart,
-  GaugeChart,
-  GraphChart,
-  HeatmapChart,
-  LineChart,
-  PieChart,
-  SankeyChart,
-  ScatterChart,
-  SunburstChart,
-  TreemapChart,
-  AriaComponent,
-  DataZoomComponent,
-  DatasetComponent,
-  GridComponent,
-  LegendComponent,
-  MarkAreaComponent,
-  MarkLineComponent,
-  MarkPointComponent,
-  TitleComponent,
-  ToolboxComponent,
-  TooltipComponent,
-  TransformComponent,
-  VisualMapComponent,
-  LabelLayout,
-  UniversalTransition,
-  CanvasRenderer,
-]);
-
-export { echarts };
 export type { ECharts, EChartsCoreOption } from 'echarts/core';
+
+const ECHARTS_RUNTIME_URL = '/_libs/echarts.min.js';
+
+type EChartsRuntime = {
+  init(element: HTMLElement, theme?: string | object, options?: object): EChartsInstance;
+};
+
+declare global {
+  interface Window {
+    echarts?: EChartsRuntime;
+    collabEChartsRuntime?: Promise<EChartsRuntime>;
+  }
+}
+
+/** Full local ECharts build shared by Studio and published applications; never uses a CDN. */
+export function loadECharts(): Promise<EChartsRuntime> {
+  if (window.echarts) return Promise.resolve(window.echarts);
+  if (window.collabEChartsRuntime) return window.collabEChartsRuntime;
+  window.collabEChartsRuntime = new Promise<EChartsRuntime>((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = ECHARTS_RUNTIME_URL;
+    script.async = true;
+    script.dataset.collabEcharts = 'local';
+    script.onload = () => window.echarts
+      ? resolve(window.echarts)
+      : reject(new Error('Local ECharts runtime loaded without exposing window.echarts.'));
+    script.onerror = () => reject(new Error(`Unable to load local ECharts runtime at ${ECHARTS_RUNTIME_URL}.`));
+    document.head.appendChild(script);
+  });
+  return window.collabEChartsRuntime;
+}
 
 // ---------------------------------------------------------------------------
 // `chart()` — the Lit way to put an ECharts chart on a page.
@@ -112,6 +77,10 @@ export type ChartEvents = Record<string, (params: never) => void>;
 export const chart = directive(class extends AsyncDirective {
   #chart?: EChartsInstance;
   #observer?: ResizeObserver;
+  #element?: HTMLElement;
+  #option?: EChartsCoreOption;
+  #events?: ChartEvents;
+  #needsOption = true;
 
   constructor(partInfo: PartInfo) {
     super(partInfo);
@@ -127,9 +96,22 @@ export const chart = directive(class extends AsyncDirective {
   }
 
   override update(part: ElementPart, [option, events]: [unknown, ChartEvents?]): typeof noChange {
-    const element = part.element as HTMLElement;
+    this.#element = part.element as HTMLElement;
+    if (this.#option !== option) {
+      this.#option = option as EChartsCoreOption;
+      this.#needsOption = true;
+    }
+    this.#events = events;
+    void loadECharts().then(runtime => this.#apply(runtime)).catch(error => console.error(error));
+    return noChange;
+  }
+
+  #apply(runtime: EChartsRuntime): void {
+    const element = this.#element;
+    if (!element || !element.isConnected || !this.#option) return;
     if (!this.#chart) {
-      this.#chart = echarts.init(element);
+      this.#chart = runtime.init(element);
+      this.#needsOption = true;
       // The element can be resized by layout alone (a flex/grid sibling changing), which no Lit update
       // reports — so observe the node rather than hooking the render cycle.
       this.#observer = new ResizeObserver(() => this.#chart?.resize());
@@ -139,19 +121,25 @@ export const chart = directive(class extends AsyncDirective {
     // would silently act on stale data. Only the names bound here are removed, so a handler attached by
     // some other code on the same instance survives.
     for (const name of this.#bound) this.#chart.off(name);
-    this.#bound = Object.keys(events ?? {});
-    for (const name of this.#bound) this.#chart.on(name, events![name] as never);
-    // `true` replaces the option instead of merging: a page that re-renders with fewer series must not
-    // keep the old ones on screen.
-    this.#chart.setOption(option as never, true);
-    return noChange;
+    this.#bound = Object.keys(this.#events ?? {});
+    for (const name of this.#bound) this.#chart.on(name, this.#events![name] as never);
+    // Keep the current force-layout positions when only Lit state/event closures changed. A genuinely
+    // new option still replaces the previous one so removed series never remain on screen.
+    if (this.#needsOption) {
+      this.#chart.setOption(this.#option as never, true);
+      this.#needsOption = false;
+    }
   }
 
   /** Element left the DOM: release the canvas and the observer, or both leak for the session. */
   override disconnected(): void {
     this.#observer?.disconnect();
     this.#observer = undefined;
+    this.#element = undefined;
+    this.#option = undefined;
+    this.#events = undefined;
     this.#bound = [];
+    this.#needsOption = true;
     // dispose() drops the handlers with the instance; the list is cleared so a reconnect starts clean.
     this.#chart?.dispose();
     this.#chart = undefined;

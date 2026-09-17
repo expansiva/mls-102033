@@ -1241,6 +1241,8 @@ export class CollabAuraShell extends LitElement {
     this.setAttribute('data-aside-open', String(this.getActualAsideOpen()));
     this.setAttribute('data-structure', this.structureState);
     this.setAttribute('data-studio-mode', String(this.studioModeOn));
+    const environmentBadge = document.getElementById('collab-env-badge');
+    if (environmentBadge) environmentBadge.hidden = this.studioModeOn;
     this.mountRegion('header');
     this.mountRegion('aside');
     this.mountRegion('content');
