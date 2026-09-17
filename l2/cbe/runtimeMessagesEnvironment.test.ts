@@ -106,3 +106,49 @@ test('runtime environment gains bots/getAgents from the base and keeps its own c
         else (globalThis as { window?: unknown }).window = previousWindow;
     }
 });
+
+test('runtime environment wires agents (the default silently swallowed every @@agent run)', async () => {
+    assert.match(source, /agents: runtimeAgents/);
+
+    type AgentsHolder = { mls?: { stor?: { files?: Record<string, unknown> } } };
+    const holder = globalThis as AgentsHolder;
+    const previousMls = holder.mls;
+    const previousWindow = (globalThis as { window?: unknown }).window;
+    // A booted-but-empty store: what an app looks like before (or without) the
+    // cbeMiniCfe login + preload that fills mls.stor.files.
+    holder.mls = { ...(previousMls ?? {}), stor: { files: {} } };
+    (globalThis as { window?: unknown }).window = {
+        mls: holder.mls,
+        location: { origin: 'https://app.example' },
+        collabBoot: { pageTitle: 'RuntimeTitle' },
+    };
+
+    setEnvironment({});
+    try {
+        // The defect: the contract default RESOLVES doing nothing, so the chat's
+        // fire-and-forget call never fails and the message spins forever.
+        assert.equal(
+            await environment.agents.executeAgent('agentPlanner1', {} as never),
+            undefined,
+        );
+        assert.equal(await environment.agents.loadAgent('agentPlanner1'), null);
+
+        applyRuntimeMessagesEnvironment();
+
+        // Now it says why it cannot run instead of pretending it did.
+        await assert.rejects(
+            () => environment.agents.executeAgent('agentPlanner1', {} as never),
+            /mls\.stor\.files is empty/,
+        );
+        await assert.rejects(
+            () => environment.agents.loadAgent('agentPlanner1'),
+            /mls\.stor\.files is empty/,
+        );
+    } finally {
+        setEnvironment({});
+        if (previousMls === undefined) delete holder.mls;
+        else holder.mls = previousMls;
+        if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+        else (globalThis as { window?: unknown }).window = previousWindow;
+    }
+});

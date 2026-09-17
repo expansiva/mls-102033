@@ -6,7 +6,8 @@
 // config.json (monitor.config.load), task details in the nav3 Detail tab,
 // and menu mode 'custom' (the nav3 toolbar owns the mode tabs).
 
-import { setEnvironment, type CollabProgramMenu, type CollabProgramMenuItem } from '/_102036_/l2/environmentContract.js';
+import { setEnvironment, type CollabMessagesEnvironment, type CollabProgramMenu, type CollabProgramMenuItem } from '/_102036_/l2/environmentContract.js';
+import type { ExecutionContext, IAgentMeta } from '/_102036_/l2/shared/interfaces.js';
 import { notificationsRuntime } from '/_102025_/l2/notificationsRuntime.js';
 import { collabMessagesEnvironmentBase } from '/_102025_/l2/collabMessagesEnvironmentBase.js';
 
@@ -131,12 +132,75 @@ export async function openProgramUnified(item: { url?: string; pageName?: string
 // One iframe per foreign module tab, reused across menu clicks.
 const appFrames = new Map<string, HTMLIFrameElement>();
 
+// ── Agents ───────────────────────────────────────────────────────
+// Without this section the contract falls back to defaultAgents, whose
+// executeAgent RESOLVES doing nothing: on the VM an "@@agent" message spins
+// forever and nothing is logged, because the chat calls executeAgent
+// fire-and-forget and its try/catch never sees a failure. Same two functions
+// the Studio wires in _102020_/l2/collabMessagesEnvironment.ts.
+//
+// generateSvgAvatar stays on the contract default on purpose: the runtime
+// config keeps generateSvgAvatarEnabled() false (no UI calls it), and the
+// avatar agent lives in 102020 — a dependency a generic client app has no
+// reason to carry.
+//
+// The orchestration lib loads LAZILY. This module is applied on every
+// self-hosted messages panel, including apps whose studio bootstrap
+// (cbeMiniCfe) never finishes; pulling the whole agent stack at module load
+// would be dead weight there, and one more way to fail before the chat even
+// renders.
+
+/**
+ * The loader resolves an agent from mls.stor.files, filled by cbeMiniCfe
+ * (cbeLogin + preloadStorFiles). With an empty store it finds nothing and
+ * returns undefined, which reads downstream as "invalid agent" — so name the
+ * real cause here instead.
+ */
+function assertAgentRuntimeReady(): void {
+  const runtime = window as unknown as {
+    mls?: { stor?: { files?: Record<string, unknown> } };
+    collabMiniCfeReady?: boolean;
+  };
+  const files = runtime.mls?.stor?.files;
+  if (files && Object.keys(files).length > 0) return;
+  throw new Error(
+    '[runtimeMessagesEnvironment] agents unavailable: mls.stor.files is empty, the studio bootstrap did not finish'
+    + ` (window.mls=${Boolean(runtime.mls)}, window.collabMiniCfeReady=${Boolean(runtime.collabMiniCfeReady)})`,
+  );
+}
+
+async function orchestration() {
+  assertAgentRuntimeReady();
+  return import('/_102027_/l2/aiAgentOrchestration.js');
+}
+
+async function runtimeLoadAgent(agentName: string): Promise<IAgentMeta | null> {
+  const { loadAgent } = await orchestration();
+  const agent = await loadAgent(agentName);
+  return (agent ?? null) as IAgentMeta | null;
+}
+
+async function runtimeExecuteAgent(agentToCall: string, context: ExecutionContext): Promise<void> {
+  const { loadAgent, executeBeforePrompt } = await orchestration();
+  const agent = await loadAgent(agentToCall);
+  if (!agent) throw new Error(`[runtimeMessagesEnvironment] agent not found: ${agentToCall}`);
+  await executeBeforePrompt(agent, context);
+}
+
+/** Shared with project-provided asides (e.g. the 102051 cafe-flow aside), so
+ * the two hosts of collab-messages on the VM run agents the same way. */
+export const runtimeAgents: NonNullable<CollabMessagesEnvironment['agents']> = {
+  executeAgent: (agentToCall: string, context: ExecutionContext) => runtimeExecuteAgent(agentToCall, context),
+  loadAgent: (agentName: string) => runtimeLoadAgent(agentName),
+};
+
 /** Applies the generic runtime environment (call only when self-hosting —
  * a project-provided messages aside brings its own environment). */
 export function applyRuntimeMessagesEnvironment(): void {
   setEnvironment({
     ...collabMessagesEnvironmentBase,
     notifications: notificationsRuntime,
+    agents: runtimeAgents,
     config: {
       getMenuMode: () => 'custom',
       getApiUrl: () => `${window.location.origin}/msg`,
