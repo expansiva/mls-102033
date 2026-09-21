@@ -13,6 +13,10 @@
 // every caller of setFullScreen passes the level explicitly) that picks which stored profile to load
 // AND which slot of `user-msplit` to save into. Parking it on 7 while the client is up both restores
 // the client split and leaves the studio level's own preference untouched.
+//
+// Level 7 is the one level that looks the SAME in both modes: its profile is the client split, and
+// studio mode has to show exactly that. So nothing here ever gives l7 a layout of its own — in
+// particular the left-fullscreen the studio home pins on it is cleared and never handed back.
 
 /** The level whose stored profile IS the client layout. */
 export const CLIENT_LEVEL = 7;
@@ -31,15 +35,6 @@ interface SpliterElement extends HTMLElement {
 interface Nav1Element extends HTMLElement {
   actualLevel?: number;
 }
-
-/**
- * The studio's fullscreen flags, parked while the client borrows the spliter.
- *
- * The studio home pins level 7 to the left (serviceStart and collab-start-l7 call
- * `setFullScreen(7, 'left')`), which in client mode would hide the app entirely — so the client
- * always clears it, and gives it back on the way in.
- */
-let parkedFullscreen: string | null = null;
 
 function findSpliter(host: ParentNode): SpliterElement | null {
   return host.querySelector('collab-spliter') as SpliterElement | null;
@@ -69,7 +64,9 @@ export function applyClientSplit(host: ParentNode): void {
   const itemRight = items[1];
   if (!itemLeft || !itemRight) return;
 
-  if (parkedFullscreen === null) parkedFullscreen = spliter.getAttribute('msplit-fullscreen');
+  // Level 7 shows the client split in BOTH modes, so the fullscreen flag is cleared for good, not
+  // parked and handed back. The studio home pins it to the left (serviceStart and collab-start-l7
+  // call `setFullScreen(7, 'left')`); giving that back on the way in made l7 open at 100%.
   spliter.setFullScreen?.(CLIENT_LEVEL, 'default');
   spliter.setAttribute('level', String(CLIENT_LEVEL));
 
@@ -85,21 +82,12 @@ export function applyClientSplit(host: ParentNode): void {
 /**
  * Gives the spliter back to the studio level the nav1 is still on.
  *
- * Level first, fullscreen after: restoring the flags while the spliter still sits on the client level
- * would reload the client profile once before the right one.
+ * Only the level moves. Coming back to level 7 is a no-op on purpose: its profile IS the client
+ * split, which is what l7 has to show in studio mode too.
  */
 export function restoreStudioSplit(host: ParentNode): void {
   const spliter = findSpliter(host);
   if (!spliter) return;
   const level = studioLevel(host);
   if (level !== null) spliter.setAttribute('level', String(level));
-  if (parkedFullscreen !== null) {
-    spliter.setAttribute('msplit-fullscreen', parkedFullscreen);
-    parkedFullscreen = null;
-  }
-}
-
-/** Test seam: the parked flags are module state. */
-export function resetStudioSplit(): void {
-  parkedFullscreen = null;
 }
