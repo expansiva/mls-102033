@@ -5,10 +5,12 @@
 // cookie) — no network call ever leaves the VM.
 //
 // SLOTS
-// The driver's own slot is 'vm'. registerVmDriver registers only there: the
-// login (mls-102034/cbeLogin.ts) marks every VM project's projectDriver as
-// 'vm', including ones with no declared projectSettings, so getDefaultDriver
-// always resolves through this slot — no more borrowing 'github'.
+// The driver's own slot is 'vm', and only that one. The login
+// (mls-102034/cbeLogin.ts) announces projectDriver 'vm' for a project that
+// declares nothing, and whatever its l5/config.json projectSettings says when
+// it does — so a project asking for "GitHub" reaches the REAL git driver, which
+// initStudio.registerDrivers puts in the 'github' slot alongside this one. Each
+// project is served from where it says it lives.
 //
 // WHY THE SOURCES ARE NEEDED AT ALL
 // The login payload carries `jsContent` (compiled js), NOT the .ts source. So
@@ -89,11 +91,14 @@ async function execAction<T>(action: string, payload: Record<string, unknown>): 
 
 export class DriverVm extends mls.stor.others.DriverIOBase {
 
-  /** Diagnostic label only (DriverIOBase.shortName is typed mls.cbe.Provider, which has
-   * no 'vm' member) — actual slot registration is by the 'vm' string key passed to
-   * addDriver in registerVmDriver, not by this field. Kept as 'github' only because the
-   * abstract type requires a value from mls.cbe.Provider. */
-  public shortName: mls.cbe.Provider = 'github';
+  /**
+   * Diagnostic label: the actual slot comes from the 'vm' key passed to addDriver in
+   * registerDrivers, not from this field. It must NOT say 'github' — getDriversInfo
+   * reports it, and libGithubIo (mls-100554) gates on it to find the real git driver,
+   * which now occupies that slot for real. Cast because mls.cbe.Provider has no 'vm'
+   * member yet; the lib already resolves the name at runtime, only the type is behind.
+   */
+  public shortName = 'vm' as mls.cbe.Provider;
   /** Not bound to a single project: it serves every project the VM hosts. */
   public project: number = 0;
   public driverVersion: string = '1.0.0-vm';
@@ -129,7 +134,7 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     }));
   };
 
-  public setContents = async (project: number, fileInfos: mls.stor.IFileInfo[], _comments: string | null): Promise<boolean> => {
+  public setContents = async (project: number, fileInfos: mls.stor.IFileInfo[], comments: string | null): Promise<boolean> => {
     if (fileInfos.length === 0) return true;
     const files: IVmFilePayload[] = [];
     const deletes: string[] = [];
@@ -155,7 +160,10 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     }
 
     if (files.length === 0 && deletes.length === 0) return true;
-    const rc = await execAction<{ statusCode: number; msg?: string }>('setContents', { project, files, deletes });
+    // `comments` is the studio's save comment: on a git host it is the commit
+    // message, and the VM now uses it for exactly that (mls-102034 cbeGitCommit.ts),
+    // so it shows up in getHistory below.
+    const rc = await execAction<{ statusCode: number; msg?: string }>('setContents', { project, files, deletes, comments });
     if (rc.statusCode !== 200) throw new Error(`setContents: ${rc.msg || 'error'}`);
     return true;
   };
@@ -164,9 +172,9 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
    * Commits that touched the file, newest first — read from the project's git
    * repo on the VM (every mls-<id> there is one; see gitReposSetup.mjs).
    *
-   * CAVEAT: studio saves write the tree without committing, so this lists the
-   * PUBLISH history, not the edits made here. That is the honest answer today;
-   * commit-on-save is a separate decision.
+   * Studio saves DO commit (mls-102034 cbeGitCommit.ts commits what setContents
+   * wrote, with the caller's session as author and the save comment as message),
+   * so this lists both the publish history and the edits made here.
    *
    * Returns null only when the call itself failed — the UI reads null and an
    * empty list the same way, but null keeps "broke" distinct from "no commits".

@@ -86,7 +86,7 @@ export function setOrgActual(project: number): void {
   mls?.l5?.setActualOrg?.(orgIndex);
 }
 
-// ─── VM storage driver ───────────────────────────────────────────────────────
+// ─── Storage drivers ─────────────────────────────────────────────────────────
 
 interface MlsDriverApi {
   stor?: {
@@ -97,38 +97,91 @@ interface MlsDriverApi {
   };
 }
 
-let vmDriverRegistered = false;
+type DriverHost = NonNullable<NonNullable<MlsDriverApi['stor']>['others']>;
+
+/**
+ * The registration in flight (or the finished one). Memoizing the PROMISE, not a
+ * boolean: the studio reaches this from two doors — loadProjectDefinitions and
+ * studioHeader — that can fire close enough together to interleave. With a boolean
+ * claimed before the awaits, the second caller returned while the first was still
+ * loading, so `await registerDrivers()` resolved with the slots still empty and the
+ * next source read failed with `Driver _<project>_<name> not found`.
+ */
+let registration: Promise<void> | null = null;
 
 /** Clears the one-shot guard so tests can register again. */
 export function resetVmDriverRegistration(): void {
-  vmDriverRegistered = false;
+  registration = null;
 }
 
 /**
- * Registers the VM storage driver in its own 'vm' slot. The login now marks every VM
- * project's projectDriver as 'vm' (mls-102034/cbeLogin.ts), so getDefaultDriver resolves
- * here directly — no more borrowing the 'github' slot for projects with no declared destination.
+ * Puts one driver in its slot, unless something already holds it (a taken slot is a
+ * decision someone else already made).
  *
- * Lives here, not in the studio header: that header only mounts through the `setHeader(2)` path,
- * while Ctrl+Alt+S never creates it — and both need the driver. Dynamic import on purpose
- * (DriverVm extends a class that only exists once the lib is loaded). Idempotent and never fatal.
+ * Failure is contained per driver on purpose: the git drivers live in ANOTHER project
+ * (mls-100554) and may not be served by this VM — that must never cost us the VM driver,
+ * the only one that can read a source from local disk.
  */
-export async function registerVmDriver(): Promise<void> {
-  if (vmDriverRegistered) return;
+async function registerDriverInSlot(
+  others: DriverHost,
+  slot: string,
+  create: () => Promise<unknown>,
+): Promise<void> {
+  if (others.getDriver?.(slot)) return;
+  try {
+    others.addDriver?.(await create(), slot);
+    console.info(`[initStudio] driver registered in slot '${slot}'`);
+  } catch (err) {
+    console.warn(`[initStudio] driver for slot '${slot}' not registered — every getDefaultDriver call resolving to it will throw \`Driver _<project>_<name> not found\` until this succeeds:`, err);
+  }
+}
+
+/**
+ * Registers every storage driver this runtime can offer, each in ITS OWN slot:
+ *   vm     -> DriverVm (this project)      — sources read from / written to the VM disk
+ *   github -> DriverGitHub (mls-100554)    — the real git host
+ *   gitlab -> DriverGitLab (mls-100554)
+ *
+ * WHICH ONE A PROJECT USES IS THE PROJECT'S CHOICE: l5/config.json's projectSettings.driver
+ * reaches the browser through the login (cbeLogin.buildProjectSettings, which defaults to
+ * 'vm' when a project declares nothing) and getDefaultDriver maps that name to a slot. A
+ * project declaring "vm" is served from the VM disk; one declaring "GitHub" goes to the git
+ * host — which is why the 'github' slot gets the REAL driver and not a stand-in.
+ *
+ * Port of collabInit.setDrivers (mls-100554), which never runs on the VM runtime, plus the VM
+ * driver, which only exists here. Dynamic imports on purpose — these classes extend
+ * DriverIOBase, which only exists once the mls lib is loaded.
+ *
+ * Lives here, not in the studio header: that header only mounts through the `setHeader(2)`
+ * path, while Ctrl+Alt+S never creates it — and both need the drivers. cbeMiniCfe also calls
+ * it at boot, so a source read outside the studio finds the slots already filled. Callers can
+ * rely on the await: everyone shares the same in-flight registration.
+ */
+export function registerDrivers(): Promise<void> {
+  if (!registration) registration = runRegistration();
+  return registration;
+}
+
+async function runRegistration(): Promise<void> {
   const others = (window as unknown as { mls?: MlsDriverApi }).mls?.stor?.others;
   if (!others?.addDriver) {
-    console.warn('[initStudio] mls.stor.others.addDriver unavailable — VM driver not registered; any getDefaultDriver call for a "vm" project will throw "slot \'vm\' has no driver registered" until this resolves');
+    console.warn('[initStudio] mls.stor.others.addDriver unavailable — no driver registered; any getDefaultDriver call will throw until this resolves');
     return;
   }
-  try {
+  await registerDriverInSlot(others, 'vm', async () => {
     const { DriverVm } = await import('/_102033_/l2/cbe/driverVm.js');
-    const driver = new DriverVm();
-    others.addDriver(driver, 'vm');
-    vmDriverRegistered = true;
-    console.info('[initStudio] VM storage driver registered');
-  } catch (err) {
-    console.warn('[initStudio] VM driver registration failed — VM project storage reads will throw "slot \'vm\' has no driver registered" until this succeeds:', err);
-  }
+    return new DriverVm();
+  });
+  await registerDriverInSlot(others, 'github', async () => {
+    const url = '/_100554_/l2/driverGithub.js';
+    const { DriverGitHub } = await import(url);
+    return new DriverGitHub();
+  });
+  await registerDriverInSlot(others, 'gitlab', async () => {
+    const url = '/_100554_/l2/driverGitlab.js';
+    const { DriverGitLab } = await import(url);
+    return new DriverGitLab();
+  });
 }
 
 // ─── Project definition models (.d.ts of the dependency chain) ───────────────
@@ -165,9 +218,9 @@ let definitionsLoaded = false;
  */
 export async function loadProjectDefinitions(project: number): Promise<void> {
   if (definitionsLoaded || !project) return;
-  // Creating the models reads project SOURCES on a cache miss — without the VM driver that read
-  // has nothing registered in the 'vm' slot and throws `Driver _<project>_vm not found`.
-  await registerVmDriver();
+  // Creating the models reads project SOURCES on a cache miss — without the drivers that read
+  // has nothing registered in the project's slot and throws `Driver _<project>_<name> not found`.
+  await registerDrivers();
   // Called from the studio switch, which can happen before the Monaco download finishes — the
   // editor API below only exists after it. cbeMiniCfe sets this promise at boot.
   if (window.monacoReady) await window.monacoReady.catch(() => undefined);

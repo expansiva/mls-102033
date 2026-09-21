@@ -20,8 +20,8 @@ import { LitElement, html } from 'lit';
 import { getRuntimeLanguage } from '/_102033_/l2/shared/languageRuntime.js';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 // The VM storage driver registration lives with the rest of the runtime studio bootstrap —
-// this header is only ONE of the paths that needs it (see initStudio.registerVmDriver).
-import { registerVmDriver } from '/_102033_/l2/cbe/initStudio.js';
+// this header is only ONE of the paths that needs it (see initStudio.registerDrivers).
+import { registerDrivers } from '/_102033_/l2/cbe/initStudio.js';
 import {
   STUDIO_BASE_PROJECT,
   ANONYMOUS_SERVICES,
@@ -148,10 +148,10 @@ export class CbeStudioHeader extends LitElement {
   private async loadNavModules(): Promise<void> {
     try {
       ensureStudioPageAssets();
-      // Before anything can read a SOURCE file: without it the cfe has no driver
-      // registered in the 'vm' slot (the login marks every VM project as 'vm')
-      // and every cache miss throws "Driver _<project>_vm not found".
-      await registerVmDriver();
+      // Before anything can read a SOURCE file: without the drivers registered, a cache
+      // miss has no driver in the slot the project asked for and throws
+      // "Driver _<project>_<name> not found". Idempotent — cbeMiniCfe already did it at boot.
+      await registerDrivers();
       // Served by the mls service worker from the IndexedDB the cbe login
       // fills (server compiled.zip fallback covers the SW-less first load).
       await Promise.all(STUDIO_MODULES.map((name) => import(`/_${STUDIO_PROJECT}_/l2/${name}.js`)));

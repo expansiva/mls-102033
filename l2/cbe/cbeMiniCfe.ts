@@ -11,8 +11,9 @@
 //   mls.stor.localDB.getAllKeys()   -> keys persisted in IndexedDB (mlsDB)
 
 import { getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
-import { setOrgActual, listenForLoadMonaco } from '/_102033_/l2/cbe/initStudio.js';
+import { setOrgActual, listenForLoadMonaco, registerDrivers } from '/_102033_/l2/cbe/initStudio.js';
 import { loadMlsScript } from '/_102033_/l2/cbe/cbeMiniCfeLoad.js';
+import { installReleaseConsoleHelper } from '/_102033_/l2/cbe/releaseInfo.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 
 // Base project of the studio environment (the studio core, mls-100554). Same
@@ -38,6 +39,10 @@ export async function initCbeMiniCfe(): Promise<void> {
     return;
   }
   console.info(`[cbeMiniCfe] v${CBE_MINI_CFE_VERSION} starting`);
+  // Before anything can fail: whatever happens to the bootstrap below, the console
+  // must be able to ask which release is answering — that is often the first
+  // question when something looks stale. Pure function publishing, no I/O.
+  installReleaseConsoleHelper();
   // Gated host without a loginUser cookie: show the sign-in page RIGHT AWAY —
   // before the mls lib loads and the /exec login round-trip runs — so an
   // anonymous visitor never stares at a half-booted app. The post-login call
@@ -90,6 +95,16 @@ export async function initCbeMiniCfe(): Promise<void> {
     // page (collab-auth redirect). The 'login' action itself never logs anyone
     // in — it only delivers studio sources once a JWT session exists.
     showLoginGateIfNeeded();
+
+    // Storage drivers BEFORE anything can read a source. The login only ships
+    // compiled js, so every .ts read — the explore plugin opening a file, an agent,
+    // l5Save, a reread after F5 — is a cache miss that lands on the driver of the
+    // slot the project asked for. Registering this from the studio alone (the
+    // Ctrl+Alt+S path and the studio header) left a window in which a click could
+    // arrive first and fail with `Driver _<project>_<name> not found`.
+    // Idempotent and never fatal — the studio paths still call it and now simply
+    // await this same registration.
+    await registerDrivers();
 
     // Preload mls.stor.files for the site's project + dependencies. This is
     // what "opening" a project in the studio does; here everything resolves
