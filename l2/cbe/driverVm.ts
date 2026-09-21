@@ -20,6 +20,8 @@
 // window.mls is up — never with a static import.
 
 const EXEC_URL = '/exec';
+/** Same-origin page that shows one source file — see getUrl. */
+const SOURCE_VIEW_URL = '/cbe/source';
 
 interface IVmFilePayload {
   shortPath: string;
@@ -38,6 +40,28 @@ interface IVmFilesInfoResponse {
   statusCode: number;
   msg?: string;
   filesInfo?: mls.cbe.IPrjSourcesFiles[];
+}
+
+/** One commit, as cbeGit reports it. `date` is ISO-8601; IHistory calls it `data`. */
+interface IVmHistoryEntry {
+  ref: string;
+  authorName: string;
+  date: string;
+  message: string;
+  additions: number;
+  deletions: number;
+}
+
+interface IVmHistoryResponse {
+  statusCode: number;
+  msg?: string;
+  history?: IVmHistoryEntry[];
+}
+
+interface IVmHistoryContentResponse {
+  statusCode: number;
+  msg?: string;
+  content?: string | null;
 }
 
 /**
@@ -136,6 +160,57 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     return true;
   };
 
+  /**
+   * Commits that touched the file, newest first — read from the project's git
+   * repo on the VM (every mls-<id> there is one; see gitReposSetup.mjs).
+   *
+   * CAVEAT: studio saves write the tree without committing, so this lists the
+   * PUBLISH history, not the edits made here. That is the honest answer today;
+   * commit-on-save is a separate decision.
+   *
+   * Returns null only when the call itself failed — the UI reads null and an
+   * empty list the same way, but null keeps "broke" distinct from "no commits".
+   */
+  public async getHistory(fileInfo: mls.stor.IFileInfo): Promise<mls.stor.IHistory[] | null> {
+    // A file that was never saved has nothing in git, and asking costs a round trip.
+    if (fileInfo.status === 'new') return [];
+    try {
+      const rc = await execAction<IVmHistoryResponse>('getHistory', {
+        project: fileInfo.project,
+        shortPath: toShortPath(fileInfo),
+      });
+      if (rc.statusCode !== 200) return null;
+      return (rc.history ?? []).map((entry) => ({
+        authorName: entry.authorName,
+        // No avatars on the VM; mlsHistoryList falls back to a generic icon when empty.
+        authorUrl: '',
+        data: new Date(entry.date),
+        ref: entry.ref,
+        message: entry.message,
+        additions: entry.additions,
+        deletions: entry.deletions,
+      }));
+    } catch {
+      // The history panel is an accessory — a failure here must not break the editor.
+      return null;
+    }
+  }
+
+  /** The file's content at one commit of getHistory, for the side-by-side diff. */
+  public async getHistoryContent(fileInfo: mls.stor.IFileInfo, ref: string): Promise<string | null> {
+    try {
+      const rc = await execAction<IVmHistoryContentResponse>('getHistoryContent', {
+        project: fileInfo.project,
+        shortPath: toShortPath(fileInfo),
+        ref,
+      });
+      if (rc.statusCode !== 200) return null;
+      return rc.content ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   public async loadFilesInfo(project: number): Promise<mls.cbe.IPrjSourcesFiles[]> {
     const rc = await execAction<IVmFilesInfoResponse>('loadFilesInfo', { project });
     if (rc.statusCode !== 200) throw new Error(`loadFilesInfo: ${rc.msg || 'error'}`);
@@ -165,14 +240,31 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     return { shortPath, content: btoa(binary), encoding: 'base64' };
   }
 
-  // ── Not supported on the VM ───────────────────────────────────────────────
-  // History, branches and pull requests belong to a git host. They return the
-  // "nothing here" value of their contract instead of throwing, so the studio
-  // UI degrades quietly rather than breaking on a feature the VM has no notion of.
+  /**
+   * Where the editor's "View on repository" goes. On the VM the repository IS
+   * the VM, so this points at the cbe's own source view, which reads the same
+   * tree getContents reads.
+   *
+   * getUrl is SYNCHRONOUS by contract, so whatever it returns has to be
+   * derivable here, without a round trip — which rules out asking the server
+   * for a real git remote. A same-origin url is the only honest answer.
+   *
+   * Uses toShortPath, so the level is part of the path: the GitHub driver
+   * hardcodes `/l2/` and therefore points an l1 file at a path that does not
+   * exist.
+   */
+  public getUrl(file: mls.stor.IFileInfo): string {
+    if (!file?.project) return '';
+    return `${SOURCE_VIEW_URL}?project=${file.project}&path=${encodeURIComponent(toShortPath(file))}`;
+  }
 
-  public async getHistory(_fileInfo: mls.stor.IFileInfo): Promise<mls.stor.IHistory[] | null> { return null; }
-  public async getHistoryContent(_fileInfo: mls.stor.IFileInfo, _ref: string): Promise<string | null> { return null; }
-  public getUrl(_file: mls.stor.IFileInfo): string { return ''; }
+  // ── Not supported on the VM ───────────────────────────────────────────────
+  // Branches and pull requests belong to a git host: the VM has the repository
+  // but no notion of review. They return the "nothing here" value of their
+  // contract instead of throwing, so the studio UI degrades quietly rather than
+  // breaking on a feature that does not exist here. (History and getUrl are NOT
+  // in this list — both are served by the VM itself, above.)
+
   public async getVersionFromFiles(): Promise<{ [key: string]: string } | undefined> { return undefined; }
   public async checkBranchExistence(): Promise<boolean> { return false; }
   public async reviewPullRequest(): Promise<boolean> { return false; }

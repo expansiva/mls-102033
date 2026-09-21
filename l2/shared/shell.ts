@@ -398,6 +398,29 @@ export class CollabAuraShell extends LitElement {
       .catch((error) => console.warn('[aura-shell] could not restore the runtime services', error));
   }
 
+  /**
+   * Swaps the spliter between the client layout (messages at 375px, the app taking the rest) and the
+   * layout the studio level the user is on prefers.
+   *
+   * Ctrl+Alt+S used to restore only the nav3 services, so a studio session that ended on l2 dropped
+   * the client into the 50/50 that level 2 defaults to. The nav1 tab is deliberately NOT touched:
+   * it holds the studio context, and re-entering has to land where the user left.
+   */
+  private syncStructureSplit(studio: boolean): void {
+    const host = this.querySelector('.studio-structure-host');
+    if (!host || !this.structureUpgraded) return;
+    void import('/_102033_/l2/cbe/studioSplit.js')
+      .then((module) => {
+        const mod = module as {
+          applyClientSplit?: (host: ParentNode) => void;
+          restoreStudioSplit?: (host: ParentNode) => void;
+        };
+        if (studio) mod.restoreStudioSplit?.(host);
+        else mod.applyClientSplit?.(host);
+      })
+      .catch((error) => console.warn('[aura-shell] could not sync the structure split', error));
+  }
+
   private async setRegionRenderer(
     region: AuraDynamicRegionName,
     renderer: MasterFrontendRegionRendererConfig,
@@ -452,9 +475,10 @@ export class CollabAuraShell extends LitElement {
       void this.rotateDesignSystem();
       return;
     }
-    // Ctrl+Alt+S swaps ONLY the top 66px. Upgraded structure: toggle the client
-    // banner overlay (production covers nav1+nav2; studio reveals them — the
-    // workspace below never changes). Classic layout: rotate header profiles.
+    // Ctrl+Alt+S toggles the client banner overlay (production covers nav1+nav2; studio reveals
+    // them). Below those 66px the DOM is the same either way, but WHICH services the nav3s show and
+    // HOW the spliter is divided belong to the mode, and both have to be swapped by hand.
+    // Classic layout: rotate header profiles.
     if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && event.code === 'KeyS') {
       event.preventDefault();
       if (this.structureUpgraded) {
@@ -467,11 +491,17 @@ export class CollabAuraShell extends LitElement {
           // is already armed (TASK-102020-live-update-stand-in).
           rememberElementSwapForNextBoot();
           this.loadStudioDefinitions();
+          // Back to the level the nav1 never left, with its own split.
+          this.syncStructureSplit(true);
         }
         // Back to client mode: the banner returns, and the nav3s must show the client's own
         // services again. The toolbars remember the last service opened — by now a studio one —
-        // so the runtime pair has to be forced, not restored.
-        else this.showRuntimeServices();
+        // so the runtime pair has to be forced, not restored. Same for the split: the studio level
+        // the user was on has its own, and the client's has to be put back.
+        else {
+          this.showRuntimeServices();
+          this.syncStructureSplit(false);
+        }
       } else {
         this.rotateHeaderProfile();
       }

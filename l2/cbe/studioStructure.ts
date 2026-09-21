@@ -14,7 +14,9 @@
 // Production vs studio mode is ONLY the top 66px: the client banner (header
 // region, turned into a fixed 66px overlay) covers nav1+nav2; studio mode
 // hides the banner and the studio bars appear ("nav1 e nav2 ficam embaixo do
-// header do cliente"). Everything below never changes between modes.
+// header do cliente"). The DOM below is the same in both modes — what the mode
+// owns there is which services the nav3s show (showRuntimeServices) and how the
+// spliter is divided (studioSplit.ts).
 //
 // The first paint keeps the classic lightweight layout; the shell calls
 // upgradeToStudioStructure() in the background and swaps only when every
@@ -31,6 +33,7 @@ import {
   SERVICE_APP,
 } from '/_102033_/l2/cbe/studioHeader.js';
 import { setStudioTailwind } from '/_102033_/l2/cbe/studioTailwind.js';
+import { applyClientSplit } from '/_102033_/l2/cbe/studioSplit.js';
 // Runtime services must be DEFINED before the nav3 instances them (the nav3
 // attaches directly when customElements.get(tag) resolves).
 import '/_102033_/l2/cbe/serviceClientApp.js';
@@ -151,20 +154,16 @@ export async function upgradeToStudioStructure(container: HTMLElement, siteProje
 
   nav1.setAttribute('status', 'enabled');
 
-  // Production split: messages fixed-ish at 375px left, the app taking the
-  // rest (the photo layout). msplit is the spliter's own channel (it also
-  // persists the per-level preference); clear any hidden/closed leftovers from
-  // stored level-7 preferences (the studio home is left-fullscreen there).
-  const applySplit = () => {
-    const total = window.innerWidth;
-    const left = 375;
-    const right = Math.max(200, total - left - 8);
-    itemLeft.classList.remove('hidden', 'closed');
-    itemRight.classList.remove('hidden', 'closed');
-    spliter.setAttribute('msplit', `${left},${right}`);
-  };
-  applySplit();
-  setTimeout(applySplit, 600);
+  // Production split: messages fixed-ish at 375px left, the app taking the rest (the photo layout).
+  // What "the client layout" is lives in studioSplit.ts — the same code Ctrl+Alt+S runs on the way
+  // out of studio mode, so the first paint and every later return agree by construction.
+  applyClientSplit(container);
+  // Second pass once the first layout settles. By then the user could (barely) have pressed
+  // Ctrl+Alt+S already, so it never overrides an active studio mode.
+  setTimeout(() => {
+    if (container.closest('collab-aura-shell')?.getAttribute('data-studio-mode') === 'true') return;
+    applyClientSplit(container);
+  }, 600);
 
   return page;
 }

@@ -26,7 +26,7 @@ export const RUNTIME_STUDIO_SERVICES = [
 // runtime through the normal scan of 102020 (a real dependency of every Aura client). dropScannedStudio
 // must let exactly these through even though they carry the _100554_ prefix, or the blanket 100554
 // filter below strips them right back out.
-const SCANNED_STUDIO_ALLOWLIST = new Set(['_100554_serviceSource', '_100554_serviceUnit', '_100554_serviceSourceL1', '_100554_serviceSave', '_100554_serviceProject']);
+const SCANNED_STUDIO_ALLOWLIST = new Set(['_100554_serviceSource', '_100554_serviceUnit', '_100554_serviceSourceL1', '_100554_serviceSave', '_100554_serviceProject', '_100554_serviceHistories', '_100554_serviceUser']);
 
 type Nav2State = Element & { state_?: Record<number, Record<string, string>> };
 
