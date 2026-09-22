@@ -152,10 +152,11 @@ async function registerDriverInSlot(
  * driver, which only exists here. Dynamic imports on purpose — these classes extend
  * DriverIOBase, which only exists once the mls lib is loaded.
  *
- * Lives here, not in the studio header: that header only mounts through the `setHeader(2)`
- * path, while Ctrl+Alt+S never creates it — and both need the drivers. cbeMiniCfe also calls
- * it at boot, so a source read outside the studio finds the slots already filled. Callers can
- * rely on the await: everyone shares the same in-flight registration.
+ * ON DEMAND, when the studio opens — never at boot: an app visitor never reads a .ts
+ * source, so an app page must not pay for these imports. Called from BOTH studio doors
+ * (loadProjectDefinitions, reached by Ctrl+Alt+S, and studioHeader): the header only
+ * mounts through the `setHeader(2)` path, which Ctrl+Alt+S never takes. Callers can rely
+ * on the await: everyone shares the same in-flight registration.
  */
 export function registerDrivers(): Promise<void> {
   if (!registration) registration = runRegistration();

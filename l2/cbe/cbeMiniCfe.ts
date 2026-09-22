@@ -11,7 +11,7 @@
 //   mls.stor.localDB.getAllKeys()   -> keys persisted in IndexedDB (mlsDB)
 
 import { getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
-import { setOrgActual, listenForLoadMonaco, registerDrivers } from '/_102033_/l2/cbe/initStudio.js';
+import { setOrgActual, listenForLoadMonaco } from '/_102033_/l2/cbe/initStudio.js';
 import { loadMlsScript } from '/_102033_/l2/cbe/cbeMiniCfeLoad.js';
 import { installReleaseConsoleHelper } from '/_102033_/l2/cbe/releaseInfo.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
@@ -96,15 +96,11 @@ export async function initCbeMiniCfe(): Promise<void> {
     // in — it only delivers studio sources once a JWT session exists.
     showLoginGateIfNeeded();
 
-    // Storage drivers BEFORE anything can read a source. The login only ships
-    // compiled js, so every .ts read — the explore plugin opening a file, an agent,
-    // l5Save, a reread after F5 — is a cache miss that lands on the driver of the
-    // slot the project asked for. Registering this from the studio alone (the
-    // Ctrl+Alt+S path and the studio header) left a window in which a click could
-    // arrive first and fail with `Driver _<project>_<name> not found`.
-    // Idempotent and never fatal — the studio paths still call it and now simply
-    // await this same registration.
-    await registerDrivers();
+    // NOTE: the storage drivers are deliberately NOT registered here. They are
+    // instantiated on demand, when the studio opens (initStudio.loadProjectDefinitions,
+    // reached by Ctrl+Alt+S, and studioHeader) — an app visitor never reads a .ts
+    // source, so an app page pays nothing for them. The cost of this choice: any
+    // source read attempted before the studio opens finds an empty slot.
 
     // Preload mls.stor.files for the site's project + dependencies. This is
     // what "opening" a project in the studio does; here everything resolves
