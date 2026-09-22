@@ -8,7 +8,6 @@ import test from 'node:test';
 import {
   CLIENT_LEFT_PX,
   applyClientSplit,
-  resetStudioSplit,
   restoreStudioSplit,
   studioLevel,
 } from '/_102033_/l2/cbe/studioSplit.js';
@@ -162,7 +161,6 @@ function navigateTo(spliter: FakeSpliter, nav1: FakeNav1, lvl: number): void {
 }
 
 test('the client layout survives a studio session that ended on l2', () => {
-  resetStudioSplit();
   const spliter = fakeSpliter();
   const nav1: FakeNav1 = { actualLevel: 7, getAttribute: () => null };
   const host = fakeHost(spliter, nav1);
@@ -189,7 +187,6 @@ test('the client layout survives a studio session that ended on l2', () => {
 });
 
 test('the client split is saved to level 7, never to the studio level the user was on', () => {
-  resetStudioSplit();
   const spliter = fakeSpliter();
   const nav1: FakeNav1 = { actualLevel: 7, getAttribute: () => null };
   const host = fakeHost(spliter, nav1);
@@ -211,8 +208,7 @@ test('the client split is saved to level 7, never to the studio level the user w
   assert.ok(levelIndex > -1 && msplitIndex > levelIndex, `level must be parked before msplit: ${spliter.log.join(' | ')}`);
 });
 
-test('the studio home being left-fullscreen does not follow the user into client mode', () => {
-  resetStudioSplit();
+test('level 7 keeps the client size in studio mode too', () => {
   const spliter = fakeSpliter();
   const nav1: FakeNav1 = { actualLevel: 7, getAttribute: () => null };
   const host = fakeHost(spliter, nav1);
@@ -227,15 +223,16 @@ test('the studio home being left-fullscreen does not follow the user into client
   assert.equal(spliter.widths.left, CLIENT_LEFT_PX, 'the app must be visible in client mode');
   assert.ok(spliter.widths.right > 0);
 
-  // On the way back in, the studio gets its flags back.
+  // Back into the studio on l7: the pin is gone for good, so l7 shows what the client shows.
+  // Handing the flag back was the bug — l7 opened at 100%.
   restoreStudioSplit(host);
-  assert.equal(spliter.fullscreen[7], 'left');
+  assert.equal(spliter.fullscreen[7], '');
   navigateTo(spliter, nav1, 7);
-  assert.equal(spliter.widths.right, 0);
+  assert.equal(spliter.widths.left, CLIENT_LEFT_PX);
+  assert.ok(spliter.widths.right > 0);
 });
 
 test('a panel the spliter had collapsed is reopened for the client', () => {
-  resetStudioSplit();
   const spliter = fakeSpliter();
   const host = fakeHost(spliter, { actualLevel: 2, getAttribute: () => null });
 
@@ -246,8 +243,7 @@ test('a panel the spliter had collapsed is reopened for the client', () => {
   }
 });
 
-test('re-entering without a client detour leaves the fullscreen flags alone', () => {
-  resetStudioSplit();
+test('coming back into the studio moves the level and nothing else', () => {
   const spliter = fakeSpliter();
   const nav1: FakeNav1 = { actualLevel: 5, getAttribute: () => null };
   const host = fakeHost(spliter, nav1);
@@ -268,7 +264,6 @@ test('the nav1 level is read from the tab when the element is not upgraded yet',
 });
 
 test('nothing blows up when the structure is not there', () => {
-  resetStudioSplit();
   const empty = fakeHost(null, null);
   assert.doesNotThrow(() => applyClientSplit(empty));
   assert.doesNotThrow(() => restoreStudioSplit(empty));
