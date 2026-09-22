@@ -59,7 +59,7 @@ async function onLoadMonaco(): Promise<void> {
  * and then await window.monacoReady — this host is the one that creates it.
  */
 export function listenForLoadMonaco(): void {
-  mls.events?.addEventListener([2], ['LoadMonaco'], onLoadMonaco);
+  mls.events?.addEventListener([2], ['LoadMonaco'] as unknown as mls.events.TypeEvent[], onLoadMonaco);
 }
 
 // ─── Organization context ─────────────────────────────────────────────────────
