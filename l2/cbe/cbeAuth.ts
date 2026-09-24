@@ -15,6 +15,117 @@
 
 const AUTH_BASE_URL = 'https://auth.collab.codes';
 
+interface AuthSessionResponse {
+  statusCode: number;
+  code?: string;
+  orgs?: Array<{ id: string; name: string }>;
+}
+
+/** Complete the existing OAuth callback before the shared cfe login consumes it. */
+export async function establishRuntimeAuthSession(): Promise<void> {
+  if (!window.location.hash.includes('access_token=')) return;
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const accessToken = params.get('access_token') ?? '';
+  const refreshToken = params.get('refresh_token') ?? '';
+  history.replaceState(null, '', window.location.pathname);
+  if (!accessToken) return;
+
+  const establish = async (orgId?: string): Promise<AuthSessionResponse> => {
+    const response = await fetch('/exec', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'authSession', access_token: accessToken, refresh_token: refreshToken, ...(orgId ? { org_id: orgId } : {}) }),
+    });
+    return response.json() as Promise<AuthSessionResponse>;
+  };
+
+  try {
+    const initial = await establish();
+    if (initial.statusCode === 200) return;
+    if (initial.code !== 'ORG_SELECTION_REQUIRED') {
+      showAuthNotice('Não foi possível estabelecer a sessão. Entre novamente.');
+      return;
+    }
+    const orgs = Array.isArray(initial.orgs) ? initial.orgs : [];
+    if (!orgs.length) {
+      showAuthNotice('Sua conta não possui uma organização disponível. Solicite acesso ao administrador.');
+      return;
+    }
+    await chooseOrganization(orgs, establish);
+  } catch {
+    showAuthNotice('Não foi possível estabelecer a sessão. Verifique a conexão e entre novamente.');
+  }
+}
+
+function authPanel(message: string): { panel: HTMLDivElement; content: HTMLDivElement } {
+  const panel = document.createElement('div');
+  panel.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:#f7f4ea;font-family:"Segoe UI",sans-serif;';
+  const content = document.createElement('div');
+  content.style.cssText = 'background:white;border:1px solid #e2e8f0;border-radius:12px;padding:32px;max-width:440px;box-shadow:0 12px 40px #102a4320;';
+  const title = document.createElement('h2');
+  title.textContent = 'Organização da sessão';
+  const description = document.createElement('p');
+  description.textContent = message;
+  content.append(title, description);
+  panel.append(content);
+  document.body.append(panel);
+  return { panel, content };
+}
+
+function showAuthNotice(message: string): void {
+  const { content } = authPanel(message);
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.textContent = 'Entrar novamente';
+  retry.addEventListener('click', () => startCollabLogin());
+  content.append(retry);
+}
+
+async function chooseOrganization(
+  orgs: Array<{ id: string; name: string }>,
+  establish: (orgId: string) => Promise<AuthSessionResponse>,
+): Promise<void> {
+  const { panel, content } = authPanel(orgs.length === 1
+    ? 'Confirme a organização antes de continuar.'
+    : 'Selecione a organização para esta sessão.');
+  const error = document.createElement('p');
+  error.setAttribute('role', 'alert');
+  const buttons: HTMLButtonElement[] = [];
+  for (const org of orgs) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = org.name;
+    button.style.cssText = 'display:block;margin:8px 0;padding:10px 14px;cursor:pointer;';
+    buttons.push(button);
+    content.append(button);
+  }
+  content.append(error);
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.textContent = 'Entrar novamente';
+  retry.addEventListener('click', () => startCollabLogin());
+  content.append(retry);
+  await new Promise<void>((resolve) => {
+    orgs.forEach((org, index) => buttons[index].addEventListener('click', async () => {
+      buttons.forEach(button => { button.disabled = true; });
+      error.textContent = '';
+      try {
+        const result = await establish(org.id);
+        if (result.statusCode === 200) {
+          panel.remove();
+          resolve();
+          return;
+        }
+        error.textContent = 'Seleção não autorizada. Entre novamente ou solicite acesso.';
+      } catch {
+        error.textContent = 'Não foi possível confirmar a organização. Tente novamente.';
+      }
+      buttons.forEach(button => { button.disabled = false; });
+    }));
+  });
+}
+
 export type CollabAuthProvider = 'google';
 
 /** The logged user from the JS-readable `loginUser` cookie ('' when anonymous). */

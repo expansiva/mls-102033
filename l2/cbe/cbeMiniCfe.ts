@@ -10,7 +10,7 @@
 //   mls.stor.orgs                   -> orgs/projects returned by the login
 //   mls.stor.localDB.getAllKeys()   -> keys persisted in IndexedDB (mlsDB)
 
-import { getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
+import { establishRuntimeAuthSession, getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
 import { setOrgActual, listenForLoadMonaco } from '/_102033_/l2/cbe/initStudio.js';
 import { loadMlsScript } from '/_102033_/l2/cbe/cbeMiniCfeLoad.js';
 import { installReleaseConsoleHelper } from '/_102033_/l2/cbe/releaseInfo.js';
@@ -24,7 +24,7 @@ import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 const CBE_BASE_PROJECT = 100554;
 
 // Bump on every change so the console shows which build is live on the VM.
-const CBE_MINI_CFE_VERSION = '1.3.2';
+const CBE_MINI_CFE_VERSION = '1.3.3';
 
 export async function initCbeMiniCfe(): Promise<void> {
   // Embedded frames (foreign modules in nav3 content tabs) render content
@@ -49,6 +49,7 @@ export async function initCbeMiniCfe(): Promise<void> {
   // below removes it once the session exists.
   showLoginGateIfNeeded();
   try {
+    await establishRuntimeAuthSession();
     const t0 = performance.now();
     await loadMlsScript();
     const mls = window.mls;
