@@ -49,7 +49,7 @@ export async function initCbeMiniCfe(): Promise<void> {
   // below removes it once the session exists.
   showLoginGateIfNeeded();
   try {
-    await establishRuntimeAuthSession();
+    if (!await establishRuntimeAuthSession()) return;
     const t0 = performance.now();
     await loadMlsScript();
     const mls = window.mls;

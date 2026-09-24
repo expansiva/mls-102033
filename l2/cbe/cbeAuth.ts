@@ -22,13 +22,13 @@ interface AuthSessionResponse {
 }
 
 /** Complete the existing OAuth callback before the shared cfe login consumes it. */
-export async function establishRuntimeAuthSession(): Promise<void> {
-  if (!window.location.hash.includes('access_token=')) return;
+export async function establishRuntimeAuthSession(): Promise<boolean> {
+  if (!window.location.hash.includes('access_token=')) return true;
   const params = new URLSearchParams(window.location.hash.slice(1));
   const accessToken = params.get('access_token') ?? '';
   const refreshToken = params.get('refresh_token') ?? '';
   history.replaceState(null, '', window.location.pathname);
-  if (!accessToken) return;
+  if (!accessToken) return false;
 
   const establish = async (orgId?: string): Promise<AuthSessionResponse> => {
     const response = await fetch('/exec', {
@@ -42,19 +42,21 @@ export async function establishRuntimeAuthSession(): Promise<void> {
 
   try {
     const initial = await establish();
-    if (initial.statusCode === 200) return;
+    if (initial.statusCode === 200) return true;
     if (initial.code !== 'ORG_SELECTION_REQUIRED') {
       showAuthNotice('Não foi possível estabelecer a sessão. Entre novamente.');
-      return;
+      return false;
     }
     const orgs = Array.isArray(initial.orgs) ? initial.orgs : [];
     if (!orgs.length) {
       showAuthNotice('Sua conta não possui uma organização disponível. Solicite acesso ao administrador.');
-      return;
+      return false;
     }
     await chooseOrganization(orgs, establish);
+    return true;
   } catch {
     showAuthNotice('Não foi possível estabelecer a sessão. Verifique a conexão e entre novamente.');
+    return false;
   }
 }
 
