@@ -192,7 +192,12 @@ export class ServiceRuntimeMessages extends ServiceBase {
 
     let name = 'nothing selected';
 
-    switch (this.activeTab) {
+    // A aba ativa e' do componente interno, nao deste service — e' assim que ela e' lida no resto
+    // do arquivo (ver `setActiveTab` e a criacao do elemento). `this.activeTab` nao existe aqui e
+    // era erro de compilacao: TS2339 em `ServiceRuntimeMessages`.
+    const messages = this.querySelector('collab-messages-102025') as (HTMLElement & { activeTab?: string }) | null;
+
+    switch (messages?.activeTab) {
       case 'CRM':
         name = 'collab-messages-chat-102025';
         break;
