@@ -93,6 +93,47 @@ test('the constructed list declares only the studio widgets the runtime uses', a
   assert.equal(widgetsOn(services[0], 'left').includes('_102099_serviceOwn'), true);
 });
 
+test('a dependency that fails to load costs only its own services', async () => {
+  const BROKEN = 102021;
+  const stub: MlsPluginApi = {
+    plugin: {
+      loadAll: async () => undefined,
+      getAllMenuActions: (project, { scope }) => {
+        if (scope !== 'l2ServicesRight') return [];
+        if (project === DEP) return [{ widget: '_102033_/l2/serviceFromDep', priority: 1 }];
+        if (project === BROKEN) return [{ widget: '_102021_/l2/serviceFromBroken', priority: 1 }];
+        return [];
+      },
+    },
+    l5: { getProjectDependencies: () => [BROKEN, DEP] },
+    stor: {
+      server: {
+        // What mls.js does for a file without extension (fixtures/.../SOURCE in 102021).
+        loadProjectInfoIfNeeded: async (project) => {
+          if (project === BROKEN) throw new Error('loadProjectInfoIfNeeded, invalid path: l2/x/SOURCE');
+        },
+      },
+    },
+    actual: [{
+      setFullName: (widget: string) => ({ path: widget, getStorFileBase: () => ({ shortName: widget.split('/').pop() }) }),
+    }],
+  };
+
+  const originalWarn = console.warn;
+  console.warn = () => undefined;
+  let services: string[];
+  try {
+    services = await buildStudioServices(SITE, stub);
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.notDeepEqual(services, ANONYMOUS_SERVICES);
+  const right = widgetsOn(services[2], 'right');
+  assert.equal(right.includes('_102033_/l2/serviceFromDep'), true);
+  assert.equal(right.includes('_102021_/l2/serviceFromBroken'), false);
+});
+
 test('an undeclared _100554_ widget from the scan is dropped, not kept', () => {
   const services = withRuntimeServices([
     `_100554_serviceUser;_100554_servicePreview,${RUNTIME_STUDIO_SERVICES[0]}`,

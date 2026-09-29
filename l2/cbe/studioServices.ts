@@ -105,11 +105,17 @@ export async function buildStudioServices(
 ): Promise<string[]> {
   if (!api?.plugin?.loadAll || !api.plugin.getAllMenuActions) return ANONYMOUS_SERVICES;
 
-  const projectList = collectScanProjects(siteProject, api);
-
-  for (const project of projectList) {
-    await api.stor?.server?.loadProjectInfoIfNeeded?.(project);
-    await api.plugin.loadAll(project, false);
+  // Failure is contained per project: one dependency that does not load (e.g. a file the lib
+  // rejects with "invalid path") costs only its own services, never the whole list.
+  const projectList: number[] = [];
+  for (const project of collectScanProjects(siteProject, api)) {
+    try {
+      await api.stor?.server?.loadProjectInfoIfNeeded?.(project);
+      await api.plugin.loadAll(project, false);
+      projectList.push(project);
+    } catch (err) {
+      console.warn('[studioServices] service scan failed for', project, err);
+    }
   }
 
   const services: string[] = [];
