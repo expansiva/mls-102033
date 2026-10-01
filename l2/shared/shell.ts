@@ -38,6 +38,7 @@ import {
 } from '/_102033_/l2/shared/designSystemRuntime.js';
 import { getCollabRouteChunkCache, loadAuraRouteChunk, matchAuraRoute } from '/_102033_/l2/shared/routeRuntime.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
+import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
 import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
 import { contentPageGenomeToPreserve } from '/_102033_/l2/shared/contentPageGenomePreserve.js';
 import {
@@ -537,6 +538,11 @@ export class CollabAuraShell extends LitElement {
 
     this.resolvedDevice = nextDevice;
     this.isAsideOpen = this.getDefaultAsideOpen(nextDevice);
+    // Crossing the breakpoint (rotating a tablet, resizing, toggling "request desktop site")
+    // swaps the content to the variant of the new device, without a reload.
+    if (this.activeRoute) {
+      void this.applyContentPageDevice(nextDevice, true);
+    }
     this.requestUpdate();
   }
 
@@ -665,6 +671,53 @@ export class CollabAuraShell extends LitElement {
 
     this.contentVariantRenderer = { tag: change.nextTag, entrypoint: change.nextEntrypoint, routeKey: this.activeRoute?.path ?? '' };
     this.routeStatusMessage = '';
+    if (shouldMount) {
+      this.mountRegion('content');
+      this.requestUpdate();
+    }
+    return true;
+  }
+
+  // A missing mobile variant is not a blocking error: the desktop page stays on screen. It is not
+  // silent either — the route, the entrypoint tried and the cause go to the console.
+  private reportContentPageDeviceMiss(device: MasterFrontendDeviceKind, entrypoint: string, reason: string): false {
+    const route = this.activeRoute?.path ?? window.location.pathname;
+    console.warn(`[aura-shell] ${device} content variant skipped for route '${route}' (entrypoint ${entrypoint || 'none'}): ${reason} — keeping the desktop page.`);
+    return false;
+  }
+
+  // Width decides which of the mirrored web/<device>/pageNN variants is mounted. Applied AFTER the
+  // genome, so Ctrl+Alt+E and the preserved pageNN keep working on the phone.
+  private async applyContentPageDevice(device: MasterFrontendDeviceKind, shouldMount: boolean): Promise<boolean> {
+    // syncResolvedDevice cannot await (it is sync and two of its call sites start loadActiveRoute
+    // right after), so the route may change while the chunk loads. Writing then would mount the
+    // previous route's variant under the new route's key.
+    const routeKeyAtStart = this.activeRoute?.path ?? '';
+    const current = this.getActiveContentRenderer();
+    const change = describeContentPageDeviceChange(current, device);
+    if (!change.ok) {
+      return this.reportContentPageDeviceMiss(device, change.nextEntrypoint, change.reason);
+    }
+    if (change.nextTag === current?.tag && change.nextEntrypoint === current?.entrypoint) {
+      return true;
+    }
+
+    try {
+      await loadAuraRouteChunk(change.nextEntrypoint);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return this.reportContentPageDeviceMiss(device, change.nextEntrypoint, `failed to load chunk (${detail})`);
+    }
+
+    if (!customElements.get(change.nextTag)) {
+      return this.reportContentPageDeviceMiss(device, change.nextEntrypoint, `custom element '${change.nextTag}' is not registered`);
+    }
+
+    if ((this.activeRoute?.path ?? '') !== routeKeyAtStart) {
+      return this.reportContentPageDeviceMiss(device, change.nextEntrypoint, `route changed to '${this.activeRoute?.path ?? 'none'}' while the chunk was loading`);
+    }
+
+    this.contentVariantRenderer = { tag: change.nextTag, entrypoint: change.nextEntrypoint, routeKey: routeKeyAtStart };
     if (shouldMount) {
       this.mountRegion('content');
       this.requestUpdate();
@@ -1155,6 +1208,12 @@ export class CollabAuraShell extends LitElement {
     const requestedContentGenome = contentPageGenomeToPreserve(previousContentGenome, nextContentGenome);
     if (requestedContentGenome !== undefined && requestedContentGenome !== nextContentGenome) {
       await this.applyContentPageGenome(requestedContentGenome, false);
+    }
+    // The server registers one entrypoint per route — the desktop one — so only mobile needs the
+    // swap here. Before the chunk cache is read, or the loading state and importRegion would run
+    // against the desktop entrypoint.
+    if (this.resolvedDevice === 'mobile') {
+      await this.applyContentPageDevice('mobile', false);
     }
     const loadedChunks = getCollabRouteChunkCache();
     const activeRenderer = this.getActiveContentRenderer() ?? nextRoute;
