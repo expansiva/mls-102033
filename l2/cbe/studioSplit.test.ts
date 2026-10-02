@@ -9,6 +9,7 @@ import {
   CLIENT_LEFT_PX,
   applyClientSplit,
   restoreStudioSplit,
+  showClientPanel,
   studioLevel,
 } from '/_102033_/l2/cbe/studioSplit.js';
 
@@ -44,6 +45,8 @@ interface FakeSpliter {
   setAttribute: (name: string, value: string) => void;
   setFullScreen: (level: number, position: 'left' | 'right' | 'default') => void;
   querySelectorAll: (selector: string) => FakeItem[];
+  /** Real collab-spliter is an HTMLElement; `showClientPanel` looks up the separator through it. */
+  querySelector: (selector: string) => null;
 }
 
 function currentLevel(s: FakeSpliter): number {
@@ -135,6 +138,7 @@ function fakeSpliter(): FakeSpliter {
       load(s);
     },
     querySelectorAll: () => s.items,
+    querySelector: () => null,
   };
   return s;
 }
@@ -267,5 +271,52 @@ test('nothing blows up when the structure is not there', () => {
   const empty = fakeHost(null, null);
   assert.doesNotThrow(() => applyClientSplit(empty));
   assert.doesNotThrow(() => restoreStudioSplit(empty));
+  assert.doesNotThrow(() => showClientPanel(empty, 'left'));
   assert.equal(studioLevel(empty), null);
+});
+
+test('showClientPanel fullscreens the requested side (mobile single panel)', () => {
+  const spliter = fakeSpliter();
+  const nav1: FakeNav1 = { actualLevel: 7, getAttribute: () => null };
+  const host = fakeHost(spliter, nav1);
+
+  showClientPanel(host, 'left');
+  assert.equal(spliter.widths.left, TOTAL);
+  assert.equal(spliter.widths.right, 0);
+  assert.ok(spliter.log.includes('setFullScreen(7,left)'));
+
+  showClientPanel(host, 'right');
+  assert.equal(spliter.widths.left, 0);
+  assert.equal(spliter.widths.right, TOTAL);
+  assert.ok(spliter.log.includes('setFullScreen(7,right)'));
+});
+
+test('showClientPanel never writes the user width preference', () => {
+  const spliter = fakeSpliter();
+  const nav1: FakeNav1 = { actualLevel: 7, getAttribute: () => null };
+  const host = fakeHost(spliter, nav1);
+
+  showClientPanel(host, 'left');
+  showClientPanel(host, 'right');
+  showClientPanel(host, 'left');
+
+  // Fullscreen levels never reach `_savePreferencesByLevel` (mls-102041/l2/collab-spliter.ts:365) —
+  // slot 7 of the stored `user-msplit` profile must stay untouched.
+  assert.equal(spliter.store[7], undefined);
+});
+
+test('applyClientSplit restores the 375px split after a mobile single panel', () => {
+  const spliter = fakeSpliter();
+  const nav1: FakeNav1 = { actualLevel: 7, getAttribute: () => null };
+  const host = fakeHost(spliter, nav1);
+
+  applyClientSplit(host);
+  const clientRight = spliter.widths.right;
+
+  showClientPanel(host, 'right');
+  assert.equal(spliter.widths.left, 0);
+
+  applyClientSplit(host);
+  assert.equal(spliter.widths.left, CLIENT_LEFT_PX);
+  assert.equal(spliter.widths.right, clientRight);
 });

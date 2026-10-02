@@ -153,6 +153,11 @@ export class CollabAuraShell extends LitElement {
   private studioModeOn = false;
   private structureUpgradeAttempted = false;
   private structureRetriesLeft = 67;
+  // ── Mobile single-panel layout (rt36): on mobile the ONE spliter shows a single full-width side
+  // at a time instead of the desktop 375px+app split. Shell-owned on purpose — not read off the
+  // DOM — so it survives a breakpoint crossing (syncResolvedDevice) and a header toggle
+  // (handleToggleAside/handleCloseAside) without reading back whatever the spliter happens to show.
+  private mobilePanel: 'left' | 'right' = 'left';
   // Set once the classic header/aside/content regions have mounted (see
   // mountModuleRoot) — the structure upgrade adopts those DOM nodes, so it
   // must not run ahead of them.
@@ -272,6 +277,14 @@ export class CollabAuraShell extends LitElement {
 
   private readonly handleToggleAside = () => {
     this.syncResolvedDevice();
+    // Mobile, structure up: the ☰ is the only way back to the menu (the classic `.body`/aside is
+    // hidden under the structure, see the `data-structure="upgraded"` CSS below) — it alternates
+    // the single visible panel instead of a drawer. Decided BEFORE the early return below, which
+    // exists for the classic layout's aside and would otherwise swallow this on a module that hides
+    // its own aside on mobile.
+    if (this.resolvedDevice === 'mobile' && this.structureUpgraded) {
+      this.setMobilePanel(this.mobilePanel === 'left' ? 'right' : 'left');
+    }
     const asideMode = this.getResolvedAsideMode();
     if (asideMode === 'inline' || !this.getBaseRegionVisibility('aside')) {
       return;
@@ -291,6 +304,13 @@ export class CollabAuraShell extends LitElement {
 
   private readonly handleCloseAside = () => {
     this.syncResolvedDevice();
+    // Picking something off the APPS menu closes the aside in the classic layout (aura-aside.ts);
+    // reused here as the same "menu was just used" signal for the unified structure — openProgramUnified
+    // calls closeAuraAside() after navigating, which lands here either through
+    // collabMasterFrontendShellControls.closeAside or the AURA_CLOSE_ASIDE_EVENT fallback.
+    if (this.resolvedDevice === 'mobile' && this.structureUpgraded) {
+      this.setMobilePanel('right');
+    }
     if (this.getResolvedAsideMode() === 'inline') {
       return;
     }
@@ -422,6 +442,28 @@ export class CollabAuraShell extends LitElement {
       .catch((error) => console.warn('[aura-shell] could not sync the structure split', error));
   }
 
+  /**
+   * Mobile counterpart of `syncStructureSplit`: shows ONLY `this.mobilePanel`, full width, instead
+   * of the desktop 375px+app split. No-op before the structure mounts or once back on desktop —
+   * callers (first paint, `handleToggleAside`/`handleCloseAside`, `syncResolvedDevice`) don't have
+   * to re-check either.
+   */
+  private syncMobilePanel(): void {
+    const host = this.querySelector('.studio-structure-host');
+    if (!host || !this.structureUpgraded || this.resolvedDevice !== 'mobile') return;
+    void import('/_102033_/l2/cbe/studioSplit.js')
+      .then((module) => {
+        const mod = module as { showClientPanel?: (host: ParentNode, side: 'left' | 'right') => void };
+        mod.showClientPanel?.(host, this.mobilePanel);
+      })
+      .catch((error) => console.warn('[aura-shell] could not switch the mobile panel', error));
+  }
+
+  private setMobilePanel(side: 'left' | 'right'): void {
+    this.mobilePanel = side;
+    this.syncMobilePanel();
+  }
+
   private async setRegionRenderer(
     region: AuraDynamicRegionName,
     renderer: MasterFrontendRegionRendererConfig,
@@ -542,6 +584,16 @@ export class CollabAuraShell extends LitElement {
     // swaps the content to the variant of the new device, without a reload.
     if (this.activeRoute) {
       void this.applyContentPageDevice(nextDevice, true);
+    }
+    // The structure now mounts on mobile too (maybeUpgradeStructure no longer gates on device), so
+    // crossing the breakpoint has to swap WHICH layout the one spliter shows: desktop restores the
+    // split (the studio level's own, or the client's — same call Ctrl+Alt+S uses), mobile goes back
+    // to a single full-width panel — `this.mobilePanel`, never reset here, so it's whichever side
+    // was in use (left/Messages the first time, since nothing was chosen yet).
+    if (nextDevice === 'desktop') {
+      this.syncStructureSplit(this.studioModeOn);
+    } else {
+      this.syncMobilePanel();
     }
     this.requestUpdate();
   }
@@ -991,7 +1043,12 @@ export class CollabAuraShell extends LitElement {
   private structureRetryPending = false;
 
   private maybeUpgradeStructure(): void {
-    if (this.isEmbedded || this.structureUpgradeAttempted || this.resolvedDevice !== 'desktop' || !this.bootConfig) return;
+    // Mobile mounts the structure too (rt36: "um painel por vez"); only embedded (iframe) frames
+    // never do — an embedded module already renders inside someone else's structure. The skeleton
+    // shown while this is in flight (`wantsStudioStructure`/`structureState`) stays desktop-only on
+    // purpose: on mobile the first paint is the classic layout, and the structure replaces it once
+    // mounted (see `structureState`'s doc comment).
+    if (this.isEmbedded || this.structureUpgradeAttempted || !this.bootConfig) return;
     // Gate on the FULL studio bootstrap (login + cache + preload) — the
     // proven-safe condition. An earlier attempt gated this on just the mls
     // lib being loaded, but when collabMiniCfeReady then landed WHILE the
@@ -1051,6 +1108,12 @@ export class CollabAuraShell extends LitElement {
           // (which can just as easily fire before this point and re-cache 0).
           await this.updateComplete;
           (host.querySelector('collab-page') as (HTMLElement & { layout?: () => void }) | null)?.layout?.();
+          // Mobile: studioStructure.ts applied (and, at its own +600ms, may re-apply) the DESKTOP
+          // client split — not ours to change (not a named point here). Its own re-apply is
+          // scheduled at upgrade-resolution-time +600ms, strictly before `verifyStudioStructureRendered`'s
+          // own +800ms wait above resolves, so by here it has already fired — this call is the last
+          // word, first paint lands on `this.mobilePanel` ('left'/Messages unless already chosen).
+          if (this.resolvedDevice === 'mobile') this.syncMobilePanel();
           console.info(`[aura-shell] structure upgraded to the unified studio layout (attempt ${attempt})`);
           return;
         }
@@ -1330,6 +1393,12 @@ export class CollabAuraShell extends LitElement {
     this.setAttribute('data-aside-open', String(this.getActualAsideOpen()));
     this.setAttribute('data-structure', this.structureState);
     this.setAttribute('data-studio-mode', String(this.studioModeOn));
+    // Mobile, structure up: which single panel is showing — purely presentational (the ☰ aria-label,
+    // see aura-header-base.ts `renderAsideToggle`), never read back by this shell itself.
+    this.setAttribute(
+      'data-mobile-panel',
+      this.resolvedDevice === 'mobile' && this.structureUpgraded ? this.mobilePanel : '',
+    );
     const environmentBadge = document.getElementById('collab-env-badge');
     if (environmentBadge) environmentBadge.hidden = this.studioModeOn;
     this.mountRegion('header');

@@ -20,6 +20,8 @@
 
 /** The level whose stored profile IS the client layout. */
 export const CLIENT_LEVEL = 7;
+/** Which side of the client layout is full-screen on a mobile (single-panel) viewport. */
+export type ClientPanelSide = 'left' | 'right';
 /** Mirrors collab-spliter's own `_defaultPx` and `_separatorWidth`. */
 export const CLIENT_LEFT_PX = 375;
 const SEPARATOR_PX = 8;
@@ -77,6 +79,40 @@ export function applyClientSplit(host: ParentNode): void {
   itemLeft.classList.remove('hidden', 'closed');
   itemRight.classList.remove('hidden', 'closed');
   spliter.setAttribute('msplit', `${CLIENT_LEFT_PX},${right}`);
+  clearSeparatorOverride(spliter);
+}
+
+/**
+ * Shows ONE side of the client layout full-width — the mobile (single-panel) layout. Uses the same
+ * `setFullScreen` level-7 channel the studio home already relies on for its own left-fullscreen pin
+ * (see the module comment above), so no width preference is written: collab-spliter's own
+ * `_savePreferencesByLevel` (mls-102041/l2/collab-spliter.ts) already returns early while a level is
+ * full-screen — nothing here duplicates or depends on that beyond calling `setFullScreen`.
+ *
+ * Mobile only; desktop keeps using `applyClientSplit`/`restoreStudioSplit`.
+ */
+export function showClientPanel(host: ParentNode, side: ClientPanelSide): void {
+  const spliter = findSpliter(host);
+  if (!spliter) return;
+  // Same order `applyClientSplit` uses, and for the same reason: `setFullScreen` applies against
+  // whatever `level` attribute is CURRENTLY on the spliter — if that's stale (e.g. a studio level
+  // left over from desktop), the first pass computes the wrong level's widths. Setting `level`
+  // SECOND re-triggers the load, this time under level 7 with the fullscreen flag already in place —
+  // the only pass whose write `_savePreferencesByLevel` actually skips.
+  spliter.setFullScreen?.(CLIENT_LEVEL, side);
+  spliter.setAttribute('level', String(CLIENT_LEVEL));
+  // The separator keeps its 8px band (background only — `fixed` already drops the drag handle,
+  // mls-102041/l2/collab-spliter.less `.spliter-separator.fixed > div`) even with one side at 0
+  // width, which would show as a stray strip on a full-width mobile panel. Hidden here, from the
+  // structure side, so 102041 stays untouched; `applyClientSplit` clears the override on the way
+  // back to the two-panel desktop layout.
+  const separator = spliter.querySelector?.('.spliter-separator') as HTMLElement | null;
+  if (separator) separator.style.display = 'none';
+}
+
+function clearSeparatorOverride(spliter: SpliterElement): void {
+  const separator = spliter.querySelector?.('.spliter-separator') as HTMLElement | null;
+  if (separator) separator.style.removeProperty('display');
 }
 
 /**
@@ -90,4 +126,5 @@ export function restoreStudioSplit(host: ParentNode): void {
   if (!spliter) return;
   const level = studioLevel(host);
   if (level !== null) spliter.setAttribute('level', String(level));
+  clearSeparatorOverride(spliter);
 }
