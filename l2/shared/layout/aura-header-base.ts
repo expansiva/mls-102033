@@ -223,16 +223,18 @@ export abstract class AuraHeaderBase extends LitElement {
   }
 
   /**
-   * On mobile, once the unified structure is up (rt36: one panel at a time), this button alternates
-   * Messages/App instead of opening a drawer — the label says what tapping it does next. Read off
-   * `data-mobile-panel` (shell.ts `updated()`), never duplicated here: empty outside that case, and
-   * the original wording stays the fallback.
+   * On a phone, once the unified structure is up (client mode), this button alternates Messages/App
+   * instead of opening a drawer — the label says what tapping it does next. Read off the shell's
+   * attributes (shell.ts `updated()`, `usesMobilePanes`), never duplicated here; the original
+   * wording stays the fallback.
    */
   private resolveAsideToggleLabel(): string {
-    const mobilePanel = this.closest('collab-aura-shell')?.getAttribute('data-mobile-panel');
-    if (mobilePanel === 'left') return 'Show app';
-    if (mobilePanel === 'right') return 'Show messages';
-    return 'Open navigation';
+    const shell = this.closest('collab-aura-shell');
+    const usesMobilePanes = shell?.getAttribute('data-device') === 'mobile'
+      && shell.getAttribute('data-structure') === 'upgraded'
+      && shell.getAttribute('data-studio-mode') !== 'true';
+    if (!usesMobilePanes) return 'Open navigation';
+    return shell.getAttribute('data-mobile-pane') === 'app' ? 'Show messages' : 'Show app';
   }
 
   /**
