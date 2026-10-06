@@ -18,6 +18,7 @@
 
 import { LitElement, html } from 'lit';
 import { getRuntimeLanguage } from '/_102033_/l2/shared/languageRuntime.js';
+import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 // The VM storage driver registration lives with the rest of the runtime studio bootstrap —
 // this header is only ONE of the paths that needs it (see initStudio.registerDrivers).
@@ -182,7 +183,7 @@ export class CbeStudioHeader extends LitElement {
   private async applyStudioServices(): Promise<void> {
     const nav1 = this.querySelector('collab-nav-1') as StudioNav1Element | null;
     if (!nav1) return;
-    const siteProject = Number(this.bootConfig?.projectId) || 0;
+    const siteProject = siteProjectFromBoot(this.bootConfig);
     let services = ANONYMOUS_SERVICES;
     try {
       services = await buildStudioServices(siteProject);

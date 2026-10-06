@@ -37,6 +37,7 @@ import {
   setRuntimeDesignSystem,
 } from '/_102033_/l2/shared/designSystemRuntime.js';
 import { getCollabRouteChunkCache, loadAuraRouteChunk, matchAuraRoute } from '/_102033_/l2/shared/routeRuntime.js';
+import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
 import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
 import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
@@ -436,7 +437,7 @@ export class CollabAuraShell extends LitElement {
    * concurrent load kicked off elsewhere, e.g. a message preview, is just awaited, not repeated).
    */
   private loadStudioDefinitions(): void {
-    const project = Number(this.bootConfig?.projectId) || 0;
+    const project = siteProjectFromBoot(this.bootConfig);
     if (!project) return;
     void import('/_102033_/l2/cbe/initStudio.js')
       .then(async (module) => {
@@ -1193,7 +1194,7 @@ export class CollabAuraShell extends LitElement {
         const host = this.querySelector('.studio-structure-host') as HTMLElement | null;
         if (!host) throw new Error('studio-structure-host not found');
         host.replaceChildren();
-        await module.upgradeToStudioStructure(host, Number(this.bootConfig?.projectId) || 0);
+        await module.upgradeToStudioStructure(host, siteProjectFromBoot(this.bootConfig));
         if (await this.verifyStudioStructureRendered(host)) {
           this.structureUpgraded = true;
           this.requestUpdate();
