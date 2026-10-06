@@ -47,6 +47,7 @@ import {
   msizeForRect,
   writeMsize,
 } from '/_102033_/l2/shared/regionMsize.js';
+import { nextTopBandState, type TopBandState } from '/_102033_/l2/shared/topBandScroll.js';
 import { LitElement, html } from 'lit';
 
 function traceLazy(event: string, details?: Record<string, unknown>) {
@@ -153,6 +154,21 @@ export class CollabAuraShell extends LitElement {
   private studioModeOn = false;
   private structureUpgradeAttempted = false;
   private structureRetriesLeft = 67;
+  // ── Mobile single-panel layout (rt36): on mobile the ONE spliter shows a single full-width side
+  // at a time instead of the desktop 375px+app split. Shell-owned on purpose — not read off the
+  // DOM — so it survives a breakpoint crossing (syncResolvedDevice) and a header toggle
+  // (handleToggleAside/handleCloseAside) without reading back whatever the spliter happens to show.
+  private mobilePanel: 'left' | 'right' = 'left';
+  // ── Top band scroll (rt37): on mobile, with the structure upgraded, the 66px band (client
+  // banner + collab-nav-1/2) hides on a sustained scroll-down and returns on a sustained
+  // scroll-up — the Chrome address-bar behavior. The decision itself is pure (topBandScroll.ts);
+  // this is just the DOM wiring (listener + attribute + the one layout() per state change).
+  private topBandState: TopBandState = 'visible';
+  private topBandAccumulated = 0;
+  private topBandLastScrollTop = 0;
+  private topBandLastTarget: EventTarget | null = null;
+  private topBandListenerAttached = false;
+  private topBandScrollHost: HTMLElement | null = null;
   // Set once the classic header/aside/content regions have mounted (see
   // mountModuleRoot) — the structure upgrade adopts those DOM nodes, so it
   // must not run ahead of them.
@@ -244,6 +260,7 @@ export class CollabAuraShell extends LitElement {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('popstate', this.handlePopState);
     this.unsubscribeInteraction?.();
+    this.topBandScrollHost?.removeEventListener('scroll', this.handleTopBandScroll, true);
     super.disconnectedCallback();
   }
 
@@ -272,6 +289,14 @@ export class CollabAuraShell extends LitElement {
 
   private readonly handleToggleAside = () => {
     this.syncResolvedDevice();
+    // Mobile, structure up: the ☰ is the only way back to the menu (the classic `.body`/aside is
+    // hidden under the structure, see the `data-structure="upgraded"` CSS below) — it alternates
+    // the single visible panel instead of a drawer. Decided BEFORE the early return below, which
+    // exists for the classic layout's aside and would otherwise swallow this on a module that hides
+    // its own aside on mobile.
+    if (this.resolvedDevice === 'mobile' && this.structureUpgraded) {
+      this.setMobilePanel(this.mobilePanel === 'left' ? 'right' : 'left');
+    }
     const asideMode = this.getResolvedAsideMode();
     if (asideMode === 'inline' || !this.getBaseRegionVisibility('aside')) {
       return;
@@ -291,6 +316,13 @@ export class CollabAuraShell extends LitElement {
 
   private readonly handleCloseAside = () => {
     this.syncResolvedDevice();
+    // Picking something off the APPS menu closes the aside in the classic layout (aura-aside.ts);
+    // reused here as the same "menu was just used" signal for the unified structure — openProgramUnified
+    // calls closeAuraAside() after navigating, which lands here either through
+    // collabMasterFrontendShellControls.closeAside or the AURA_CLOSE_ASIDE_EVENT fallback.
+    if (this.resolvedDevice === 'mobile' && this.structureUpgraded) {
+      this.setMobilePanel('right');
+    }
     if (this.getResolvedAsideMode() === 'inline') {
       return;
     }
@@ -422,6 +454,106 @@ export class CollabAuraShell extends LitElement {
       .catch((error) => console.warn('[aura-shell] could not sync the structure split', error));
   }
 
+  /**
+   * Mobile counterpart of `syncStructureSplit`: shows ONLY `this.mobilePanel`, full width, instead
+   * of the desktop 375px+app split. No-op before the structure mounts or once back on desktop —
+   * callers (first paint, `handleToggleAside`/`handleCloseAside`, `syncResolvedDevice`) don't have
+   * to re-check either.
+   */
+  private syncMobilePanel(): void {
+    const host = this.querySelector('.studio-structure-host');
+    if (!host || !this.structureUpgraded || this.resolvedDevice !== 'mobile') return;
+    void import('/_102033_/l2/cbe/studioSplit.js')
+      .then((module) => {
+        const mod = module as { showClientPanel?: (host: ParentNode, side: 'left' | 'right') => void };
+        mod.showClientPanel?.(host, this.mobilePanel);
+      })
+      .catch((error) => console.warn('[aura-shell] could not switch the mobile panel', error));
+  }
+
+  private setMobilePanel(side: 'left' | 'right'): void {
+    this.mobilePanel = side;
+    this.syncMobilePanel();
+    // rt37: switching panels always restores the top band, so the newly-shown panel never
+    // starts already scrolled-up under it.
+    this.showTopBand();
+  }
+
+  // ── Top band scroll (rt37) ──────────────────────────────────────────────
+
+  /**
+   * Attaches the capture-phase `scroll` listener once, mobile + structure-upgraded only. Called
+   * from both places that can first satisfy that condition: the structure upgrade landing while
+   * already on mobile, and a later breakpoint crossing INTO mobile after an upgrade that already
+   * happened on desktop. Internally idempotent, so callers never have to check first.
+   */
+  private maybeAttachTopBandScroll(): void {
+    if (this.topBandListenerAttached || this.resolvedDevice !== 'mobile' || !this.structureUpgraded) return;
+    const host = this.querySelector('.studio-structure-host') as HTMLElement | null;
+    if (!host) return;
+    host.addEventListener('scroll', this.handleTopBandScroll, true);
+    this.topBandScrollHost = host;
+    this.topBandListenerAttached = true;
+  }
+
+  // Scroll does not bubble, so this is added in CAPTURE on an ancestor (`.studio-structure-host`)
+  // to see it regardless of which descendant panel is actually scrolling (`.nav3-panel`, the
+  // collab-messages container, …). Re-checks the mobile/upgraded gate itself (see
+  // maybeAttachTopBandScroll) rather than trusting it stays true for the listener's lifetime.
+  private readonly handleTopBandScroll = (event: Event): void => {
+    if (this.resolvedDevice !== 'mobile' || !this.structureUpgraded) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const scrollTop = target.scrollTop;
+    if (target !== this.topBandLastTarget) {
+      // First sample from this particular scrolling element — record it, decide nothing (a
+      // baseline-less delta would be meaningless and could false-trigger a hide/show).
+      this.topBandLastTarget = target;
+      this.topBandLastScrollTop = scrollTop;
+      return;
+    }
+    const result = nextTopBandState({
+      state: this.topBandState,
+      prevScrollTop: this.topBandLastScrollTop,
+      scrollTop,
+      accumulated: this.topBandAccumulated,
+    });
+    this.topBandLastScrollTop = scrollTop;
+    this.topBandAccumulated = result.accumulated;
+    if (result.state !== this.topBandState) {
+      this.topBandState = result.state;
+      this.applyTopBandState();
+    }
+  };
+
+  private showTopBand(): void {
+    if (this.topBandState === 'visible') return;
+    this.topBandState = 'visible';
+    this.topBandAccumulated = 0;
+    this.applyTopBandState();
+  }
+
+  // Flips the `data-top-band` attribute (plain DOM attribute, not a Lit reactive property — the
+  // CSS transition reacts to it immediately, no render needed) and runs collab-page.layout() ONCE
+  // the transition settles, not per scroll event — the structure host resized (grew/shrank by
+  // 66px, see the CSS), and collab-page caches its own size from getBoundingClientRect() (same
+  // caveat as the structure upgrade above). `prefers-reduced-motion` skips the animation, so there
+  // is no transitionend to wait for — run the remeasure right away instead.
+  private applyTopBandState(): void {
+    this.setAttribute('data-top-band', this.topBandState);
+    const host = this.querySelector('.studio-structure-host') as HTMLElement | null;
+    if (!host) return;
+    const runLayout = () => {
+      (host.querySelector('collab-page') as (HTMLElement & { layout?: () => void }) | null)?.layout?.();
+    };
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    if (prefersReducedMotion) {
+      runLayout();
+      return;
+    }
+    host.addEventListener('transitionend', runLayout, { once: true });
+  }
+
   private async setRegionRenderer(
     region: AuraDynamicRegionName,
     renderer: MasterFrontendRegionRendererConfig,
@@ -543,6 +675,21 @@ export class CollabAuraShell extends LitElement {
     if (this.activeRoute) {
       void this.applyContentPageDevice(nextDevice, true);
     }
+    // The structure now mounts on mobile too (maybeUpgradeStructure no longer gates on device), so
+    // crossing the breakpoint has to swap WHICH layout the one spliter shows: desktop restores the
+    // split (the studio level's own, or the client's — same call Ctrl+Alt+S uses), mobile goes back
+    // to a single full-width panel — `this.mobilePanel`, never reset here, so it's whichever side
+    // was in use (left/Messages the first time, since nothing was chosen yet).
+    if (nextDevice === 'desktop') {
+      this.syncStructureSplit(this.studioModeOn);
+    } else {
+      this.syncMobilePanel();
+      this.maybeAttachTopBandScroll();
+    }
+    // rt37: crossing the 768px breakpoint always restores the top band — desktop never hides it
+    // (no listener runs there), and mobile should not land mid-gesture on whatever state a
+    // previous mobile session left behind.
+    this.showTopBand();
     this.requestUpdate();
   }
 
@@ -991,7 +1138,12 @@ export class CollabAuraShell extends LitElement {
   private structureRetryPending = false;
 
   private maybeUpgradeStructure(): void {
-    if (this.isEmbedded || this.structureUpgradeAttempted || this.resolvedDevice !== 'desktop' || !this.bootConfig) return;
+    // Mobile mounts the structure too (rt36: "um painel por vez"); only embedded (iframe) frames
+    // never do — an embedded module already renders inside someone else's structure. The skeleton
+    // shown while this is in flight (`wantsStudioStructure`/`structureState`) stays desktop-only on
+    // purpose: on mobile the first paint is the classic layout, and the structure replaces it once
+    // mounted (see `structureState`'s doc comment).
+    if (this.isEmbedded || this.structureUpgradeAttempted || !this.bootConfig) return;
     // Gate on the FULL studio bootstrap (login + cache + preload) — the
     // proven-safe condition. An earlier attempt gated this on just the mls
     // lib being loaded, but when collabMiniCfeReady then landed WHILE the
@@ -1051,6 +1203,15 @@ export class CollabAuraShell extends LitElement {
           // (which can just as easily fire before this point and re-cache 0).
           await this.updateComplete;
           (host.querySelector('collab-page') as (HTMLElement & { layout?: () => void }) | null)?.layout?.();
+          // Mobile: studioStructure.ts applied (and, at its own +600ms, may re-apply) the DESKTOP
+          // client split — not ours to change (not a named point here). Its own re-apply is
+          // scheduled at upgrade-resolution-time +600ms, strictly before `verifyStudioStructureRendered`'s
+          // own +800ms wait above resolves, so by here it has already fired — this call is the last
+          // word, first paint lands on `this.mobilePanel` ('left'/Messages unless already chosen).
+          if (this.resolvedDevice === 'mobile') {
+            this.syncMobilePanel();
+            this.maybeAttachTopBandScroll();
+          }
           console.info(`[aura-shell] structure upgraded to the unified studio layout (attempt ${attempt})`);
           return;
         }
@@ -1204,6 +1365,9 @@ export class CollabAuraShell extends LitElement {
 
     this.activeRoute = nextRoute;
     this.contentVariantRenderer = undefined;
+    // rt37: a route change always restores the top band (no-op when it was already visible,
+    // e.g. desktop or the very first route load).
+    this.showTopBand();
     const nextContentGenome = this.getContentPageGenome();
     const requestedContentGenome = contentPageGenomeToPreserve(previousContentGenome, nextContentGenome);
     if (requestedContentGenome !== undefined && requestedContentGenome !== nextContentGenome) {
@@ -1330,6 +1494,12 @@ export class CollabAuraShell extends LitElement {
     this.setAttribute('data-aside-open', String(this.getActualAsideOpen()));
     this.setAttribute('data-structure', this.structureState);
     this.setAttribute('data-studio-mode', String(this.studioModeOn));
+    // Mobile, structure up: which single panel is showing — purely presentational (the ☰ aria-label,
+    // see aura-header-base.ts `renderAsideToggle`), never read back by this shell itself.
+    this.setAttribute(
+      'data-mobile-panel',
+      this.resolvedDevice === 'mobile' && this.structureUpgraded ? this.mobilePanel : '',
+    );
     const environmentBadge = document.getElementById('collab-env-badge');
     if (environmentBadge) environmentBadge.hidden = this.studioModeOn;
     this.mountRegion('header');
@@ -1391,6 +1561,27 @@ export class CollabAuraShell extends LitElement {
         display: block;
         position: fixed;
         inset: 0;
+      }
+
+      /* ── rt37: mobile top band scroll ────────────────────────────────────
+         Mobile-only (gated in JS by resolvedDevice === 'mobile'): on a sustained scroll-down the
+         66px band (client banner + collab-nav-1/2, see the .region.header rule below) rises off
+         screen and the structure host grows into the space it leaves — nav1/nav2 are fixed-height
+         flex children of collab-page, so the extra height flows entirely to the flexible nav3
+         panels, never revealing the Studio bars underneath. A sustained scroll-up (or the state
+         resets listed in topBandScroll's callers) brings it back. */
+      collab-aura-shell[data-device="mobile"][data-structure="upgraded"] .studio-structure-host {
+        transition: top 0.25s ease;
+      }
+
+      collab-aura-shell[data-device="mobile"][data-structure="upgraded"][data-top-band="hidden"] .studio-structure-host {
+        top: -66px;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        collab-aura-shell[data-device="mobile"][data-structure="upgraded"] .studio-structure-host {
+          transition: none;
+        }
       }
 
       /* ── Pending structure (desktop, upgrade attempt in flight) ──────────
@@ -1475,6 +1666,21 @@ export class CollabAuraShell extends LitElement {
 
       collab-aura-shell[data-structure="upgraded"][data-studio-mode="true"] .region.header {
         display: none;
+      }
+
+      /* rt37: the banner rises together with the structure host above — see that rule's comment. */
+      collab-aura-shell[data-device="mobile"][data-structure="upgraded"] .region.header {
+        transition: transform 0.25s ease;
+      }
+
+      collab-aura-shell[data-device="mobile"][data-structure="upgraded"][data-top-band="hidden"] .region.header {
+        transform: translateY(-66px);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        collab-aura-shell[data-device="mobile"][data-structure="upgraded"] .region.header {
+          transition: none;
+        }
       }
 
       collab-aura-shell .body {

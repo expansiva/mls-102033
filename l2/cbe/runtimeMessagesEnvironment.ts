@@ -7,6 +7,7 @@
 // and menu mode 'custom' (the nav3 toolbar owns the mode tabs).
 
 import { setEnvironment, type CollabMessagesEnvironment, type CollabProgramMenu, type CollabProgramMenuItem } from '/_102036_/l2/environmentContract.js';
+import { closeAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js';
 import type { ExecutionContext, IAgentMeta } from '/_102036_/l2/shared/interfaces.js';
 import { notificationsRuntime } from '/_102025_/l2/notificationsRuntime.js';
 import { collabMessagesEnvironmentBase } from '/_102025_/l2/collabMessagesEnvironmentBase.js';
@@ -100,6 +101,11 @@ export async function openProgramUnified(item: { url?: string; pageName?: string
     // The app renders in the 'app' tab — bring it to front, or the navigation
     // is invisible while a foreign-module tab (monitor/audit) is active.
     window.collabRuntimeNav3?.activateTab('app');
+    // On mobile (rt36: one panel at a time) this is the signal that the menu was just used — the
+    // same one aura-aside.ts's own nav items already send in the classic layout — so the shell
+    // swaps from Messages to the App panel. A no-op everywhere else (desktop, or before the
+    // structure mounts): handleCloseAside's own early return covers that.
+    closeAuraAside();
     return;
   }
   const nav3 = window.collabRuntimeNav3;
@@ -117,6 +123,7 @@ export async function openProgramUnified(item: { url?: string; pageName?: string
         }
       } catch { /* cross-origin frame — leave it as is */ }
       nav3.activateTab(tabId);
+      closeAuraAside();
       return;
     }
     const frame = document.createElement('iframe');
@@ -124,6 +131,7 @@ export async function openProgramUnified(item: { url?: string; pageName?: string
     frame.style.cssText = 'display:block;width:100%;height:100%;border:0;';
     appFrames.set(tabId, frame);
     nav3.openTab({ id: tabId, title: moduleName, element: frame });
+    closeAuraAside();
     return;
   }
   window.location.href = item.url;
