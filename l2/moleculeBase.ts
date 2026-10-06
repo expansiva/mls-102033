@@ -186,8 +186,8 @@ export class MoleculeAuraElement extends StateLitElement {
    */
   private _projectLiveSlots(): void {
     if (!this.usesLiveSlots) return;
-    const byTag = this.querySelectorAll<HTMLElement>('[data-ml-live-slot]');
-    const byRef = this.querySelectorAll<HTMLElement>('[data-ml-live-ref]');
+    const byTag = Array.from(this.querySelectorAll<HTMLElement>('[data-ml-live-slot]')).filter((a) => this._ownsAnchor(a));
+    const byRef = Array.from(this.querySelectorAll<HTMLElement>('[data-ml-live-ref]')).filter((a) => this._ownsAnchor(a));
     if (byTag.length === 0 && byRef.length === 0) return;
 
     // moving nodes mutates the subtree; without the lock the observer would see it as a
@@ -203,6 +203,27 @@ export class MoleculeAuraElement extends StateLitElement {
     } finally {
       this._mutationLock = false;
     }
+  }
+
+  /**
+   * Whether an anchor was rendered by THIS molecule, not by one nested in its content.
+   *
+   * `querySelectorAll` reaches every descendant, and once live-slot molecules nest (a card grid
+   * projected into a tab panel) the inner molecule's anchors sit inside the outer one's subtree.
+   * Ref ids are per-instance counters, so both had a `ref1`: the outer molecule filled the inner
+   * anchor and recorded it as `_liveHosts.get('ref1')`, and the next time its own tab came back,
+   * `_currentNodes` pulled the inner CELL's nodes into the panel. Measured on 2026-10-06 with
+   * comandaRestaurante/atendimento: from the first return to an already-visited tab, panels came
+   * back empty or showing loose cell fragments ("R$ 6,00") from other tabs. Tag anchors collide
+   * the same way (`Label` is a slot of many molecules).
+   */
+  private _ownsAnchor(anchor: Element): boolean {
+    let el = anchor.parentElement;
+    while (el && el !== this) {
+      if (el instanceof MoleculeAuraElement) return false;
+      el = el.parentElement;
+    }
+    return el === this;
   }
 
   /** Capture-once + reattach-when-empty, shared by both anchor kinds. */
@@ -548,6 +569,11 @@ export class MoleculeAuraElement extends StateLitElement {
   private _isInsideSlotTag(node: Node): boolean {
     let current: Node | null = node;
     while (current && current !== this) {
+      // A nested molecule that RENDERS owns its subtree: its own slot tags (a search bar's <Label>
+      // inside a projected tab) are not ours, and treating them as ours re-rendered the outer
+      // molecule on every inner change. An INERT one is still raw slot content for us to read,
+      // so the walk goes on through it.
+      if (current instanceof MoleculeAuraElement && !current._isInert) return false;
       if (current.nodeType === Node.ELEMENT_NODE) {
         const tagName = (current as Element).tagName;
         if (this.slotTags.some(st => st.toUpperCase() === tagName)) {
