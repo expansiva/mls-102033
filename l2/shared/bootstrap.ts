@@ -9,6 +9,8 @@
 // flag: a client session keeps the native `define`.
 import '/_102033_/l2/shared/elementSwapRegistry.js';
 import '/_102033_/l2/shared/shell.js';
+// brings the global Window.collabBoot declaration into every program that compiles this file
+import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
 // cbeMiniCfe is loaded by the shell templates (spa/pwa index.html) as an early
 // <head> module script, so the SW install + cbe login start in parallel with
 // the app boot — do not import it here or it would run twice (two instances).

@@ -1,8 +1,8 @@
 /// <mls fileReference="_102033_/l2/shared/shell.ts" enhancement="_blank" />
+import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
 import type {
   MasterFrontendAsideMode,
   MasterFrontendBlockingErrorState,
-  MasterFrontendBootConfig,
   MasterFrontendDeviceKind,
   MasterFrontendDynamicRegionConfig,
   MasterFrontendInteractionState,
