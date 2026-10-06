@@ -16,6 +16,8 @@ import { loadMlsScript } from '/_102033_/l2/cbe/cbeMiniCfeLoad.js';
 import { installReleaseConsoleHelper } from '/_102033_/l2/cbe/releaseInfo.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
+// brings the global Window.collabBoot declaration into every program that compiles this file
+import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
 
 // Base project of the studio environment (the studio core, mls-100554). Same
 // hardcode the on.collab.codes site carries in its nav1 markup

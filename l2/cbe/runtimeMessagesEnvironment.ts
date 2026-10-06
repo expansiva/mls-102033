@@ -11,6 +11,8 @@ import type { ExecutionContext, IAgentMeta } from '/_102036_/l2/shared/interface
 import { notificationsRuntime } from '/_102025_/l2/notificationsRuntime.js';
 import { collabMessagesEnvironmentBase } from '/_102025_/l2/collabMessagesEnvironmentBase.js';
 import { closeAuraAside } from '/_102033_/l2/shellEvents.js';
+// brings the global Window.collabBoot declaration into every program that compiles this file
+import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
 
 interface ConfigNavItem { id?: string; label?: string; href?: string }
 interface ConfigModule { moduleId?: string; basePath?: string; navigation?: ConfigNavItem[] }
