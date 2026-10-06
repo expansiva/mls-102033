@@ -15,6 +15,7 @@ import { setOrgActual, listenForLoadMonaco } from '/_102033_/l2/cbe/initStudio.j
 import { loadMlsScript } from '/_102033_/l2/cbe/cbeMiniCfeLoad.js';
 import { installReleaseConsoleHelper } from '/_102033_/l2/cbe/releaseInfo.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
+import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 
 // Base project of the studio environment (the studio core, mls-100554). Same
 // hardcode the on.collab.codes site carries in its nav1 markup
@@ -90,7 +91,7 @@ export async function initCbeMiniCfe(): Promise<void> {
     // initStudio.setOrgActual for why this port is needed on the VM). Calling
     // it any earlier (e.g. inside prepareStudioLoginContext, before login)
     // finds nothing yet and silently leaves actualOrg undefined.
-    setOrgActual(getSiteProjectId() || CBE_BASE_PROJECT);
+    setOrgActual(siteProjectFromBoot(window.collabBoot) || CBE_BASE_PROJECT);
 
     // Host requires a session (real domain) and none exists: show the sign-in
     // page (collab-auth redirect). The 'login' action itself never logs anyone
@@ -134,30 +135,12 @@ export async function initCbeMiniCfe(): Promise<void> {
 }
 
 /**
- * The site's CLIENT project id from the boot config (0 when absent/invalid).
- *
- * `clientProjectId` first, `projectId` only as fallback: `projectId` is the owner of the served
- * module, so a platform page (monitor/mdm/audit) fed `mls.actualProject` with the master backend's
- * id — measured 102034 on 102047.collabcodes.com in 23/09/2026. The fallback keeps a server that
- * does not send the new field working.
- */
-function getSiteProjectId(): number {
-  const boot = (window as unknown as {
-    collabBoot?: { projectId?: string | number; clientProjectId?: string | number };
-  }).collabBoot;
-  const clientProjectId = Number(boot?.clientProjectId) || 0;
-  if (clientProjectId >= 100000) return clientProjectId;
-  const projectId = Number(boot?.projectId) || 0;
-  return projectId >= 100000 ? projectId : 0;
-}
-
-/**
  * Aligns the login request with the studio's shape: mls.actualProject = the
  * site's project, and a collabNav1 marker carrying initialproject=100554 so
  * the cfe sends baseProject exactly like on.collab.codes does.
  */
 function prepareStudioLoginContext(mls: NonNullable<Window['mls']>): void {
-  const projectId = getSiteProjectId();
+  const projectId = siteProjectFromBoot(window.collabBoot);
   if (projectId && typeof mls.setActualProject === 'function') {
     mls.setActualProject(projectId);
   }
@@ -175,7 +158,7 @@ function prepareStudioLoginContext(mls: NonNullable<Window['mls']>): void {
  * what studio widgets mounted in the shell aside (collab-messages) will need.
  */
 async function preloadStorFiles(mls: NonNullable<Window['mls']>): Promise<void> {
-  const projectId = getSiteProjectId();
+  const projectId = siteProjectFromBoot(window.collabBoot);
   if (!projectId) {
     console.warn('[cbeMiniCfe] preload skipped: no valid collabBoot.projectId');
     return;
