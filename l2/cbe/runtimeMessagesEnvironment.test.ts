@@ -152,3 +152,10 @@ test('runtime environment wires agents (the default silently swallowed every @@a
         else (globalThis as { window?: unknown }).window = previousWindow;
     }
 });
+
+test('opening a program shows the app pane on a phone — tabs and iframes never pass through popstate', () => {
+    const body = source.slice(source.indexOf('export async function openProgramUnified'));
+    const close = body.indexOf('closeAuraAside()');
+    const firstBranch = body.indexOf('if (basePath && item.url.startsWith(basePath))');
+    assert.ok(close > 0 && close < firstBranch, 'closeAuraAside must run before every branch');
+});

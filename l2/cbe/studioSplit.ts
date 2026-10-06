@@ -18,6 +18,8 @@
 // studio mode has to show exactly that. So nothing here ever gives l7 a layout of its own — in
 // particular the left-fullscreen the studio home pins on it is cleared and never handed back.
 
+import { runtimeSplitFor } from '/_102033_/l2/shared/mobilePane.js';
+
 /** The level whose stored profile IS the client layout. */
 export const CLIENT_LEVEL = 7;
 /** Which side of the client layout is full-screen on a mobile (single-panel) viewport. */
@@ -113,6 +115,37 @@ export function showClientPanel(host: ParentNode, side: ClientPanelSide): void {
 function clearSeparatorOverride(spliter: SpliterElement): void {
   const separator = spliter.querySelector?.('.spliter-separator') as HTMLElement | null;
   if (separator) separator.style.removeProperty('display');
+}
+
+/**
+ * Shows one pane fullscreen — the phone layout. Same structure as desktop, but there is room for one
+ * nav3 only: `left` is messages, `right` is the app.
+ *
+ * Uses the spliter's own fullscreen flag on the client level, which is not persisted (only the
+ * attribute holds it) and is cleared by applyClientSplit when the screen widens again.
+ */
+export function applyPaneFullscreen(host: ParentNode, side: 'left' | 'right'): void {
+  const spliter = findSpliter(host);
+  if (!spliter) return;
+  const items = spliter.querySelectorAll('collab-spliter-item');
+  // The spliter adds `hidden` to the zero-width side but never takes it off the other one.
+  items.forEach((item) => item.classList.remove('hidden', 'closed'));
+  spliter.setAttribute('level', String(CLIENT_LEVEL));
+  spliter.setFullScreen?.(CLIENT_LEVEL, side);
+}
+
+/**
+ * The client-mode layout for the device the shell is on: the client split on desktop, the current
+ * pane fullscreen on a phone. Read from the shell's own attributes (`data-device`,
+ * `data-mobile-pane`), so the structure's delayed re-applies follow the shell without a callback.
+ */
+export function applyRuntimeSplit(host: ParentNode): void {
+  const shell = (host as Element).closest?.('collab-aura-shell') ?? null;
+  const device = shell?.getAttribute('data-device') === 'mobile' ? 'mobile' : 'desktop';
+  const pane = shell?.getAttribute('data-mobile-pane') === 'app' ? 'app' : 'messages';
+  const split = runtimeSplitFor(device, pane);
+  if (split === 'client') applyClientSplit(host);
+  else applyPaneFullscreen(host, split);
 }
 
 /**

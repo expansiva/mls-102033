@@ -7,6 +7,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   CLIENT_LEFT_PX,
+  CLIENT_LEVEL,
+  applyPaneFullscreen,
+  applyRuntimeSplit,
   applyClientSplit,
   restoreStudioSplit,
   showClientPanel,
@@ -275,6 +278,7 @@ test('nothing blows up when the structure is not there', () => {
   assert.equal(studioLevel(empty), null);
 });
 
+<<<<<<< Updated upstream
 test('showClientPanel fullscreens the requested side (mobile single panel)', () => {
   const spliter = fakeSpliter();
   const nav1: FakeNav1 = { actualLevel: 7, getAttribute: () => null };
@@ -319,4 +323,63 @@ test('applyClientSplit restores the 375px split after a mobile single panel', ()
   applyClientSplit(host);
   assert.equal(spliter.widths.left, CLIENT_LEFT_PX);
   assert.equal(spliter.widths.right, clientRight);
+=======
+// ── Phone: the same structure, one pane fullscreen (mobilePane.ts) ──────────────────────────────
+
+function shellHost(spliter: FakeSpliter, shellAttrs: Record<string, string>): ParentNode {
+  const shell = { getAttribute: (name: string) => shellAttrs[name] ?? null };
+  return {
+    closest: (selector: string) => (selector === 'collab-aura-shell' ? shell : null),
+    querySelector: (selector: string) => (selector === 'collab-spliter' ? spliter : null),
+  } as unknown as ParentNode;
+}
+
+test('phone on messages: the messages side takes the whole width', () => {
+  const spliter = fakeSpliter();
+  applyRuntimeSplit(shellHost(spliter, { 'data-device': 'mobile', 'data-mobile-pane': 'messages' }));
+  assert.equal(spliter.fullscreen[CLIENT_LEVEL], 'left');
+  assert.equal(spliter.widths.left, TOTAL);
+  assert.equal(spliter.widths.right, 0);
+});
+
+test('phone on the app: the app side takes the whole width', () => {
+  const spliter = fakeSpliter();
+  applyRuntimeSplit(shellHost(spliter, { 'data-device': 'mobile', 'data-mobile-pane': 'app' }));
+  assert.equal(spliter.fullscreen[CLIENT_LEVEL], 'right');
+  assert.equal(spliter.widths.left, 0);
+  assert.equal(spliter.widths.right, TOTAL);
+});
+
+test('switching panes reopens the side the spliter had hidden', () => {
+  const spliter = fakeSpliter();
+  applyPaneFullscreen(shellHost(spliter, {}), 'right');
+  // The real spliter marks the zero-width side hidden and never unmarks the other one.
+  spliter.items[0].classes.add('hidden');
+  applyPaneFullscreen(shellHost(spliter, {}), 'left');
+  assert.equal(spliter.items[0].classes.has('hidden'), false);
+  assert.equal(spliter.widths.left, TOTAL);
+});
+
+test('the phone layout is never saved as the client preference', () => {
+  const spliter = fakeSpliter();
+  applyRuntimeSplit(shellHost(spliter, { 'data-device': 'desktop' }));
+  const clientProfile = spliter.store[CLIENT_LEVEL];
+  applyRuntimeSplit(shellHost(spliter, { 'data-device': 'mobile', 'data-mobile-pane': 'messages' }));
+  applyRuntimeSplit(shellHost(spliter, { 'data-device': 'mobile', 'data-mobile-pane': 'app' }));
+  assert.equal(spliter.store[CLIENT_LEVEL], clientProfile);
+});
+
+test('widening the screen brings the client split back', () => {
+  const spliter = fakeSpliter();
+  applyRuntimeSplit(shellHost(spliter, { 'data-device': 'mobile', 'data-mobile-pane': 'app' }));
+  applyRuntimeSplit(shellHost(spliter, { 'data-device': 'desktop', 'data-mobile-pane': 'app' }));
+  assert.equal(spliter.fullscreen[CLIENT_LEVEL], '');
+  assert.equal(spliter.widths.left, CLIENT_LEFT_PX);
+});
+
+test('without a shell around it, the structure keeps the desktop client split', () => {
+  const spliter = fakeSpliter();
+  applyRuntimeSplit(fakeHost(spliter, null));
+  assert.equal(spliter.widths.left, CLIENT_LEFT_PX);
+>>>>>>> Stashed changes
 });

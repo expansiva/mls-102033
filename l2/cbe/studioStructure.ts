@@ -33,7 +33,7 @@ import {
   SERVICE_APP,
 } from '/_102033_/l2/cbe/studioHeader.js';
 import { setStudioTailwind } from '/_102033_/l2/cbe/studioTailwind.js';
-import { applyClientSplit } from '/_102033_/l2/cbe/studioSplit.js';
+import { applyRuntimeSplit } from '/_102033_/l2/cbe/studioSplit.js';
 // Runtime services must be DEFINED before the nav3 instances them (the nav3
 // attaches directly when customElements.get(tag) resolves).
 import '/_102033_/l2/cbe/serviceClientApp.js';
@@ -154,15 +154,16 @@ export async function upgradeToStudioStructure(container: HTMLElement, siteProje
 
   nav1.setAttribute('status', 'enabled');
 
-  // Production split: messages fixed-ish at 375px left, the app taking the rest (the photo layout).
+  // Production split: messages fixed-ish at 375px left, the app taking the rest (the photo layout);
+  // on a phone, one of the two fullscreen (the shell's data-mobile-pane).
   // What "the client layout" is lives in studioSplit.ts — the same code Ctrl+Alt+S runs on the way
   // out of studio mode, so the first paint and every later return agree by construction.
-  applyClientSplit(container);
+  applyRuntimeSplit(container);
   // Second pass once the first layout settles. By then the user could (barely) have pressed
   // Ctrl+Alt+S already, so it never overrides an active studio mode.
   setTimeout(() => {
     if (container.closest('collab-aura-shell')?.getAttribute('data-studio-mode') === 'true') return;
-    applyClientSplit(container);
+    applyRuntimeSplit(container);
   }, 600);
 
   return page;

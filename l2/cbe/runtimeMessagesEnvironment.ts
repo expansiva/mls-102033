@@ -11,6 +11,7 @@ import { closeAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js'
 import type { ExecutionContext, IAgentMeta } from '/_102036_/l2/shared/interfaces.js';
 import { notificationsRuntime } from '/_102025_/l2/notificationsRuntime.js';
 import { collabMessagesEnvironmentBase } from '/_102025_/l2/collabMessagesEnvironmentBase.js';
+import { closeAuraAside } from '/_102033_/l2/shellEvents.js';
 
 interface ConfigNavItem { id?: string; label?: string; href?: string }
 interface ConfigModule { moduleId?: string; basePath?: string; navigation?: ConfigNavItem[] }
@@ -94,6 +95,10 @@ function ensureAppServiceVisible(): void {
 export async function openProgramUnified(item: { url?: string; pageName?: string }): Promise<void> {
   if (!item.url) return;
   ensureAppServiceVisible();
+  // On a phone the messages pane covers the app (one pane at a time); whatever opens next has to be
+  // seen. In-module routes would switch via popstate anyway — tabs and iframes would not. No-op on
+  // desktop, where the aside is inline.
+  closeAuraAside();
   const basePath = window.collabBoot?.basePath ?? '';
   if (basePath && item.url.startsWith(basePath)) {
     window.history.pushState({}, '', item.url);
@@ -234,6 +239,7 @@ export function applyRuntimeMessagesEnvironment(): void {
         host.style.height = '100%';
         host.appendChild(info);
         nav3.openTab({ id: 'detail', title: 'Detail', element: host });
+        closeAuraAside();
         return { openLocal: false, element: undefined };
       },
     },
