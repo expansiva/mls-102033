@@ -147,19 +147,9 @@ export function startCollabLogin(provider: CollabAuthProvider = 'google'): void 
   window.location.href = `${AUTH_BASE_URL}/auth/login/${provider}?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
-/** Clears the VM session cookies (cauth/crefresh/loginUser) and reloads. */
+/** Navigates to the server logout. The response clears the session and redirects to /. */
 export async function logoutCollab(): Promise<void> {
-  try {
-    await fetch('/exec', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({ action: 'authLogout' }),
-    });
-  } catch (err) {
-    console.warn('[cbeAuth] logout request failed:', err);
-  }
-  window.location.reload();
+  window.location.assign('/exec/logout');
 }
 
 // ── Login gate ───────────────────────────────────────────────────────────────
