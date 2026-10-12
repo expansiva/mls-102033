@@ -11,9 +11,12 @@ import {
 
 const PROJECT = 102056;
 
+type FetchCall = { url: string; init?: RequestInit };
+
 type Host = {
   written: string[];
   warns: unknown[][];
+  fetches: FetchCall[];
   confCalls: number;
   restore: () => void;
 };
@@ -24,13 +27,16 @@ function install(opts: {
   driver?: { driverVersion?: string } | null;
   getDefaultDriver?: (project: number) => Promise<unknown>;
   getProjectConf?: (project: number) => Promise<unknown>;
+  fetch?: (url: string, init?: RequestInit) => Promise<{ type?: string; status: number }>;
 }): Host {
   const written: string[] = [];
   const warns: unknown[][] = [];
+  const fetches: FetchCall[] = [];
   const previous = {
     document: (globalThis as { document?: unknown }).document,
     location: (globalThis as { location?: unknown }).location,
     mls: (globalThis as { mls?: unknown }).mls,
+    fetch: (globalThis as { fetch?: unknown }).fetch,
     warn: console.warn,
   };
   let cookie = opts.cookie ?? '';
@@ -59,20 +65,38 @@ function install(opts: {
       },
     },
   };
+  (globalThis as { fetch: unknown }).fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : String(input);
+    fetches.push({ url, init });
+    if (opts.fetch) return opts.fetch(url, init);
+    const draft = new URL(url, 'http://local').searchParams.get('draft');
+    if (url.startsWith('/desenv?') && draft) {
+      cookie = `collab-draft=${draft}`;
+      return { type: 'opaqueredirect', status: 0 };
+    }
+    if (url.startsWith('/desenv/sair')) {
+      cookie = '';
+      return { type: 'opaqueredirect', status: 0 };
+    }
+    return { type: 'basic', status: 500 };
+  };
   console.warn = (...args: unknown[]) => { warns.push(args); };
   return {
     written,
     warns,
+    fetches,
     get confCalls() { return confCalls; },
     restore() {
       console.warn = previous.warn;
-      const g = globalThis as { document?: unknown; location?: unknown; mls?: unknown };
+      const g = globalThis as { document?: unknown; location?: unknown; mls?: unknown; fetch?: unknown };
       if (previous.document === undefined) delete g.document;
       else g.document = previous.document;
       if (previous.location === undefined) delete g.location;
       else g.location = previous.location;
       if (previous.mls === undefined) delete g.mls;
       else g.mls = previous.mls;
+      if (previous.fetch === undefined) delete g.fetch;
+      else g.fetch = previous.fetch;
     },
   };
 }
@@ -107,102 +131,103 @@ test('isVmDriver accepts only a 1.0.0-vm driverVersion prefix', () => {
   assert.equal(isVmDriver({}), false);
 });
 
-test('no cookie and a vm driver writes team-<id>', async () => {
+test('without a cookie, /desenv opaqueredirect sets team-<id> and does not warn', async () => {
   const host = install({ driver: { driverVersion: '1.0.0-vm' } });
   try {
     await ensureDefaultDraftCookie(PROJECT);
-    assert.deepEqual(host.written, [`collab-draft=team-${PROJECT}; Path=/; SameSite=Lax`]);
+    assert.equal(host.fetches.length, 1);
+    assert.equal(host.fetches[0]?.url, `/desenv?draft=team-${PROJECT}&to=/`);
+    assert.deepEqual(host.fetches[0]?.init, { redirect: 'manual', credentials: 'same-origin' });
     assert.equal(host.warns.length, 0);
-  } finally {
-    host.restore();
-  }
-});
-
-test('an existing collab-draft cookie is left untouched', async () => {
-  const host = install({
-    cookie: 'collab-draft=user-ana',
-    driver: { driverVersion: '1.0.0-vm' },
-  });
-  try {
-    await ensureDefaultDraftCookie(PROJECT);
     assert.deepEqual(host.written, []);
+  } finally {
+    host.restore();
+  }
+});
+
+test('an existing collab-draft cookie is sent to /desenv', async () => {
+  const host = install({
+    cookie: 'collab-draft=team-x',
+    driver: { driverVersion: '1.0.0-vm' },
+  });
+  try {
+    await ensureDefaultDraftCookie(PROJECT);
+    assert.equal(host.fetches.length, 1);
+    assert.equal(host.fetches[0]?.url, '/desenv?draft=team-x&to=/');
     assert.equal(host.confCalls, 0);
+    assert.equal(host.warns.length, 0);
+    assert.deepEqual(host.written, []);
   } finally {
     host.restore();
   }
 });
 
-test('a valid studio.defaultDraft is the cookie slug', async () => {
+test('503 warns and leaves via /desenv/sair when a cookie was present', async () => {
   const host = install({
+    cookie: 'collab-draft=team-x',
     driver: { driverVersion: '1.0.0-vm' },
-    getProjectConf: async () => ({ studio: { defaultDraft: 'user-ana' } }),
+    fetch: async () => ({ type: 'basic', status: 503 }),
   });
   try {
     await ensureDefaultDraftCookie(PROJECT);
-    assert.deepEqual(host.written, ['collab-draft=user-ana; Path=/; SameSite=Lax']);
+    assert.equal(host.fetches.length, 2);
+    assert.equal(host.fetches[0]?.url, '/desenv?draft=team-x&to=/');
+    assert.equal(host.fetches[1]?.url, '/desenv/sair');
+    assert.deepEqual(host.fetches[1]?.init, { redirect: 'manual', credentials: 'same-origin' });
+    assert.equal(host.warns.length, 1);
+    assert.equal(host.warns[0]?.[0], '[studio] rascunho indisponível: 503');
+    assert.deepEqual(host.written, []);
   } finally {
     host.restore();
   }
 });
 
-test('an invalid studio.defaultDraft falls back to team-<id>', async () => {
+test('a throwing fetch warns and does not throw', async () => {
   const host = install({
     driver: { driverVersion: '1.0.0-vm' },
-    getProjectConf: async () => ({ studio: { defaultDraft: 'main' } }),
+    fetch: async () => { throw new Error('network down'); },
   });
   try {
     await ensureDefaultDraftCookie(PROJECT);
-    assert.deepEqual(host.written, [`collab-draft=team-${PROJECT}; Path=/; SameSite=Lax`]);
+    assert.equal(host.fetches.length, 1);
+    assert.equal(host.warns.length, 1);
+    assert.equal(host.warns[0]?.[0], '[studio] rascunho indisponível: network down');
+    assert.deepEqual(host.written, []);
   } finally {
     host.restore();
   }
 });
 
-test('a non-vm driver does not write the cookie', async () => {
+test('a non-vm driver does not fetch', async () => {
   const host = install({ driver: { driverVersion: '1.0.0-github' } });
   try {
     await ensureDefaultDraftCookie(PROJECT);
-    assert.deepEqual(host.written, []);
+    assert.deepEqual(host.fetches, []);
     assert.equal(host.confCalls, 0);
     assert.equal(host.warns.length, 0);
+    assert.deepEqual(host.written, []);
   } finally {
     host.restore();
   }
 });
 
-test('getDefaultDriver throwing does not write the cookie', async () => {
+test('no path writes document.cookie', async () => {
+  const source = await import('node:fs/promises').then((fs) =>
+    fs.readFile(new URL('./studioDraft.ts', import.meta.url), 'utf8'),
+  );
+  assert.equal(/document\.cookie\s*=/.test(source), false);
+});
+
+test('getDefaultDriver throwing does not fetch', async () => {
   const host = install({
     getDefaultDriver: async () => { throw new Error('Driver _102056_github not found'); },
   });
   try {
     await ensureDefaultDraftCookie(PROJECT);
+    assert.deepEqual(host.fetches, []);
     assert.deepEqual(host.written, []);
     assert.equal(host.warns.length, 1);
     assert.match(String(host.warns[0]?.[0]), /getDefaultDriver failed/);
-  } finally {
-    host.restore();
-  }
-});
-
-test('https adds the Secure attribute', async () => {
-  const host = install({ driver: { driverVersion: '1.0.0-vm' }, protocol: 'https:' });
-  try {
-    await ensureDefaultDraftCookie(PROJECT);
-    assert.deepEqual(host.written, [`collab-draft=team-${PROJECT}; Path=/; SameSite=Lax; Secure`]);
-  } finally {
-    host.restore();
-  }
-});
-
-test('getProjectConf failing still writes team-<id>', async () => {
-  const host = install({
-    driver: { driverVersion: '1.0.0-vm' },
-    getProjectConf: async () => { throw new Error('config missing'); },
-  });
-  try {
-    await ensureDefaultDraftCookie(PROJECT);
-    assert.deepEqual(host.written, [`collab-draft=team-${PROJECT}; Path=/; SameSite=Lax`]);
-    assert.equal(host.warns.length, 1);
   } finally {
     host.restore();
   }

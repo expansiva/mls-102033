@@ -55,18 +55,41 @@ export async function ensureDefaultDraftCookie(project: number): Promise<void> {
       return;
     }
     if (!isVmDriver(driver)) return;
-    if (readDraftCookie(document.cookie ?? '')) return;
 
+    const existing = readDraftCookie(document.cookie ?? '');
     let configured: string | undefined;
-    try {
-      const conf = await api.l5.getProjectConf(project);
-      configured = conf?.studio?.defaultDraft;
-    } catch (err) {
-      console.warn('[studioDraft] getProjectConf failed; using team draft:', err);
+    if (!existing) {
+      try {
+        const conf = await api.l5.getProjectConf(project);
+        configured = conf?.studio?.defaultDraft;
+      } catch (err) {
+        console.warn('[studioDraft] getProjectConf failed; using team draft:', err);
+      }
     }
+    const slug = existing ?? defaultDraftFor(project, configured);
 
-    const secure = location.protocol === 'https:';
-    document.cookie = buildDraftCookie(defaultDraftFor(project, configured), secure);
+    let detail: string;
+    try {
+      const response = await fetch(
+        '/desenv?draft=' + encodeURIComponent(slug) + '&to=/',
+        { redirect: 'manual', credentials: 'same-origin' },
+      );
+      const accepted =
+        response.type === 'opaqueredirect' ||
+        (response.status >= 200 && response.status < 300) ||
+        response.status === 302;
+      if (accepted && readDraftCookie(document.cookie ?? '')) return;
+      detail = String(response.status);
+    } catch (err) {
+      detail = err instanceof Error ? err.message : String(err);
+    }
+    console.warn('[studio] rascunho indisponível: ' + detail);
+    if (!existing) return;
+    try {
+      await fetch('/desenv/sair', { redirect: 'manual', credentials: 'same-origin' });
+    } catch (err) {
+      console.warn('[studio] rascunho indisponível: ' + (err instanceof Error ? err.message : String(err)));
+    }
   } catch (err) {
     console.warn('[studioDraft] ensureDefaultDraftCookie failed:', err);
   }
