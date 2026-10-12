@@ -41,6 +41,7 @@ import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
 import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
 import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
+import { onStudioExit, readCollabReleaseId, rememberRelease } from '/_102033_/l2/cbe/studioExitReload.js';
 import { contentPageGenomeToPreserve } from '/_102033_/l2/shared/contentPageGenomePreserve.js';
 import {
   attachViewportMsizeListeners,
@@ -637,6 +638,7 @@ export class CollabAuraShell extends LitElement {
           this.loadStudioDefinitions();
           // Back to the level the nav1 never left, with its own split.
           this.syncStructureSplit(true);
+          void rememberRelease(readCollabReleaseId);
         }
         // Back to client mode: the banner returns, and the nav3s must show the client's own
         // services again. The toolbars remember the last service opened — by now a studio one —
@@ -645,6 +647,7 @@ export class CollabAuraShell extends LitElement {
         else {
           this.showRuntimeServices();
           this.syncStructureSplit(false);
+          void onStudioExit(() => location.reload());
         }
       } else {
         this.rotateHeaderProfile();
