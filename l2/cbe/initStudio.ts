@@ -8,7 +8,8 @@
 // — neither of those files runs on the VM runtime. cbeMiniCfe registers a
 // LoadMonaco listener that calls initStudio() on demand.
 
-import type { StudioMls } from './global.js'; 
+import type { StudioMls } from './global.js';
+import { ensureDefaultDraftCookie } from '/_102033_/l2/cbe/studioDraft.js'; 
 
 const MONACO_SCRIPT_ID = 'cbe-monaco-loader';
 
@@ -222,6 +223,8 @@ export async function loadProjectDefinitions(project: number): Promise<void> {
   // Creating the models reads project SOURCES on a cache miss — without the drivers that read
   // has nothing registered in the project's slot and throws `Driver _<project>_<name> not found`.
   await registerDrivers();
+  // getDefaultDriver throws until the slot exists; this call swallows its own errors.
+  await ensureDefaultDraftCookie(project);
   // Called from the studio switch, which can happen before the Monaco download finishes — the
   // editor API below only exists after it. cbeMiniCfe sets this promise at boot.
   if (window.monacoReady) await window.monacoReady.catch(() => undefined);
