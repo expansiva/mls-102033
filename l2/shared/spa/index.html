@@ -16,15 +16,134 @@
       { "imports": {} }
     </script>
     <!-- /collab:lit-importmap -->
-    <!-- Frontend error capture (window.onerror/unhandledrejection -> telemetry queue ->
-         piggybacks on the next BFF call). Loaded FIRST so boot errors are captured too. -->
-    <script type="module" src="/_102029_/l2/telemetry.js"></script>
-    <!-- Early studio bootstrap: starts the SW install + cbe login in parallel with the
-         app boot (module scripts run in document order — this executes before the body
-         bootstrap; same module URL, so it runs only once). -->
-    <script type="module" src="/_102033_/l2/cbe/cbeMiniCfe.js"></script>
   </head>
   <body class="bg-aura-sand text-aura-ink">
-    <script type="module" src="/_102033_/l2/shared/bootstrap.js"></script>
+    <!-- collabFecho runs before any module is requested. A module tag already in the
+         document is fetched during parse, and an await here would not hold it. The
+         server injects window.collabFecho in the head script (before </head>). -->
+    <script>
+      (function () {
+        var moduleSrcs = [
+          '/_102029_/l2/telemetry.js',
+          '/_102033_/l2/cbe/cbeMiniCfe.js',
+          '/_102033_/l2/shared/bootstrap.js'
+        ];
+        function startModules() {
+          for (var i = 0; i < moduleSrcs.length; i++) {
+            var el = document.createElement('script');
+            el.type = 'module';
+            el.src = moduleSrcs[i];
+            document.head.appendChild(el);
+          }
+        }
+        function warn(err) {
+          console.warn('[collabFecho] cache prune skipped', err);
+        }
+        var fecho = window.collabFecho;
+        if (!fecho || typeof fecho !== 'object') {
+          startModules();
+          return;
+        }
+        prune(fecho).then(startModules, function (err) {
+          warn(err);
+          startModules();
+        });
+
+        function prune(map) {
+          return openDb().then(function (db) {
+            if (!db) return;
+            return readLocal(db, Object.keys(map)).then(function (local) {
+              db.close();
+              return caches.keys().then(function (names) {
+                var cachesToOpen = names.filter(function (name) {
+                  return name === 'mls-v2' || name.indexOf('mls-v2-') === 0;
+                });
+                var chain = Promise.resolve();
+                Object.keys(map).forEach(function (id) {
+                  chain = chain.then(function () {
+                    return pruneProject(id, map[id], local[id], cachesToOpen);
+                  });
+                });
+                return chain;
+              });
+            });
+          });
+        }
+
+        function openDb() {
+          return new Promise(function (resolve, reject) {
+            var req = indexedDB.open('mlsDB');
+            req.onupgradeneeded = function (event) {
+              // A missing database must not be created as an empty v1: the app
+              // opens the same version and would never get onupgradeneeded.
+              event.target.transaction.abort();
+            };
+            req.onsuccess = function () { resolve(req.result); };
+            req.onerror = function (event) {
+              if (event && event.preventDefault) event.preventDefault();
+              // Abort on upgradeneeded: the database did not exist, so there is
+              // nothing to prune and nothing was created.
+              if (req.error && req.error.name === 'AbortError') resolve(null);
+              else reject(req.error);
+            };
+          });
+        }
+
+        function readLocal(db, ids) {
+          return new Promise(function (resolve, reject) {
+            var tx;
+            try {
+              tx = db.transaction('tempObjects', 'readonly');
+            } catch (err) {
+              try { db.close(); } catch (closeErr) { /* already closing */ }
+              reject(err);
+              return;
+            }
+            var store = tx.objectStore('tempObjects');
+            var out = {};
+            var pending = ids.length;
+            if (pending === 0) {
+              resolve(out);
+              return;
+            }
+            ids.forEach(function (id) {
+              var req = store.get('Prj_' + id);
+              req.onsuccess = function () {
+                var row = req.result;
+                out[id] = row && typeof row.repository_lastModified === 'string'
+                  ? row.repository_lastModified
+                  : null;
+                pending -= 1;
+                if (pending === 0) resolve(out);
+              };
+              req.onerror = function () {
+                try { db.close(); } catch (closeErr) { /* already closing */ }
+                reject(req.error);
+              };
+            });
+          });
+        }
+
+        function pruneProject(id, serverVersion, localVersion, cacheNames) {
+          if (localVersion !== null && localVersion === serverVersion) return Promise.resolve();
+          var needle = '/local/_' + id + '_';
+          var chain = Promise.resolve();
+          cacheNames.forEach(function (name) {
+            chain = chain.then(function () {
+              return caches.open(name).then(function (cache) {
+                return cache.keys().then(function (requests) {
+                  var deletes = [];
+                  for (var i = 0; i < requests.length; i++) {
+                    if (requests[i].url.indexOf(needle) !== -1) deletes.push(cache.delete(requests[i]));
+                  }
+                  return Promise.all(deletes);
+                });
+              });
+            });
+          });
+          return chain;
+        }
+      })();
+    </script>
   </body>
 </html>
