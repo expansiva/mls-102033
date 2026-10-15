@@ -1709,6 +1709,15 @@ export class CollabAuraShell extends LitElement {
         min-height: 0;
       }
 
+      /* Only the app's own regions read the DS font — the studio chrome around them (nav1/nav2,
+         nav3 tabs and panels) keeps the shell font. Unprefixed: in studio mode the content region
+         is adopted by serviceClientApp. */
+      [data-region-host="header"],
+      [data-region-host="aside"],
+      [data-region-host="content"] {
+        font-family: var(--font-family-primary, "Segoe UI", sans-serif);
+      }
+
       collab-aura-shell .region.header {
         display: var(--aura-region-header-display);
         height: var(--aura-header-height, auto);

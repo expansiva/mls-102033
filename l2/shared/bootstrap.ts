@@ -14,7 +14,7 @@ import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.
 // cbeMiniCfe is loaded by the shell templates (spa/pwa index.html) as an early
 // <head> module script, so the SW install + cbe login start in parallel with
 // the app boot — do not import it here or it would run twice (two instances).
-import { getTokensCss } from '/_102029_/l2/designSystemBase.js';
+import { getTokens, getTokensCss } from '/_102029_/l2/designSystemBase.js';
 import { BFF_UNAUTHENTICATED_EVENT } from '/_102029_/l2/bffClient.js';
 import { startCollabLogin } from '/_102033_/l2/cbe/cbeAuth.js';
 import {
@@ -47,7 +47,8 @@ async function injectDesignSystemTokens(): Promise<void> {
 
     // Compatibility with a config generated before modules[].designSystems existed.
     const dsIndex = boot.designSystem || 1;
-    const css = await getTokensCss(dsIndex, `/_${project}_/l2/designSystem.js`);
+    const path = `/_${project}_/l2/designSystem.js`;
+    const css = await getTokensCss(dsIndex, path);
     if (!css) return;
     let style = document.getElementById('ds-tokens') as HTMLStyleElement | null;
     if (!style) {
@@ -56,9 +57,14 @@ async function injectDesignSystemTokens(): Promise<void> {
       document.head.appendChild(style);
     }
     style.textContent = css;
-    if (typeof boot.designSystem === 'string') {
-      style.dataset.designSystem = boot.designSystem;
-    }
+    // Stamp WHICH theme is on screen (same pick as getTokensCss, first theme as fallback): the
+    // L5 → UI live preview only repaints the active DS, and mls.sites.getDS reads it from here.
+    const themes = await getTokens(path).catch(() => []);
+    const active = typeof dsIndex === 'string'
+      ? themes.find((theme) => theme.themeName === dsIndex)
+      : themes.find((theme) => theme.dsIndex === String(dsIndex));
+    const themeName = (active ?? themes[0])?.themeName;
+    if (themeName) style.dataset.designSystem = themeName;
   } catch (e) {
     console.warn('[bootstrap] design system tokens not injected:', e);
   }
