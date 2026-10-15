@@ -65,6 +65,11 @@ const LIFECYCLE_CALLBACKS = [
   'disconnectedCallback',
   'adoptedCallback',
   'attributeChangedCallback',
+  // Read once at define. A present function, even when the current class omits it, is the
+  // opt-in that suppresses disconnected+connected on a connected move (HTML, "preserving
+  // custom element state when moved"). The stub resolves the impl at call time and returns
+  // without calling the connect/disconnect pair.
+  'connectedMoveCallback',
 ] as const;
 
 interface IEntry {
@@ -148,6 +153,10 @@ function stripForeignStatics(entry: IEntry): string[] {
  * `connectedCallback` would therefore keep running v1's forever. The stubs below are read at define
  * time (so the browser is happy) and resolve the real callback AT CALL TIME through the current
  * prototype link. Proven load-bearing by the phase-0 negative control.
+ *
+ * `connectedMoveCallback` is on that same list for a second reason: the browser treats the name's
+ * presence on the registered prototype as the opt-in. Without the stub, a connected move falls
+ * back to disconnectedCallback + connectedCallback. The stub never synthesizes that pair.
  */
 function createStandIn(impl: CustomElementConstructor, tag: string): IEntry {
   const slot = { impl };

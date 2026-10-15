@@ -250,6 +250,75 @@ test('T12: bootstrap.ts imports the registry on its first line', () => {
   assert.equal(firstImport, "import '/_102033_/l2/shared/elementSwapRegistry.js';");
 });
 
+class PageMoveV1 extends (FakeHTMLElement as unknown as { new (): HTMLElement }) {
+  public label = 'v1';
+  public connectedCallback(): void { log.push('connected:v1'); }
+  public disconnectedCallback(): void { log.push('disconnected:v1'); }
+  public connectedMoveCallback(): void { log.push(`moved:v1:${this.label}`); }
+}
+
+class PageMoveV2 extends (FakeHTMLElement as unknown as { new (): HTMLElement }) {
+  public label = 'v2';
+  public connectedCallback(): void { log.push('connected:v2'); }
+  public disconnectedCallback(): void { log.push('disconnected:v2'); }
+  public connectedMoveCallback(): void { log.push(`moved:v2:${this.label}`); }
+}
+
+class PageNoMove extends (FakeHTMLElement as unknown as { new (): HTMLElement }) {
+  public connectedCallback(): void { log.push('connected:nomove'); }
+  public disconnectedCallback(): void { log.push('disconnected:nomove'); }
+}
+
+// T14 — the browser captures lifecycle names at define. connectedMoveCallback has to be on the
+// registered prototype then, and the call resolves whichever implementation is current.
+test('T14: connectedMoveCallback is on the registered prototype and forwards to the current impl', async () => {
+  const mod = await armed();
+  registry.define('t14-page', PageMoveV1 as unknown as CustomElementConstructor);
+  const captured = (registry.get('t14-page')!.prototype as unknown as Record<string, () => void>).connectedMoveCallback;
+  assert.equal(typeof captured, 'function', 'the name exists at define time, before any move');
+
+  const element = build('t14-page');
+  log.length = 0;
+  captured.call(element as unknown as HTMLElement);
+  assert.deepEqual(log, ['moved:v1:v1'], 'v1 runs with the instance as this');
+
+  assert.equal(mod.swapElementImpl('t14-page', PageMoveV2 as unknown as CustomElementConstructor), true);
+  log.length = 0;
+  captured.call(element as unknown as HTMLElement);
+  assert.deepEqual(log, ['moved:v2:v1'], 'the callback captured at define reaches v2; this stays the instance');
+
+  const connected = (registry.get('t14-page')!.prototype as unknown as Record<string, () => void>).connectedCallback;
+  const disconnected = (registry.get('t14-page')!.prototype as unknown as Record<string, () => void>).disconnectedCallback;
+  log.length = 0;
+  disconnected.call(element as unknown as HTMLElement);
+  connected.call(element as unknown as HTMLElement);
+  assert.deepEqual(log, ['disconnected:v2', 'connected:v2'], 'a real disconnect and connect still forward');
+});
+
+// T15 — absence is a no-op on the stand-in. It must not invent the disconnect/connect pair.
+test('T15: a missing connectedMoveCallback leaves the stand-in callback inert', async () => {
+  const mod = await armed();
+  registry.define('t15-page', PageNoMove as unknown as CustomElementConstructor);
+  const captured = (registry.get('t15-page')!.prototype as unknown as Record<string, () => void>).connectedMoveCallback;
+  assert.equal(typeof captured, 'function');
+
+  const element = build('t15-page');
+  log.length = 0;
+  const returned = captured.call(element as unknown as HTMLElement);
+  assert.equal(returned, undefined);
+  assert.deepEqual(log, [], 'no connect or disconnect is synthesized');
+
+  assert.equal(mod.swapElementImpl('t15-page', PageMoveV2 as unknown as CustomElementConstructor), true);
+  log.length = 0;
+  captured.call(element as unknown as HTMLElement);
+  assert.deepEqual(log, ['moved:v2:undefined'], 'after the swap the same captured callback reaches the impl that defines it');
+
+  assert.equal(mod.swapElementImpl('t15-page', PageNoMove as unknown as CustomElementConstructor), true);
+  log.length = 0;
+  captured.call(element as unknown as HTMLElement);
+  assert.deepEqual(log, [], 'dropping the handler in the next version is a no-op again');
+});
+
 // T13 — the flag is what gates everything, and the shell is what writes it.
 test('T13: the shell arms the next boot when studio mode turns on', () => {
   const shell = readFileSync(
