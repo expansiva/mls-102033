@@ -11,6 +11,7 @@
 
 import { html } from 'lit';
 import { ServiceBase, type IService, type IServiceMenu, type IToolbarContent } from '/_102027_/l2/serviceBase.js';
+import { moveConnectedRegion } from '/_102033_/l2/shared/connectedRegionMove.js';
 import { parseMsizeHeight } from '/_102033_/l2/shared/regionMsize.js';
 
 export class ServiceRuntimeMessages extends ServiceBase {
@@ -129,7 +130,7 @@ export class ServiceRuntimeMessages extends ServiceBase {
       const asideContent = document.querySelector('[data-region-host="aside"] > *');
       const isMessagesAside = asideContent?.tagName.toLowerCase().includes('messages') ?? false;
       if (asideContent && isMessagesAside) {
-        if (asideContent.parentElement !== this) this.appendChild(asideContent);
+        moveConnectedRegion(this, asideContent);
         this.applyInnerHeight();
         this.setMessagesTab(this.initialTabIndex());
         return;
