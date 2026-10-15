@@ -16,6 +16,7 @@ import { loadMlsScript } from '/_102033_/l2/cbe/cbeMiniCfeLoad.js';
 import { installReleaseConsoleHelper } from '/_102033_/l2/cbe/releaseInfo.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
+import { preloadAnnouncedProjects } from '/_102033_/l2/cbe/runtimeProjectPreload.js';
 // brings the global Window.collabBoot declaration into every program that compiles this file
 import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
 
@@ -27,7 +28,7 @@ import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.
 const CBE_BASE_PROJECT = 100554;
 
 // Bump on every change so the console shows which build is live on the VM.
-const CBE_MINI_CFE_VERSION = '1.3.3';
+const CBE_MINI_CFE_VERSION = '1.3.4';
 
 export async function initCbeMiniCfe(): Promise<void> {
   // Embedded frames (foreign modules in nav3 content tabs) render content
@@ -106,10 +107,10 @@ export async function initCbeMiniCfe(): Promise<void> {
     // source, so an app page pays nothing for them. The cost of this choice: any
     // source read attempted before the studio opens finds an empty slot.
 
-    // Preload mls.stor.files for the site's project + dependencies. This is
-    // what "opening" a project in the studio does; here everything resolves
-    // from the IndexedDB the login just filled (the driver is only consulted
-    // on a cache miss), so no external call happens on the VM.
+    // Preload mls.stor.files for every project the login announced. Metadata
+    // comes from the IndexedDB the login just filled (the driver is only
+    // consulted on a cache miss). A preload error must reject: ready is set
+    // only after this await, on the success path below.
     await preloadStorFiles(mls);
 
     const keys = await mls.stor.localDB.getAllKeys();
@@ -155,32 +156,14 @@ function prepareStudioLoginContext(mls: NonNullable<Window['mls']>): void {
 }
 
 /**
- * Loads into mls.stor.files the site's project and the studio base project
- * (100554), each with its transitive dependencies. The base project chain is
- * what studio widgets mounted in the shell aside (collab-messages) will need.
+ * Loads into mls.stor.files every project announced on mls.stor.orgs.
+ * The login closure is the source; local dependency walks are not.
  */
 async function preloadStorFiles(mls: NonNullable<Window['mls']>): Promise<void> {
-  const projectId = siteProjectFromBoot(window.collabBoot);
-  if (!projectId) {
-    console.warn('[cbeMiniCfe] preload skipped: no valid collabBoot.projectId');
-    return;
-  }
-  const seen = new Set<number>();
-  for (const root of [projectId, CBE_BASE_PROJECT]) {
-    try {
-      await mls.stor.server.loadProjectInfoIfNeeded(root);
-      const pending: number[] = [root];
-      while (pending.length > 0) {
-        const current = pending.shift() as number;
-        if (seen.has(current)) continue;
-        seen.add(current);
-        const loadedDeps = await mls.stor.loadProjectdependenciesInfoIfNeed(current);
-        pending.push(...loadedDeps);
-      }
-    } catch (err) {
-      console.warn(`[cbeMiniCfe] preload of stor.files failed for project ${root}:`, err);
-    }
-  }
+  await preloadAnnouncedProjects(
+    mls.stor.orgs,
+    (project) => mls.stor.server.loadProjectInfoIfNeeded(project),
+  );
 }
 
 // Fire-and-forget: the shell mounts independently of the studio bootstrap.
