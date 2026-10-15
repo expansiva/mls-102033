@@ -10,6 +10,7 @@
 
 import { html } from 'lit';
 import { ServiceBase, type IService, type IServiceMenu, type IToolbarContent } from '/_102027_/l2/serviceBase.js';
+import { moveConnectedRegion } from '/_102033_/l2/shared/connectedRegionMove.js';
 import { parseMsizeHeight } from '/_102033_/l2/shared/regionMsize.js';
 import { publishEditHost } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { loadStudioTools } from '/_102033_/l2/cbe/studioServices.js';
@@ -205,7 +206,7 @@ export class ServiceClientApp extends ServiceBase {
     const region = document.querySelector('main[data-region="content"]') as HTMLElement | null;
     if (region) {
       if (region.parentElement !== this) {
-        this.appendChild(region);
+        moveConnectedRegion(this, region);
         this.applyRegionHeight();
         // The editor binds to the region host, so an arming attempt that ran BEFORE the adoption found
         // nothing to bind to and gave up. Connecting straight on the edit level is exactly that order.
