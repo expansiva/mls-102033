@@ -22,12 +22,29 @@
          server injects window.collabFecho in the head script (before </head>). -->
     <script>
       (function () {
+        var BOOT_MS = 5000;
         var moduleSrcs = [
           '/_102029_/l2/telemetry.js',
           '/_102033_/l2/cbe/cbeMiniCfe.js',
           '/_102033_/l2/shared/bootstrap.js'
         ];
+        var settled = false;
+        var dbRef = null;
+        var statusEl = document.createElement('p');
+        statusEl.setAttribute('role', 'status');
+        statusEl.textContent = 'Preparing local data…';
+        document.body.appendChild(statusEl);
+
+        function closeConn(db) {
+          if (!db) return;
+          try { db.close(); } catch (closeErr) { /* already closing */ }
+        }
+
         function startModules() {
+          if (settled) return;
+          settled = true;
+          clearTimeout(bootTimer);
+          if (statusEl.parentNode) statusEl.parentNode.removeChild(statusEl);
           for (var i = 0; i < moduleSrcs.length; i++) {
             var el = document.createElement('script');
             el.type = 'module';
@@ -35,35 +52,49 @@
             document.head.appendChild(el);
           }
         }
-        function warn(err) {
-          console.warn('[collabFecho] cache prune skipped', err);
+
+        function showFailure() {
+          if (settled) return;
+          settled = true;
+          clearTimeout(bootTimer);
+          closeConn(dbRef);
+          dbRef = null;
+          statusEl.setAttribute('role', 'alert');
+          statusEl.textContent = 'Could not prepare local data.';
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = 'Try again';
+          btn.addEventListener('click', function () { location.reload(); });
+          statusEl.appendChild(btn);
         }
-        var fecho = window.collabFecho;
-        if (!fecho || typeof fecho !== 'object') {
-          startModules();
-          return;
-        }
-        prune(fecho).then(startModules, function (err) {
-          warn(err);
-          startModules();
-        });
+
+        var bootTimer = setTimeout(showFailure, BOOT_MS);
 
         function prune(map) {
           return openDb().then(function (db) {
+            if (settled) {
+              closeConn(db);
+              return;
+            }
             if (!db) return;
             return readLocal(db, Object.keys(map)).then(function (local) {
-              db.close();
+              if (settled) return;
+              closeConn(db);
+              if (dbRef === db) dbRef = null;
               return caches.keys().then(function (names) {
+                if (settled) return;
                 var cachesToOpen = names.filter(function (name) {
                   return name === 'mls-v2' || name.indexOf('mls-v2-') === 0;
                 });
-                var chain = Promise.resolve();
-                Object.keys(map).forEach(function (id) {
-                  chain = chain.then(function () {
-                    return pruneProject(id, map[id], local[id], cachesToOpen);
-                  });
-                });
-                return chain;
+                var ids = Object.keys(map);
+                var index = 0;
+                function nextProject() {
+                  if (settled || index >= ids.length) return;
+                  var id = ids[index];
+                  index += 1;
+                  return pruneProject(id, map[id], local[id], cachesToOpen).then(nextProject);
+                }
+                return nextProject();
               });
             });
           });
@@ -72,18 +103,44 @@
         function openDb() {
           return new Promise(function (resolve, reject) {
             var req = indexedDB.open('mlsDB');
+            var done = false;
+            function finish(fn) {
+              if (done) return;
+              done = true;
+              fn();
+            }
+            function missingOrFail() {
+              if (settled) {
+                closeConn(req.result);
+                return;
+              }
+              if (req.error && req.error.name === 'AbortError') resolve(null);
+              else reject(req.error || new Error('idb'));
+            }
             req.onupgradeneeded = function (event) {
               // A missing database must not be created as an empty v1: the app
               // opens the same version and would never get onupgradeneeded.
               event.target.transaction.abort();
             };
-            req.onsuccess = function () { resolve(req.result); };
+            req.onblocked = function () {
+              finish(function () {
+                if (!settled) reject(new Error('blocked'));
+              });
+            };
+            req.onsuccess = function () {
+              if (settled) {
+                closeConn(req.result);
+                return;
+              }
+              dbRef = req.result;
+              finish(function () { resolve(req.result); });
+            };
             req.onerror = function (event) {
               if (event && event.preventDefault) event.preventDefault();
-              // Abort on upgradeneeded: the database did not exist, so there is
-              // nothing to prune and nothing was created.
-              if (req.error && req.error.name === 'AbortError') resolve(null);
-              else reject(req.error);
+              finish(missingOrFail);
+            };
+            req.onabort = function () {
+              finish(missingOrFail);
             };
           });
         }
@@ -91,34 +148,48 @@
         function readLocal(db, ids) {
           return new Promise(function (resolve, reject) {
             var tx;
+            var finished = false;
+            function succeed(value) {
+              if (finished || settled) return;
+              finished = true;
+              resolve(value);
+            }
+            function fail(err) {
+              if (finished || settled) return;
+              finished = true;
+              closeConn(db);
+              reject(err);
+            }
             try {
               tx = db.transaction('tempObjects', 'readonly');
             } catch (err) {
-              try { db.close(); } catch (closeErr) { /* already closing */ }
-              reject(err);
+              fail(err);
               return;
             }
+            tx.onabort = function () { fail(tx.error || new Error('abort')); };
+            tx.onerror = function (event) {
+              if (event && event.preventDefault) event.preventDefault();
+              fail(tx.error || new Error('abort'));
+            };
             var store = tx.objectStore('tempObjects');
             var out = {};
             var pending = ids.length;
             if (pending === 0) {
-              resolve(out);
+              succeed(out);
               return;
             }
             ids.forEach(function (id) {
               var req = store.get('Prj_' + id);
               req.onsuccess = function () {
+                if (finished || settled) return;
                 var row = req.result;
                 out[id] = row && typeof row.repository_lastModified === 'string'
                   ? row.repository_lastModified
                   : null;
                 pending -= 1;
-                if (pending === 0) resolve(out);
+                if (pending === 0) succeed(out);
               };
-              req.onerror = function () {
-                try { db.close(); } catch (closeErr) { /* already closing */ }
-                reject(req.error);
-              };
+              req.onerror = function () { fail(req.error || new Error('read')); };
             });
           });
         }
@@ -126,22 +197,37 @@
         function pruneProject(id, serverVersion, localVersion, cacheNames) {
           if (localVersion !== null && localVersion === serverVersion) return Promise.resolve();
           var needle = '/local/_' + id + '_';
-          var chain = Promise.resolve();
-          cacheNames.forEach(function (name) {
-            chain = chain.then(function () {
-              return caches.open(name).then(function (cache) {
-                return cache.keys().then(function (requests) {
-                  var deletes = [];
-                  for (var i = 0; i < requests.length; i++) {
-                    if (requests[i].url.indexOf(needle) !== -1) deletes.push(cache.delete(requests[i]));
-                  }
-                  return Promise.all(deletes);
-                });
+          var index = 0;
+          function nextCache() {
+            if (settled || index >= cacheNames.length) return;
+            var name = cacheNames[index];
+            index += 1;
+            return caches.open(name).then(function (cache) {
+              if (settled) return;
+              return cache.keys().then(function (requests) {
+                if (settled) return;
+                var deletes = [];
+                for (var i = 0; i < requests.length; i++) {
+                  if (requests[i].url.indexOf(needle) !== -1) deletes.push(cache.delete(requests[i]));
+                }
+                return Promise.all(deletes);
               });
-            });
-          });
-          return chain;
+            }).then(nextCache);
+          }
+          return Promise.resolve().then(nextCache);
         }
+
+        var fecho = window.collabFecho;
+        if (!fecho || typeof fecho !== 'object') {
+          startModules();
+          return;
+        }
+        prune(fecho).then(function () {
+          if (!settled) startModules();
+        }, function (err) {
+          console.warn('[collabFecho] cache prune skipped', err);
+          showFailure();
+        });
       })();
     </script>
   </body>
