@@ -192,11 +192,11 @@ test('failure shows a retry button and mounts once after retry', async () => {
   await mountClientShell(boot, () => gate);
   const box = documentStub.getElementById('collab-onboarding-entry');
   assert.ok(box);
-  assert.equal(box.querySelector('p')?.textContent, 'Não foi possível preparar a entrada.');
+  assert.equal(box.querySelector('p')?.textContent, 'Could not prepare your access.');
   assert.equal(textOf(box).includes('503'), false);
   assert.equal(textOf(box).includes('secret'), false);
   const button = box.querySelector('button');
-  assert.equal(button?.textContent, 'Tentar novamente');
+  assert.equal(button?.textContent, 'Try again');
   assert.equal(button?.disabled, false);
   button?.click();
   assert.equal(button?.disabled, true);

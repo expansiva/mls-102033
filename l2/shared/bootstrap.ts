@@ -103,7 +103,7 @@ function ensureShellRoot() {
 }
 
 const ONBOARDING_FAILURE_ID = 'collab-onboarding-entry';
-const ONBOARDING_FAILURE_TEXT = 'Não foi possível preparar a entrada.';
+const ONBOARDING_FAILURE_TEXT = 'Could not prepare your access.';
 
 type OnboardingEntryModule = {
   prepareOnboardingEntry: (boot: MasterFrontendBootConfig) => Promise<'continue' | 'redirected'>;
@@ -125,7 +125,7 @@ function showOnboardingFailure(
   message.textContent = ONBOARDING_FAILURE_TEXT;
   const button = document.createElement('button');
   button.type = 'button';
-  button.textContent = 'Tentar novamente';
+  button.textContent = 'Try again';
   button.addEventListener('click', () => {
     if (button.disabled) return;
     button.disabled = true;
