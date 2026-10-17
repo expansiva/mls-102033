@@ -13,6 +13,8 @@ export interface SessionUser {
   email?: string;
   /** Avatar URL from the IdP (OIDC `picture`); absent when it does not send one. */
   picture?: string;
+  /** Presentation id of the session person. Absent means unknown — not an empty person. */
+  person?: { mdmId: string };
 }
 
 const ANONYMOUS: SessionUser = { authenticated: false };
@@ -30,15 +32,26 @@ function safePicture(value: unknown): string | undefined {
   return /^(https?:\/\/|data:image\/)/iu.test(url) ? url : undefined;
 }
 
+/** Only an authenticated session with a non-empty string mdmId. Anything else is omitted. */
+function readPerson(authenticated: boolean, value: unknown): { mdmId: string } | undefined {
+  if (!authenticated || !value || typeof value !== 'object') return undefined;
+  const mdmId = readString((value as Record<string, unknown>).mdmId);
+  return mdmId ? { mdmId } : undefined;
+}
+
 export function parseSessionUser(payload: unknown): SessionUser {
   if (!payload || typeof payload !== 'object') return ANONYMOUS;
   const info = payload as Record<string, unknown>;
-  return {
-    authenticated: info.authenticated === true,
+  const authenticated = info.authenticated === true;
+  const user: SessionUser = {
+    authenticated,
     name: readString(info.name),
     email: readString(info.email),
     picture: safePicture(info.picture),
   };
+  const person = readPerson(authenticated, info.person);
+  if (person) user.person = person;
+  return user;
 }
 
 /** The logged user, fetched once per page. Never rejects. */
