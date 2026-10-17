@@ -6,6 +6,18 @@
 // (the same endpoint the aside uses for authorities). The request is made ONCE per page: the promise
 // is cached, so ten components asking cost one round trip, and a failure resolves to an anonymous
 // user instead of throwing — chrome must not break because a session probe failed.
+//
+// The entry gate uses the same probe through getSessionUserStrict(), which rejects HTTP, network and
+// invalid-protocol failures instead of looking anonymous.
+
+export type SessionOnboardingStatus = 'ready' | 'incomplete' | 'pending' | 'unregistered' | 'unavailable';
+
+export interface SessionOnboarding {
+  status: SessionOnboardingStatus;
+  entryPath: string;
+  moduleBasePath: string;
+  requestId?: string;
+}
 
 export interface SessionUser {
   authenticated: boolean;
@@ -15,11 +27,21 @@ export interface SessionUser {
   picture?: string;
   /** Presentation id of the session person. Absent means unknown — not an empty person. */
   person?: { mdmId: string };
+  /** Provisioned organization company. Absent when the server sent null or the resource is off. */
+  company?: { mdmId: string };
+  /** Present only when the server enabled onboarding and the payload is well formed. */
+  onboarding?: SessionOnboarding;
 }
 
 const ANONYMOUS: SessionUser = { authenticated: false };
+const SESSION_TIMEOUT_MS = 10_000;
+const ONBOARDING_STATUS: ReadonlySet<string> = new Set([
+  'ready', 'incomplete', 'pending', 'unregistered', 'unavailable',
+]);
 
-let pending: Promise<SessionUser> | undefined;
+type SessionProbe = { user: SessionUser } | { error: Error };
+
+let pending: Promise<SessionProbe> | undefined;
 
 function readString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -33,10 +55,52 @@ function safePicture(value: unknown): string | undefined {
 }
 
 /** Only an authenticated session with a non-empty string mdmId. Anything else is omitted. */
-function readPerson(authenticated: boolean, value: unknown): { mdmId: string } | undefined {
+function readId(authenticated: boolean, value: unknown): { mdmId: string } | undefined {
   if (!authenticated || !value || typeof value !== 'object') return undefined;
   const mdmId = readString((value as Record<string, unknown>).mdmId);
   return mdmId ? { mdmId } : undefined;
+}
+
+/** A same-origin path: one leading slash, no protocol-relative `//` and no origin. */
+function localPath(value: unknown): string | undefined {
+  const path = readString(value);
+  if (!path || !path.startsWith('/') || path.startsWith('//') || path.includes('://')) return undefined;
+  return path;
+}
+
+function readOnboarding(authenticated: boolean, value: unknown): SessionOnboarding | undefined {
+  if (!authenticated || !value || typeof value !== 'object') return undefined;
+  const body = value as Record<string, unknown>;
+  const status = body.status;
+  const entryPath = localPath(body.entryPath);
+  const moduleBasePath = localPath(body.moduleBasePath);
+  if (typeof status !== 'string' || !ONBOARDING_STATUS.has(status) || !entryPath || !moduleBasePath) return undefined;
+  if (entryPath !== moduleBasePath && !entryPath.startsWith(`${moduleBasePath}/`)) return undefined;
+  const onboarding: SessionOnboarding = { status: status as SessionOnboardingStatus, entryPath, moduleBasePath };
+  if (body.requestId !== undefined) {
+    const requestId = readString(body.requestId);
+    if (!requestId) return undefined;
+    onboarding.requestId = requestId;
+  }
+  return onboarding;
+}
+
+/**
+ * Enabled entry sends `company` and `onboarding` together. A legacy body has neither.
+ * A present gate that the parser would drop is an invalid protocol — never a synthetic `ready`.
+ */
+function assertSessionProtocol(payload: unknown): void {
+  if (!payload || typeof payload !== 'object') return;
+  const info = payload as Record<string, unknown>;
+  if (info.authenticated !== true) return;
+  const gated = Object.hasOwn(info, 'company') || Object.hasOwn(info, 'onboarding');
+  if (!gated) return;
+  if (!readOnboarding(true, info.onboarding)) {
+    throw new Error('session/info invalid protocol');
+  }
+  if (info.company != null && !readId(true, info.company)) {
+    throw new Error('session/info invalid protocol');
+  }
 }
 
 export function parseSessionUser(payload: unknown): SessionUser {
@@ -49,23 +113,75 @@ export function parseSessionUser(payload: unknown): SessionUser {
     email: readString(info.email),
     picture: safePicture(info.picture),
   };
-  const person = readPerson(authenticated, info.person);
+  const person = readId(authenticated, info.person);
   if (person) user.person = person;
+  const company = readId(authenticated, info.company);
+  if (company) user.company = company;
+  const onboarding = readOnboarding(authenticated, info.onboarding);
+  if (onboarding) user.onboarding = onboarding;
   return user;
+}
+
+function rejectOnAbort(signal: AbortSignal): Promise<never> {
+  if (signal.aborted) return Promise.reject(signal.reason ?? new Error('session/info timed out'));
+  return new Promise((_, reject) => {
+    signal.addEventListener('abort', () => {
+      reject(signal.reason instanceof Error ? signal.reason : new Error('session/info timed out'));
+    }, { once: true });
+  });
+}
+
+/** Headers and body share one deadline. A late body failure must not surface as unhandled. */
+async function readJsonBody(response: Response, signal: AbortSignal): Promise<unknown> {
+  const body = response.json().then(
+    (payload) => payload,
+    (error: unknown) => Promise.reject(error instanceof Error ? error : new Error(String(error))),
+  );
+  try {
+    return await Promise.race([body, rejectOnAbort(signal)]);
+  } catch (error) {
+    void body.catch(() => undefined);
+    throw error;
+  }
+}
+
+async function readSessionProbe(): Promise<SessionProbe> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new Error('session/info timed out'));
+  }, SESSION_TIMEOUT_MS);
+  try {
+    const response = await fetch('/session/info', { credentials: 'same-origin', signal: controller.signal });
+    if (!response.ok) throw new Error(`session/info HTTP ${response.status}`);
+    const payload = await readJsonBody(response, controller.signal);
+    assertSessionProtocol(payload);
+    return { user: parseSessionUser(payload) };
+  } catch (error) {
+    return { error: error instanceof Error ? error : new Error(String(error)) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function sessionProbe(): Promise<SessionProbe> {
+  pending ??= readSessionProbe();
+  return pending;
 }
 
 /** The logged user, fetched once per page. Never rejects. */
 export async function getSessionUser(): Promise<SessionUser> {
-  pending ??= (async () => {
-    try {
-      const response = await fetch('/session/info', { credentials: 'same-origin' });
-      if (!response.ok) return ANONYMOUS;
-      return parseSessionUser(await response.json());
-    } catch {
-      return ANONYMOUS;
-    }
-  })();
-  return pending;
+  const probe = await sessionProbe();
+  return 'user' in probe ? probe.user : ANONYMOUS;
+}
+
+/**
+ * Same fetch and parse as getSessionUser. Rejects when the probe fails or the enabled-entry
+ * payload is not a known state with local paths. Never coerces that failure to anonymous.
+ */
+export async function getSessionUserStrict(): Promise<SessionUser> {
+  const probe = await sessionProbe();
+  if ('error' in probe) throw probe.error;
+  return probe.user;
 }
 
 /** Test/diagnostic hook: drops the cached probe so the next call asks again. */
