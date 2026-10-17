@@ -102,6 +102,78 @@ function ensureShellRoot() {
   return shell;
 }
 
+const ONBOARDING_FAILURE_ID = 'collab-onboarding-entry';
+const ONBOARDING_FAILURE_TEXT = 'Não foi possível preparar a entrada.';
+
+type OnboardingEntryModule = {
+  prepareOnboardingEntry: (boot: MasterFrontendBootConfig) => Promise<'continue' | 'redirected'>;
+  retryOnboardingEntry: (boot: MasterFrontendBootConfig) => Promise<'continue' | 'redirected'>;
+};
+
+function loadOnboardingEntry(): Promise<OnboardingEntryModule> {
+  return import('/_102033_/l2/shared/onboardingEntry.js');
+}
+
+function showOnboardingFailure(
+  boot: MasterFrontendBootConfig,
+  loadEntry: () => Promise<OnboardingEntryModule>,
+): void {
+  if (document.getElementById(ONBOARDING_FAILURE_ID)) return;
+  const box = document.createElement('div');
+  box.id = ONBOARDING_FAILURE_ID;
+  const message = document.createElement('p');
+  message.textContent = ONBOARDING_FAILURE_TEXT;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = 'Tentar novamente';
+  button.addEventListener('click', () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    void finishOnboarding(boot, loadEntry, true).then((mounted) => {
+      if (mounted) return;
+      button.disabled = false;
+    });
+  });
+  box.append(message, button);
+  document.body.appendChild(box);
+}
+
+/** Resolves true when the shell was mounted. A redirect or a shown failure resolves false. */
+async function finishOnboarding(
+  boot: MasterFrontendBootConfig,
+  loadEntry: () => Promise<OnboardingEntryModule>,
+  retry: boolean,
+): Promise<boolean> {
+  try {
+    const entry = await loadEntry();
+    const decision = retry
+      ? await entry.retryOnboardingEntry(boot)
+      : await entry.prepareOnboardingEntry(boot);
+    if (decision === 'redirected') return false;
+    document.getElementById(ONBOARDING_FAILURE_ID)?.remove();
+    ensureShellRoot();
+    return true;
+  } catch {
+    showOnboardingFailure(boot, loadEntry);
+    return false;
+  }
+}
+
+/**
+ * Waits for the entry gate before the shell exists. No onboarding keeps the synchronous mount
+ * and does not load the gate module.
+ */
+export async function mountClientShell(
+  boot: MasterFrontendBootConfig | undefined,
+  loadEntry: () => Promise<OnboardingEntryModule> = loadOnboardingEntry,
+): Promise<void> {
+  if (!boot?.onboarding) {
+    ensureShellRoot();
+    return;
+  }
+  await finishOnboarding(boot, loadEntry, false);
+}
+
 /**
  * A 401 from the single door means the collab-auth session died (or never started). The page cannot fix
  * it — the access token is an httpOnly cookie only the runtime writes — so the shell sends the user
@@ -142,8 +214,10 @@ function showEnvironmentBadge(): void {
   document.body.appendChild(badge);
 }
 
-applyThemePreference();
-injectDesignSystemTokens();
-installUnauthenticatedRedirect();
-showEnvironmentBadge();
-ensureShellRoot();
+if (typeof document !== 'undefined') {
+  applyThemePreference();
+  injectDesignSystemTokens();
+  installUnauthenticatedRedirect();
+  showEnvironmentBadge();
+  void mountClientShell(window.collabBoot);
+}
