@@ -9,7 +9,8 @@
 // LoadMonaco listener that calls initStudio() on demand.
 
 import type { StudioMls } from './global.js';
-import { ensureDefaultDraftCookie } from '/_102033_/l2/cbe/studioDraft.js'; 
+import { ensureDefaultDraftCookie } from '/_102033_/l2/cbe/studioDraft.js';
+import { syncDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js'; 
 
 const MONACO_SCRIPT_ID = 'cbe-monaco-loader';
 
@@ -223,11 +224,20 @@ export async function loadProjectDefinitions(project: number): Promise<void> {
   // Creating the models reads project SOURCES on a cache miss — without the drivers that read
   // has nothing registered in the project's slot and throws `Driver _<project>_<name> not found`.
   await registerDrivers();
-  // getDefaultDriver throws until the slot exists; this call swallows its own errors.
-  await ensureDefaultDraftCookie(project);
   // Called from the studio switch, which can happen before the Monaco download finishes — the
-  // editor API below only exists after it. cbeMiniCfe sets this promise at boot.
+  // editor API below, and the draft compile, only exist after it. cbeMiniCfe sets this promise at boot.
   if (window.monacoReady) await window.monacoReady.catch(() => undefined);
+  // getDefaultDriver throws until the slot exists; this call swallows its own errors.
+  const draft = await ensureDefaultDraftCookie(project);
+  if (draft.slug) {
+    const sync = await syncDraftL2(project, draft.slug);
+    // One reload, then the shell re-enters Studio. A second boot sees the same slug@head and does not compile.
+    if (draft.changed || sync.compiled > 0) {
+      sessionStorage.setItem('collabStudioReenter', '1');
+      location.reload();
+      return;
+    }
+  }
   const mls = (window as unknown as { mls?: MlsDefinitionApi }).mls;
   const editor = mls?.editor;
   if (!editor?.getModels || !editor.createModelProjectDefinition || !mls?.stor?.localDB?.readPrjInfo) return;

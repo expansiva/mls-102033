@@ -594,6 +594,30 @@ export class CollabAuraShell extends LitElement {
     this.requestUpdate();
   }
 
+  /** Body of Ctrl+Alt+S once the structure is up (lines kept together so the draft reload can re-enter). */
+  private toggleStudioMode(): void {
+    this.studioModeOn = !this.studioModeOn;
+    this.requestUpdate();
+    if (this.studioModeOn) {
+      // Arms the live update of edited elements — on the NEXT boot, not this one. The stand-in
+      // has to be installed before the first `define`, which is long past by the time anyone can
+      // press this. So the first studio session on a browser costs one reload; from then on it
+      // is already armed (TASK-102020-live-update-stand-in).
+      rememberElementSwapForNextBoot();
+      this.loadStudioDefinitions();
+      // Back to the level the nav1 never left, with its own split.
+      this.syncStructureSplit(true);
+      void rememberRelease(readCollabReleaseId);
+    }
+  }
+
+  /** Spent before entering, so the reload that follows a draft sync cannot re-enter a second time. */
+  private reenterStudioAfterDraftSync(): void {
+    if (sessionStorage.getItem('collabStudioReenter') !== '1') return;
+    sessionStorage.removeItem('collabStudioReenter');
+    this.toggleStudioMode();
+  }
+
   private readonly handleKeyDown = (event: KeyboardEvent) => {
     if (this.interactionState.busy) {
       event.preventDefault();
@@ -628,24 +652,12 @@ export class CollabAuraShell extends LitElement {
     if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && event.code === 'KeyS') {
       event.preventDefault();
       if (this.structureUpgraded) {
-        this.studioModeOn = !this.studioModeOn;
-        this.requestUpdate();
-        if (this.studioModeOn) {
-          // Arms the live update of edited elements — on the NEXT boot, not this one. The stand-in
-          // has to be installed before the first `define`, which is long past by the time anyone can
-          // press this. So the first studio session on a browser costs one reload; from then on it
-          // is already armed (TASK-102020-live-update-stand-in).
-          rememberElementSwapForNextBoot();
-          this.loadStudioDefinitions();
-          // Back to the level the nav1 never left, with its own split.
-          this.syncStructureSplit(true);
-          void rememberRelease(readCollabReleaseId);
-        }
+        this.toggleStudioMode();
         // Back to client mode: the banner returns, and the nav3s must show the client's own
         // services again. The toolbars remember the last service opened — by now a studio one —
         // so the runtime pair has to be forced, not restored. Same for the split: the studio level
         // the user was on has its own, and the client's has to be put back.
-        else {
+        if (!this.studioModeOn) {
           this.showRuntimeServices();
           this.syncStructureSplit(false);
           void onStudioExit(() => location.reload(), { cookie: document.cookie, path: location.pathname + location.search, navigate: (url) => location.assign(url) });
@@ -1201,6 +1213,7 @@ export class CollabAuraShell extends LitElement {
         await module.upgradeToStudioStructure(host, siteProjectFromBoot(this.bootConfig));
         if (await this.verifyStudioStructureRendered(host)) {
           this.structureUpgraded = true;
+          this.reenterStudioAfterDraftSync();
           this.requestUpdate();
           // collab-page measured its own size via getBoundingClientRect()
           // while .studio-structure-host was still display:none (the CSS
