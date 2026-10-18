@@ -231,11 +231,25 @@ export async function loadProjectDefinitions(project: number): Promise<void> {
   const draft = await ensureDefaultDraftCookie(project);
   if (draft.slug) {
     const sync = await syncDraftL2(project, draft.slug);
-    // One reload, then the shell re-enters Studio. A second boot sees the same slug@head and does not compile.
-    if (draft.changed || sync.compiled > 0) {
-      sessionStorage.setItem('collabStudioReenter', '1');
-      location.reload();
-      return;
+    // One reload, then the shell re-enters Studio. A failed compile does not store the sync
+    // marker, so the same slug@head must not reload again. draftDiff failure has no head: only a
+    // cookie change reloads, and that path is not keyed.
+    if (sync.head === null) {
+      if (draft.changed) {
+        sessionStorage.setItem('collabStudioReenter', '1');
+        location.reload();
+        return;
+      }
+    } else if (draft.changed || sync.compiled > 0) {
+      const marker = `${draft.slug}@${sync.head}`;
+      if (sessionStorage.getItem('collabDraftL2Reloaded') === marker) {
+        console.warn(`[studioDraftL2] reload skipped: already reloaded for ${marker}`);
+      } else {
+        sessionStorage.setItem('collabDraftL2Reloaded', marker);
+        sessionStorage.setItem('collabStudioReenter', '1');
+        location.reload();
+        return;
+      }
     }
   }
   const mls = (window as unknown as { mls?: MlsDefinitionApi }).mls;
