@@ -647,7 +647,7 @@ export class CollabAuraShell extends LitElement {
         else {
           this.showRuntimeServices();
           this.syncStructureSplit(false);
-          void onStudioExit(() => location.reload());
+          void onStudioExit(() => location.reload(), { cookie: document.cookie, path: location.pathname + location.search, navigate: (url) => location.assign(url) });
         }
       } else {
         this.rotateHeaderProfile();

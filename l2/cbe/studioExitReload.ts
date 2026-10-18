@@ -1,6 +1,7 @@
 /// <mls fileReference="_102033_/l2/cbe/studioExitReload.ts" enhancement="_blank" />
 
 import { readRelease as pingRelease } from '/_102033_/l2/cbe/releaseInfo.js';
+import { readDraftCookie } from '/_102033_/l2/cbe/studioDraft.js';
 
 export interface IStudioReleaseId {
   id: string;
@@ -33,8 +34,25 @@ export function rememberRelease(read: () => Promise<IStudioReleaseId | null>): P
   return captured;
 }
 
-/** Fresh ping against the entry id. Reload only when they differ; a failed ping warns and does not reload. */
-export async function onStudioExit(reload: () => void): Promise<void> {
+/** `/desenv/sair?to=<path>` when a draft cookie is set; null when the page is already on production. */
+export function leaveDraftUrl(cookieString: string, path: string): string | null {
+  if (readDraftCookie(cookieString) === undefined) return null;
+  return '/desenv/sair?to=' + encodeURIComponent(path);
+}
+
+/** Fresh ping against the entry id. Reload only when they differ; a failed ping warns and does not reload.
+ *  With a draft cookie, navigate to `/desenv/sair` instead: that response already loads the current release. */
+export async function onStudioExit(
+  reload: () => void,
+  leave?: { cookie: string; path: string; navigate: (url: string) => void },
+): Promise<void> {
+  if (leave !== undefined) {
+    const url = leaveDraftUrl(leave.cookie, leave.path);
+    if (url !== null) {
+      leave.navigate(url);
+      return;
+    }
+  }
   const read = readRelease;
   const beforePromise = captured;
   if (read === null || beforePromise === null) {

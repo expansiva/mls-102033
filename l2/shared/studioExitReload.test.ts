@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { onStudioExit, rememberRelease, shouldReload } from '/_102033_/l2/cbe/studioExitReload.js';
+import { leaveDraftUrl, onStudioExit, rememberRelease, shouldReload } from '/_102033_/l2/cbe/studioExitReload.js';
 
 describe('studio exit reload', { concurrency: false }, () => {
   test('shouldReload is true only when the ids differ', () => {
@@ -56,5 +56,36 @@ describe('studio exit reload', { concurrency: false }, () => {
     assert.equal(warnings.length, 1);
     assert.match(String(warnings[0]?.[0]), /ping failed/);
     assert.match(String(warnings[0]?.[1]), /HTTP 500/);
+  });
+
+  test('leaveDraftUrl points at /desenv/sair when the draft cookie is set', () => {
+    assert.equal(
+      leaveDraftUrl('collab-draft=team-102047', '/agendaClinica?x=1'),
+      '/desenv/sair?to=%2FagendaClinica%3Fx%3D1',
+    );
+    assert.equal(leaveDraftUrl('', '/agendaClinica'), null);
+    assert.equal(leaveDraftUrl('other=1', '/agendaClinica'), null);
+  });
+
+  test('navigates to /desenv/sair when the draft cookie is set, and does not reload', async () => {
+    let current = 'rel-a';
+    await rememberRelease(async () => ({ id: current }));
+    current = 'rel-b';
+    let reloaded = false;
+    const urls: string[] = [];
+    await onStudioExit(
+      () => {
+        reloaded = true;
+      },
+      {
+        cookie: 'collab-draft=team-102047',
+        path: '/agendaClinica?x=1',
+        navigate: (url) => {
+          urls.push(url);
+        },
+      },
+    );
+    assert.deepEqual(urls, ['/desenv/sair?to=%2FagendaClinica%3Fx%3D1']);
+    assert.equal(reloaded, false);
   });
 });
