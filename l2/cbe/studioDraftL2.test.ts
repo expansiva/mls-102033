@@ -27,6 +27,7 @@ test('syncDraftL2 skips read and compile when the marker is slug@head', async ()
     },
     readDraftText: async () => { calls.push('read'); return 'text'; },
     applyAndCompile: async () => { calls.push('compile'); return true; },
+    hasLocalEdit: () => false,
   };
   const result = await syncDraftL2(102047, 'team-102047', deps);
   assert.deepEqual(result, { compiled: 0, head: 'abc' });
@@ -52,6 +53,7 @@ test('a failed target compiles the others and does not store the marker', async 
       compiled.push(`${path}:${text}`);
       return true;
     },
+    hasLocalEdit: () => false,
   };
   try {
     const result = await syncDraftL2(102047, 'team-102047', deps);
@@ -72,8 +74,40 @@ test('syncDraftL2 stores slug@head when every target compiles', async () => {
     draftDiff: async () => ({ head: 'fff', files: [{ status: 'M', path: 'l2/cbe/studioDraft.ts' }] }),
     readDraftText: async () => 'export {}',
     applyAndCompile: async () => true,
+    hasLocalEdit: () => false,
   };
   const result = await syncDraftL2(7, 'user-7', deps);
   assert.deepEqual(result, { compiled: 1, head: 'fff' });
   assert.equal(marker, 'user-7@fff');
+});
+
+test('a target with a local edit is left alone and the marker is stored', async () => {
+  const calls: string[] = [];
+  const infos: string[] = [];
+  let marker: string | null = null;
+  const previous = console.info;
+  console.info = (...args: unknown[]) => { infos.push(args.map(String).join(' ')); };
+  const deps: DraftL2Deps = {
+    readMarker: () => marker,
+    writeMarker: (value) => { marker = value; },
+    draftDiff: async () => ({ head: 'abc', files: S1_FILES }),
+    readDraftText: async (_project, path) => {
+      calls.push(`read:${path}`);
+      return `text ${path}`;
+    },
+    applyAndCompile: async (_project, path) => {
+      calls.push(`compile:${path}`);
+      return true;
+    },
+    hasLocalEdit: (_project, path) => path === 'l2/b.ts',
+  };
+  try {
+    const result = await syncDraftL2(102047, 'team-102047', deps);
+    assert.deepEqual(result, { compiled: 2, head: 'abc' });
+    assert.equal(marker, 'team-102047@abc');
+    assert.deepEqual(calls, ['read:l2/a.ts', 'compile:l2/a.ts', 'read:l2/new.ts', 'compile:l2/new.ts']);
+    assert.deepEqual(infos, ['[studioDraftL2] l2/b.ts: local edit kept']);
+  } finally {
+    console.info = previous;
+  }
 });

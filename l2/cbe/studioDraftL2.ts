@@ -17,6 +17,7 @@ export interface DraftL2Deps {
   draftDiff(project: number, slug: string): Promise<{ head: string; files: DraftDiffName[] }>;
   readDraftText(project: number, path: string): Promise<string>;
   applyAndCompile(project: number, path: string, text: string): Promise<boolean>;
+  hasLocalEdit(project: number, path: string): boolean;
 }
 
 interface L2File {
@@ -108,14 +109,18 @@ async function requestDraftText(project: number, path: string): Promise<string> 
   return file.encoding === 'base64' ? atob(file.content) : file.content;
 }
 
-function storFileFor(project: number, loc: L2File): mls.stor.IFileInfo {
-  const base: mls.stor.IFileInfoBase = {
+function l2FileBase(project: number, loc: L2File): mls.stor.IFileInfoBase {
+  return {
     project,
     level: 2,
     shortName: loc.shortName,
     folder: loc.folder,
     extension: '.ts',
   };
+}
+
+function storFileFor(project: number, loc: L2File): mls.stor.IFileInfo {
+  const base = l2FileBase(project, loc);
   const existing = mls.stor.files[mls.stor.getKeyToFile(base)];
   if (existing) return existing;
   // Not registered yet (a file the draft added). Identity fields are enough for
@@ -146,12 +151,23 @@ async function applyAndCompile(project: number, path: string, text: string): Pro
   return mls.l2.typescript.compileAndPostProcess(model, true, true);
 }
 
+function defaultHasLocalEdit(project: number, path: string): boolean {
+  const loc = parseL2Ts(path);
+  if (!loc) {
+    console.error(`[studioDraftL2] ${path}: local edit check is not an l2 source`);
+    return false;
+  }
+  const base = l2FileBase(project, loc);
+  return mls.stor.files[mls.stor.getKeyToFile(base)]?.inLocalStorage === true;
+}
+
 const defaultDeps: DraftL2Deps = {
   readMarker: () => sessionStorage.getItem(MARKER_KEY),
   writeMarker: (value) => sessionStorage.setItem(MARKER_KEY, value),
   draftDiff: requestDraftDiff,
   readDraftText: requestDraftText,
   applyAndCompile,
+  hasLocalEdit: defaultHasLocalEdit,
 };
 
 export async function syncDraftL2(
@@ -172,6 +188,10 @@ export async function syncDraftL2(
   let compiled = 0;
   let failed = false;
   for (const path of targets) {
+    if (deps.hasLocalEdit(project, path)) {
+      console.info(`[studioDraftL2] ${path}: local edit kept`);
+      continue;
+    }
     try {
       const text = await deps.readDraftText(project, path);
       const ok = await deps.applyAndCompile(project, path, text);
