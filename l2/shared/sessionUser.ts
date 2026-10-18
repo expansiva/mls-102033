@@ -86,19 +86,18 @@ function readOnboarding(authenticated: boolean, value: unknown): SessionOnboardi
 }
 
 /**
- * Enabled entry sends `company` and `onboarding` together. A legacy body has neither.
- * A present gate that the parser would drop is an invalid protocol — never a synthetic `ready`.
+ * `company` and `onboarding` are checked on their own. A present company is null or a valid id;
+ * it does not require a gate. A present gate must parse — a gate the parser would drop is an
+ * invalid protocol, never a synthetic `ready`. A legacy body has neither field.
  */
 function assertSessionProtocol(payload: unknown): void {
   if (!payload || typeof payload !== 'object') return;
   const info = payload as Record<string, unknown>;
   if (info.authenticated !== true) return;
-  const gated = Object.hasOwn(info, 'company') || Object.hasOwn(info, 'onboarding');
-  if (!gated) return;
-  if (!readOnboarding(true, info.onboarding)) {
+  if (Object.hasOwn(info, 'company') && info.company != null && !readId(true, info.company)) {
     throw new Error('session/info invalid protocol');
   }
-  if (info.company != null && !readId(true, info.company)) {
+  if (Object.hasOwn(info, 'onboarding') && !readOnboarding(true, info.onboarding)) {
     throw new Error('session/info invalid protocol');
   }
 }
@@ -175,8 +174,9 @@ export async function getSessionUser(): Promise<SessionUser> {
 }
 
 /**
- * Same fetch and parse as getSessionUser. Rejects when the probe fails or the enabled-entry
- * payload is not a known state with local paths. Never coerces that failure to anonymous.
+ * Same fetch and parse as getSessionUser. Rejects when the probe fails, a present company is
+ * neither null nor a valid id, or a present gate is not a known state with local paths.
+ * Never coerces that failure to anonymous.
  */
 export async function getSessionUserStrict(): Promise<SessionUser> {
   const probe = await sessionProbe();

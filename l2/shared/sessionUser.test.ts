@@ -244,6 +244,77 @@ test('strict and chrome share one GET, and only strict rejects a failed probe', 
   }
 });
 
+test('an authenticated company without a gate is valid on one shared GET', async () => {
+  resetSessionUserCache();
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return jsonResponse({ authenticated: true, name: 'Ada', company: { mdmId: ' co ' } });
+  }) as typeof fetch;
+  try {
+    const [chrome, strict] = await Promise.all([getSessionUser(), getSessionUserStrict()]);
+    assert.equal(calls, 1);
+    assert.equal(chrome, strict);
+    assert.equal(strict.authenticated, true);
+    assert.deepEqual(strict.company, { mdmId: 'co' });
+    assert.equal(Object.hasOwn(strict, 'onboarding'), false);
+  } finally {
+    restoreSessionProbe();
+  }
+});
+
+test('null company, a legacy body and an anonymous payload do not invent an id', async () => {
+  resetSessionUserCache();
+  globalThis.fetch = (async () => jsonResponse({ authenticated: true, company: null })) as typeof fetch;
+  try {
+    const pending = await getSessionUserStrict();
+    assert.equal(pending.authenticated, true);
+    assert.equal(Object.hasOwn(pending, 'company'), false);
+    assert.equal(Object.hasOwn(pending, 'onboarding'), false);
+  } finally {
+    restoreSessionProbe();
+  }
+
+  resetSessionUserCache();
+  globalThis.fetch = (async () => jsonResponse({ authenticated: true, name: 'Ada' })) as typeof fetch;
+  try {
+    const legacy = await getSessionUserStrict();
+    assert.equal(legacy.authenticated, true);
+    assert.equal(Object.hasOwn(legacy, 'company'), false);
+    assert.equal((await getSessionUser()).name, 'Ada');
+  } finally {
+    restoreSessionProbe();
+  }
+
+  resetSessionUserCache();
+  globalThis.fetch = (async () => jsonResponse({
+    authenticated: false,
+    company: { mdmId: 'co' },
+    onboarding: readyGate.onboarding,
+  })) as typeof fetch;
+  try {
+    const anon = await getSessionUserStrict();
+    assert.deepEqual(anon, { authenticated: false, name: undefined, email: undefined, picture: undefined });
+    assert.equal(Object.hasOwn(anon, 'company'), false);
+    assert.equal(Object.hasOwn(anon, 'onboarding'), false);
+  } finally {
+    restoreSessionProbe();
+  }
+});
+
+test('an invalid company rejects strict and does not look authenticated', async () => {
+  resetSessionUserCache();
+  globalThis.fetch = (async () => jsonResponse({ authenticated: true, company: { mdmId: '  ' } })) as typeof fetch;
+  try {
+    await assert.rejects(getSessionUserStrict(), /invalid protocol/u);
+    const avatar = await getSessionUser();
+    assert.equal(avatar.authenticated, false);
+    assert.equal(avatar.company, undefined);
+  } finally {
+    restoreSessionProbe();
+  }
+});
+
 test('an enabled gate with a bad onboarding rejects strict and does not look ready', async () => {
   resetSessionUserCache();
   globalThis.fetch = (async () => jsonResponse({
