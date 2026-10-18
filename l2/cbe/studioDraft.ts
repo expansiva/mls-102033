@@ -2,6 +2,8 @@
 // Default draft cookie for Studio on a VM project. The server reads `collab-draft`
 // on /exec (st05); the name and the attribute string are the contract.
 
+import { getRuntimeLanguage } from '/_102033_/l2/shared/languageRuntime.js';
+
 const DRAFT_SLUG = /^(team|user)-[a-z0-9_.-]{1,64}$/;
 
 /** Local view of mls: `studio` lives in l5/config.json and is not on the lib type. */
@@ -93,4 +95,42 @@ export async function ensureDefaultDraftCookie(project: number): Promise<void> {
   } catch (err) {
     console.warn('[studioDraft] ensureDefaultDraftCookie failed:', err);
   }
+}
+
+/** Shown when a page outside Studio is still served from a draft. */
+export interface DraftNotice {
+  slug: string;
+  href: string;
+}
+
+export interface DraftNoticeText {
+  seeing: string;
+  viewProduction: string;
+}
+
+const DRAFT_NOTICE_TEXT = {
+  en: {
+    seeing: 'You are seeing the draft {slug}.',
+    viewProduction: 'View production',
+  },
+  pt: {
+    seeing: 'Você está vendo o rascunho {slug}.',
+    viewProduction: 'Ver a produção',
+  },
+} as const;
+
+export function draftNotice(cookieString: string, studioModeOn: boolean, path: string): DraftNotice | null {
+  if (studioModeOn) return null;
+  const slug = readDraftCookie(cookieString);
+  if (!slug) return null;
+  return { slug, href: '/desenv/sair?to=' + encodeURIComponent(path) };
+}
+
+export function draftNoticeText(slug: string): DraftNoticeText {
+  const language = getRuntimeLanguage(Object.keys(DRAFT_NOTICE_TEXT), document.documentElement.lang || 'en');
+  const row = DRAFT_NOTICE_TEXT[language as keyof typeof DRAFT_NOTICE_TEXT] ?? DRAFT_NOTICE_TEXT.en;
+  return {
+    seeing: row.seeing.replace('{slug}', slug),
+    viewProduction: row.viewProduction,
+  };
 }

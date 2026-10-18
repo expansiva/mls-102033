@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildDraftCookie,
   defaultDraftFor,
+  draftNotice,
   ensureDefaultDraftCookie,
   isVmDriver,
   readDraftCookie,
@@ -100,6 +101,15 @@ function install(opts: {
     },
   };
 }
+
+test('draftNotice names the draft and the exit link only outside Studio', () => {
+  assert.deepEqual(draftNotice('collab-draft=team-102047', false, '/a'), {
+    slug: 'team-102047',
+    href: '/desenv/sair?to=%2Fa',
+  });
+  assert.equal(draftNotice('collab-draft=team-102047', true, '/a'), null);
+  assert.equal(draftNotice('', false, '/a'), null);
+});
 
 test('readDraftCookie returns only the collab-draft value', () => {
   assert.equal(readDraftCookie(''), undefined);

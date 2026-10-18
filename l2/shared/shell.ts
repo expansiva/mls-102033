@@ -42,6 +42,7 @@ import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPage
 import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
 import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
 import { onStudioExit, readCollabReleaseId, rememberRelease } from '/_102033_/l2/cbe/studioExitReload.js';
+import { draftNotice, draftNoticeText } from '/_102033_/l2/cbe/studioDraft.js';
 import { contentPageGenomeToPreserve } from '/_102033_/l2/shared/contentPageGenomePreserve.js';
 import {
   attachViewportMsizeListeners,
@@ -1942,14 +1943,44 @@ export class CollabAuraShell extends LitElement {
         background: #fff;
         color: #102a43;
       }
+
+      /* Draft still on after a reload outside Studio. Footer, under the client banner (z-index 50). */
+      collab-aura-shell .draft-notice {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 40;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        min-height: 28px;
+        padding: 4px 12px;
+        background: #102a43;
+        color: #fff;
+        font-size: 13px;
+        line-height: 1.3;
+      }
+
+      collab-aura-shell .draft-notice a {
+        color: #fff;
+        font-weight: 600;
+      }
     </style>`;
 
+    const draft = draftNotice(document.cookie, this.studioModeOn, location.pathname + location.search);
+    const draftText = draft ? draftNoticeText(draft.slug) : null;
+    const draftBar = draft && draftText
+      ? html`<div class="draft-notice" role="status"><span>${draftText.seeing}</span><a href=${draft.href}>${draftText.viewProduction}</a></div>`
+      : null;
+
     if (!this.bootConfig) {
-      return html`${styles}<div class="error">${this.statusMessage ?? 'Shell bootstrap was not provided.'}</div>`;
+      return html`${styles}<div class="error">${this.statusMessage ?? 'Shell bootstrap was not provided.'}</div>${draftBar}`;
     }
 
     if (this.statusMessage) {
-      return html`${styles}<div class="error">${this.statusMessage}</div>`;
+      return html`${styles}<div class="error">${this.statusMessage}</div>${draftBar}`;
     }
 
     const headerVisible = this.getRegionVisibility('header');
@@ -2048,6 +2079,7 @@ export class CollabAuraShell extends LitElement {
             </main>
           </div>
         </div>
+        ${draftBar}
       </div>
     `;
   }
