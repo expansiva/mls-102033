@@ -46,7 +46,17 @@ export function isVmDriver(driver: { driverVersion?: string } | null | undefined
   return typeof version === 'string' && version.startsWith('1.0.0-vm');
 }
 
-export async function ensureDefaultDraftCookie(project: number): Promise<void> {
+export interface EnsuredDraftCookie {
+  slug: string | null;
+  changed: boolean;
+}
+
+function currentDraftSlug(): string | null {
+  return readDraftCookie(document.cookie ?? '') ?? null;
+}
+
+export async function ensureDefaultDraftCookie(project: number): Promise<EnsuredDraftCookie> {
+  const unchanged = (): EnsuredDraftCookie => ({ slug: currentDraftSlug(), changed: false });
   try {
     const api = mls as unknown as DraftMls;
     let driver: { driverVersion?: string } | null | undefined;
@@ -54,13 +64,13 @@ export async function ensureDefaultDraftCookie(project: number): Promise<void> {
       driver = await api.stor.others.getDefaultDriver(project);
     } catch (err) {
       console.warn('[studioDraft] getDefaultDriver failed; draft cookie not set:', err);
-      return;
+      return unchanged();
     }
-    if (!isVmDriver(driver)) return;
+    if (!isVmDriver(driver)) return unchanged();
 
-    const existing = readDraftCookie(document.cookie ?? '');
+    const before = currentDraftSlug();
     let configured: string | undefined;
-    if (!existing) {
+    if (!before) {
       try {
         const conf = await api.l5.getProjectConf(project);
         configured = conf?.studio?.defaultDraft;
@@ -68,7 +78,7 @@ export async function ensureDefaultDraftCookie(project: number): Promise<void> {
         console.warn('[studioDraft] getProjectConf failed; using team draft:', err);
       }
     }
-    const slug = existing ?? defaultDraftFor(project, configured);
+    const slug = before ?? defaultDraftFor(project, configured);
 
     let detail: string;
     try {
@@ -80,20 +90,24 @@ export async function ensureDefaultDraftCookie(project: number): Promise<void> {
         response.type === 'opaqueredirect' ||
         (response.status >= 200 && response.status < 300) ||
         response.status === 302;
-      if (accepted && readDraftCookie(document.cookie ?? '')) return;
+      const after = currentDraftSlug();
+      if (accepted && after) return { slug: after, changed: before !== after };
       detail = String(response.status);
     } catch (err) {
       detail = err instanceof Error ? err.message : String(err);
     }
     console.warn('[studio] rascunho indisponível: ' + detail);
-    if (!existing) return;
-    try {
-      await fetch('/desenv/sair', { redirect: 'manual', credentials: 'same-origin' });
-    } catch (err) {
-      console.warn('[studio] rascunho indisponível: ' + (err instanceof Error ? err.message : String(err)));
+    if (before) {
+      try {
+        await fetch('/desenv/sair', { redirect: 'manual', credentials: 'same-origin' });
+      } catch (err) {
+        console.warn('[studio] rascunho indisponível: ' + (err instanceof Error ? err.message : String(err)));
+      }
     }
+    return { slug: null, changed: false };
   } catch (err) {
     console.warn('[studioDraft] ensureDefaultDraftCookie failed:', err);
+    return { slug: null, changed: false };
   }
 }
 

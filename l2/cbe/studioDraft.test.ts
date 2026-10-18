@@ -144,9 +144,10 @@ test('isVmDriver accepts only a 1.0.0-vm driverVersion prefix', () => {
 test('without a cookie, /desenv opaqueredirect sets team-<id> and does not warn', async () => {
   const host = install({ driver: { driverVersion: '1.0.0-vm' } });
   try {
-    await ensureDefaultDraftCookie(PROJECT);
+    const result = await ensureDefaultDraftCookie(102047);
+    assert.deepEqual(result, { slug: 'team-102047', changed: true });
     assert.equal(host.fetches.length, 1);
-    assert.equal(host.fetches[0]?.url, `/desenv?draft=team-${PROJECT}&to=/`);
+    assert.equal(host.fetches[0]?.url, '/desenv?draft=team-102047&to=/');
     assert.deepEqual(host.fetches[0]?.init, { redirect: 'manual', credentials: 'same-origin' });
     assert.equal(host.warns.length, 0);
     assert.deepEqual(host.written, []);
@@ -161,7 +162,8 @@ test('an existing collab-draft cookie is sent to /desenv', async () => {
     driver: { driverVersion: '1.0.0-vm' },
   });
   try {
-    await ensureDefaultDraftCookie(PROJECT);
+    const result = await ensureDefaultDraftCookie(PROJECT);
+    assert.deepEqual(result, { slug: 'team-x', changed: false });
     assert.equal(host.fetches.length, 1);
     assert.equal(host.fetches[0]?.url, '/desenv?draft=team-x&to=/');
     assert.equal(host.confCalls, 0);
@@ -179,7 +181,8 @@ test('503 warns and leaves via /desenv/sair when a cookie was present', async ()
     fetch: async () => ({ type: 'basic', status: 503 }),
   });
   try {
-    await ensureDefaultDraftCookie(PROJECT);
+    const result = await ensureDefaultDraftCookie(PROJECT);
+    assert.deepEqual(result, { slug: null, changed: false });
     assert.equal(host.fetches.length, 2);
     assert.equal(host.fetches[0]?.url, '/desenv?draft=team-x&to=/');
     assert.equal(host.fetches[1]?.url, '/desenv/sair');
@@ -198,7 +201,8 @@ test('a throwing fetch warns and does not throw', async () => {
     fetch: async () => { throw new Error('network down'); },
   });
   try {
-    await ensureDefaultDraftCookie(PROJECT);
+    const result = await ensureDefaultDraftCookie(PROJECT);
+    assert.deepEqual(result, { slug: null, changed: false });
     assert.equal(host.fetches.length, 1);
     assert.equal(host.warns.length, 1);
     assert.equal(host.warns[0]?.[0], '[studio] rascunho indisponível: network down');
@@ -211,7 +215,8 @@ test('a throwing fetch warns and does not throw', async () => {
 test('a non-vm driver does not fetch', async () => {
   const host = install({ driver: { driverVersion: '1.0.0-github' } });
   try {
-    await ensureDefaultDraftCookie(PROJECT);
+    const result = await ensureDefaultDraftCookie(PROJECT);
+    assert.deepEqual(result, { slug: null, changed: false });
     assert.deepEqual(host.fetches, []);
     assert.equal(host.confCalls, 0);
     assert.equal(host.warns.length, 0);
@@ -233,7 +238,8 @@ test('getDefaultDriver throwing does not fetch', async () => {
     getDefaultDriver: async () => { throw new Error('Driver _102056_github not found'); },
   });
   try {
-    await ensureDefaultDraftCookie(PROJECT);
+    const result = await ensureDefaultDraftCookie(PROJECT);
+    assert.deepEqual(result, { slug: null, changed: false });
     assert.deepEqual(host.fetches, []);
     assert.deepEqual(host.written, []);
     assert.equal(host.warns.length, 1);
