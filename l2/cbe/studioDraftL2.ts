@@ -5,6 +5,8 @@
 
 const MARKER_KEY = 'collabDraftL2Synced';
 const L2_STATUS = new Set(['A', 'M', 'R']);
+const IMPORT_DEPTH = 3;
+const L2_IMPORT = /^\/?_(\d+)_\/l2\/(.+?)(\.js)?$/;
 
 export interface DraftDiffName {
   status: string;
@@ -16,11 +18,18 @@ export interface DraftL2Deps {
   writeMarker(value: string): void;
   draftDiff(project: number, slug: string): Promise<{ head: string; files: DraftDiffName[] }>;
   readDraftText(project: number, path: string): Promise<string>;
-  applyAndCompile(project: number, path: string, text: string): Promise<boolean>;
+  apply(project: number, path: string, text: string): Promise<void>;
+  compile(project: number, path: string): Promise<boolean>;
   hasLocalEdit(project: number, path: string): boolean;
 }
 
 interface L2File {
+  folder: string;
+  shortName: string;
+}
+
+export interface L2ImportFile {
+  project: number;
   folder: string;
   shortName: string;
 }
@@ -44,6 +53,22 @@ function parseL2Ts(path: string): L2File | undefined {
   const shortName = slash === -1 ? rest : rest.slice(slash + 1);
   if (!shortName || (slash !== -1 && !folder)) return undefined;
   return { folder, shortName };
+}
+
+/** `/_102047_/l2/a/b/c.js` → the stor identity of that l2 source. Anything else → null. */
+export function importToL2File(importName: string): L2ImportFile | null {
+  const match = L2_IMPORT.exec(importName);
+  if (!match) return null;
+  const rest = match[2];
+  const slash = rest.lastIndexOf('/');
+  const folder = slash === -1 ? '' : rest.slice(0, slash);
+  const shortName = slash === -1 ? rest : rest.slice(slash + 1);
+  if (!shortName || (slash !== -1 && !folder)) return null;
+  return { project: Number(match[1]), folder, shortName };
+}
+
+function visitKey(file: { project: number; folder: string; shortName: string }): string {
+  return `${file.project}:${file.folder}:${file.shortName}`;
 }
 
 export function draftL2Targets(files: { status: string; path: string }[]): string[] {
@@ -142,12 +167,63 @@ function storFileFor(project: number, loc: L2File): mls.stor.IFileInfo {
   };
 }
 
-async function applyAndCompile(project: number, path: string, text: string): Promise<boolean> {
+function asModelTS(model: mls.editor.IModelBase): mls.editor.IModelTS | undefined {
+  if (model.storFile.extension !== '.ts') return undefined;
+  return model as mls.editor.IModelTS;
+}
+
+async function loadImportModels(model: mls.editor.IModelTS, depth: number, visited: Set<string>): Promise<void> {
+  const key = visitKey(model.storFile);
+  if (visited.has(key)) return;
+  visited.add(key);
+  if (depth <= 0) return;
+
+  let imports: string[] = [];
+  try {
+    await mls.l2.typescript.compileAndPostProcess(model, false, false);
+    imports = model.compilerResults?.imports ?? [];
+  } catch (err) {
+    console.warn(`[studioDraftL2] ${key}: ${errorText(err)}`);
+    return;
+  }
+
+  for (const importName of imports) {
+    const info = importToL2File(importName);
+    if (!info || visited.has(visitKey(info))) continue;
+    try {
+      const storFile = mls.stor.files[mls.stor.getKeyToFile(l2FileBase(info.project, info))];
+      if (!storFile) continue;
+      const existing = mls.editor.getModels(info.project, info.shortName, info.folder, 2)?.ts;
+      const created = existing ?? await storFile.getOrCreateModel();
+      const dep = asModelTS(created);
+      if (!dep) {
+        console.warn(`[studioDraftL2] ${importName}: model is not typescript`);
+        continue;
+      }
+      await loadImportModels(dep, depth - 1, visited);
+    } catch (err) {
+      console.warn(`[studioDraftL2] ${importName}: ${errorText(err)}`);
+    }
+  }
+}
+
+async function applyDraft(project: number, path: string, text: string): Promise<void> {
   const loc = parseL2Ts(path);
   if (!loc) throw new Error(`not an l2 source: ${path}`);
   const existing = mls.editor.getModels(project, loc.shortName, loc.folder, 2)?.ts;
   const model = existing ?? await mls.editor.createModelTS(storFileFor(project, loc), text);
   model.model.setValue(text);
+}
+
+async function compileDraft(project: number, path: string): Promise<boolean> {
+  const loc = parseL2Ts(path);
+  if (!loc) throw new Error(`not an l2 source: ${path}`);
+  const model = mls.editor.getModels(project, loc.shortName, loc.folder, 2)?.ts;
+  if (!model) throw new Error(`model missing: ${path}`);
+  await loadImportModels(model, IMPORT_DEPTH, new Set());
+  // The probe compile records this version with modelNeedCompile false (mls.js compile).
+  // Without this, the final compile returns the missing-import errors and skips the cache.
+  if (model.compilerResults) model.compilerResults.modelNeedCompile = true;
   return mls.l2.typescript.compileAndPostProcess(model, true, true);
 }
 
@@ -166,7 +242,8 @@ const defaultDeps: DraftL2Deps = {
   writeMarker: (value) => sessionStorage.setItem(MARKER_KEY, value),
   draftDiff: requestDraftDiff,
   readDraftText: requestDraftText,
-  applyAndCompile,
+  apply: applyDraft,
+  compile: compileDraft,
   hasLocalEdit: defaultHasLocalEdit,
 };
 
@@ -185,7 +262,7 @@ export async function syncDraftL2(
   if (deps.readMarker() === `${slug}@${diff.head}`) return { compiled: 0, head: diff.head };
 
   const targets = draftL2Targets(diff.files);
-  let compiled = 0;
+  const ready: string[] = [];
   let failed = false;
   for (const path of targets) {
     if (deps.hasLocalEdit(project, path)) {
@@ -194,7 +271,18 @@ export async function syncDraftL2(
     }
     try {
       const text = await deps.readDraftText(project, path);
-      const ok = await deps.applyAndCompile(project, path, text);
+      await deps.apply(project, path, text);
+      ready.push(path);
+    } catch (err) {
+      failed = true;
+      console.error(`[studioDraftL2] ${path}: ${errorText(err)}`);
+    }
+  }
+
+  let compiled = 0;
+  for (const path of ready) {
+    try {
+      const ok = await deps.compile(project, path);
       if (!ok) {
         failed = true;
         console.error(`[studioDraftL2] ${path}: compile failed`);
