@@ -106,8 +106,8 @@ function makeHost(ownerDocument: object, connected: boolean, move: boolean): Hos
   if (move) withMoveBefore(node);
   return Object.assign(node, {
     ensuring: false,
-    tabNames: ['CRM', 'TASK', 'CONNECT', 'MOMENTS', 'APPS'],
-    initialTabIndex: () => 4,
+    tabNames: ['CRM', 'CONNECT', 'MOMENTS', 'APPS'],
+    initialTabIndex: () => 3,
     applyInnerHeight() { /* recorded by the test when replaced */ },
     setMessagesTab(_index: number) { /* recorded by the test when replaced */ },
     saveLastTab(_name: string) { /* recorded by the test when replaced */ },
@@ -143,7 +143,7 @@ test('ensureMessages adopts the existing aside once and keeps height, tab, and t
   assert.equal(moves.count, 1);
   assert.deepEqual(host.moveBeforeCalls, [aside]);
   assert.equal(aside.parentNode, host);
-  assert.deepEqual(steps, ['height', 'tab:4']);
+  assert.deepEqual(steps, ['height', 'tab:3']);
   assert.equal(host.ensuring, false);
   assert.deepEqual(opened, []);
 });
@@ -174,7 +174,7 @@ test('ensureMessages leaves an aside that is already in the host', async () => {
   assert.deepEqual(host.moveBeforeCalls, []);
   assert.deepEqual(host.appendCalls, []);
   assert.equal(aside.parentNode, host);
-  assert.deepEqual(steps, ['height', 'tab:4']);
+  assert.deepEqual(steps, ['height', 'tab:3']);
 });
 
 test('ensureMessages appends the existing aside when moveBefore is absent', async () => {
@@ -279,4 +279,21 @@ test('the ensuring lock skips a second entry', async () => {
   assert.equal(queried, false);
   assert.equal(moves.count, 0);
   assert.equal(host.ensuring, true);
+});
+
+type TabHost = { tabNames: string[]; loadStorageRecord(): Record<string, unknown> };
+
+function loadInitialTabIndex(): (this: TabHost) => number {
+  const source = readFileSync(new URL('./serviceRuntimeMessages.ts', import.meta.url), 'utf8');
+  const chunk = source.slice(source.indexOf('private initialTabIndex(): number {'), source.indexOf('public menu:'));
+  const body = chunk.slice(chunk.indexOf('{') + 1, chunk.lastIndexOf('}'));
+  return new Function(body) as (this: TabHost) => number;
+}
+
+test('initialTabIndex maps a saved TASK onto APPS', () => {
+  const initialTabIndex = loadInitialTabIndex();
+  const tabNames = ['CRM', 'CONNECT', 'MOMENTS', 'APPS'];
+  assert.equal(tabNames.indexOf('TASK'), -1);
+  assert.equal(initialTabIndex.call({ tabNames, loadStorageRecord: () => ({ lastTab: 'TASK' }) }), tabNames.indexOf('APPS'));
+  assert.equal(initialTabIndex.call({ tabNames, loadStorageRecord: () => ({ lastTab: 'MOMENTS' }) }), tabNames.indexOf('MOMENTS'));
 });

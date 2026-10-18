@@ -28,7 +28,7 @@ export class ServiceRuntimeMessages extends ServiceBase {
   // Same nav3 toolbar the studio's serviceCollabMessages declares: the mode
   // tabs render in the nav3 bar and drive the inner collab-messages activeTab
   // (whose own toolbar is hidden via getMenuMode() === 'custom').
-  private readonly tabNames = ['CRM', 'TASK', 'CONNECT', 'MOMENTS', 'APPS'];
+  private readonly tabNames = ['CRM', 'CONNECT', 'MOMENTS', 'APPS'];
 
   // Startup tab: the last one the user picked, defaulting to APPS — the entry
   // point of the unified runtime shell. Persistence rides collab-messages' OWN
@@ -73,7 +73,6 @@ export class ServiceRuntimeMessages extends ServiceBase {
       selected: this.initialTabIndex(),
       options: [
         { text: 'CRM', icon: 'f095' },
-        { text: 'Tasks', icon: 'f0ae' },
         { text: 'Connect', icon: 'f0c1' },
         { text: 'Moments', icon: 'f1ea' },
         { text: 'Apps', icon: 'f58d' },
@@ -201,9 +200,6 @@ export class ServiceRuntimeMessages extends ServiceBase {
     switch (messages?.activeTab) {
       case 'CRM':
         name = 'collab-messages-chat-102025';
-        break;
-      case 'TASK':
-        name = 'collab-messages-tasks-102025';
         break;
       case 'APPS':
         name = 'collab-messages-apps-102025';
