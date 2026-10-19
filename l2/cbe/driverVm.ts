@@ -147,7 +147,7 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
       }
       if (fileInfo.status === 'renamed') {
         // Write the new path and drop the old one — the rename origin lives in getValueInfo.
-        const info = fileInfo.getValueInfo ? await fileInfo.getValueInfo() : undefined;
+        const info = await this.readValueInfo(fileInfo);
         // No original name = nothing provable to delete; writing the new path alone
         // leaves a stale copy, but inventing a path to remove is worse.
         if (info?.originalShortName) {
@@ -226,6 +226,22 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
   }
 
   /**
+   * getValueInfo (getContentInfoOrNull) returns { content: null } while
+   * inLocalStorage is off, which hides originalShortName. Force the flag for
+   * the read and restore whatever it was.
+   */
+  private async readValueInfo(fileInfo: mls.stor.IFileInfo) {
+    const previous = fileInfo.inLocalStorage;
+    fileInfo.inLocalStorage = true;
+    try {
+      if (!fileInfo.getValueInfo) return undefined;
+      return await fileInfo.getValueInfo();
+    } finally {
+      fileInfo.inLocalStorage = previous;
+    }
+  }
+
+  /**
    * Content to persist, read the same way the GitHub driver does: force
    * inLocalStorage so getContent serves the LOCAL edit — otherwise a cache miss
    * would call this very driver back — and restore the flag afterwards.
@@ -235,7 +251,8 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     fileInfo.inLocalStorage = true;
     let content: string | Blob | null = null;
     try {
-      if (fileInfo.getValueInfo) content = (await fileInfo.getValueInfo()).content ?? null;
+      const info = await this.readValueInfo(fileInfo);
+      if (info) content = info.content ?? null;
       if (content === null) content = await fileInfo.getContent();
     } finally {
       fileInfo.inLocalStorage = previous;
