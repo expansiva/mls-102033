@@ -6,6 +6,7 @@
 const MARKER_KEY = 'collabDraftL2Synced';
 const L2_STATUS = new Set(['A', 'M', 'R']);
 const IMPORT_DEPTH = 3;
+const CONTROLLER_WAIT_MS = 10_000;
 const L2_IMPORT = /^\/?_(\d+)_\/l2\/(.+?)(\.js)?$/;
 
 export interface DraftDiffName {
@@ -19,7 +20,8 @@ export interface DraftL2Deps {
   draftDiff(project: number, slug: string): Promise<{ head: string; files: DraftDiffName[] }>;
   readDraftText(project: number, path: string): Promise<string>;
   apply(project: number, path: string, text: string): Promise<void>;
-  compile(project: number, path: string): Promise<boolean>;
+  compile(project: number, path: string): Promise<string | null>;
+  inDraftCache(slug: string, url: string): Promise<boolean>;
   hasLocalEdit(project: number, path: string): boolean;
 }
 
@@ -215,7 +217,16 @@ async function applyDraft(project: number, path: string, text: string): Promise<
   model.model.setValue(text);
 }
 
-async function compileDraft(project: number, path: string): Promise<boolean> {
+/** Same key `saveCacheAfterCompile` stores: `/local/_<project>_….js?v=<cacheVersion>`. */
+function draftCacheUrl(model: mls.editor.IModelTS): string | null {
+  const version = model.compilerResults?.cacheVersion;
+  if (!version) return null;
+  const { project, folder, shortName } = model.storFile;
+  const extension = model.storFile.extension.replace('.ts', '.js');
+  return `/local/_${project}_${folder ? `${folder}/` : ''}${shortName}${extension}?v=${version}`;
+}
+
+async function compileDraft(project: number, path: string): Promise<string | null> {
   const loc = parseL2Ts(path);
   if (!loc) throw new Error(`not an l2 source: ${path}`);
   const model = mls.editor.getModels(project, loc.shortName, loc.folder, 2)?.ts;
@@ -224,7 +235,42 @@ async function compileDraft(project: number, path: string): Promise<boolean> {
   // The probe compile records this version with modelNeedCompile false (mls.js compile).
   // Without this, the final compile returns the missing-import errors and skips the cache.
   if (model.compilerResults) model.compilerResults.modelNeedCompile = true;
-  return mls.l2.typescript.compileAndPostProcess(model, true, true);
+  const ok = await mls.l2.typescript.compileAndPostProcess(model, true, true);
+  if (!ok) return null;
+  return draftCacheUrl(model);
+}
+
+/** True when `url` is stored in a cache whose name ends with `-d<slug>` (the server's draft suffix). */
+async function defaultInDraftCache(slug: string, url: string): Promise<boolean> {
+  const storage = globalThis.caches;
+  if (!storage) {
+    console.warn(`[studioDraftL2] ${url}: Cache Storage is unavailable`);
+    return false;
+  }
+  const suffix = `-d${slug}`;
+  for (const name of await storage.keys()) {
+    if (!name.endsWith(suffix)) continue;
+    const hit = await (await storage.open(name)).match(url);
+    if (hit) return true;
+  }
+  return false;
+}
+
+function waitForDraftController(timeoutMs: number): Promise<boolean> {
+  const sw = globalThis.navigator?.serviceWorker;
+  if (!sw) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      sw.removeEventListener('controllerchange', onChange);
+      resolve(false);
+    }, timeoutMs);
+    function onChange(): void {
+      clearTimeout(timer);
+      sw.removeEventListener('controllerchange', onChange);
+      resolve(true);
+    }
+    sw.addEventListener('controllerchange', onChange);
+  });
 }
 
 function defaultHasLocalEdit(project: number, path: string): boolean {
@@ -244,22 +290,23 @@ const defaultDeps: DraftL2Deps = {
   readDraftText: requestDraftText,
   apply: applyDraft,
   compile: compileDraft,
+  inDraftCache: defaultInDraftCache,
   hasLocalEdit: defaultHasLocalEdit,
 };
 
-export async function syncDraftL2(
+async function syncDraftL2Once(
   project: number,
   slug: string,
-  deps: DraftL2Deps = defaultDeps,
-): Promise<{ compiled: number; head: string | null }> {
+  deps: DraftL2Deps,
+): Promise<{ compiled: number; head: string | null; outside: boolean }> {
   let diff: { head: string; files: DraftDiffName[] };
   try {
     diff = await deps.draftDiff(project, slug);
   } catch (err) {
     console.error(`[studioDraftL2] draftDiff: ${errorText(err)}`);
-    return { compiled: 0, head: null };
+    return { compiled: 0, head: null, outside: false };
   }
-  if (deps.readMarker() === `${slug}@${diff.head}`) return { compiled: 0, head: diff.head };
+  if (deps.readMarker() === `${slug}@${diff.head}`) return { compiled: 0, head: diff.head, outside: false };
 
   const targets = draftL2Targets(diff.files);
   const ready: string[] = [];
@@ -280,12 +327,19 @@ export async function syncDraftL2(
   }
 
   let compiled = 0;
+  let outside = false;
   for (const path of ready) {
     try {
-      const ok = await deps.compile(project, path);
-      if (!ok) {
+      const url = await deps.compile(project, path);
+      if (!url) {
         failed = true;
         console.error(`[studioDraftL2] ${path}: compile failed`);
+        continue;
+      }
+      if (!await deps.inDraftCache(slug, url)) {
+        failed = true;
+        outside = true;
+        console.warn(`[studioDraftL2] ${path}: compiled outside the draft cache`);
         continue;
       }
       compiled += 1;
@@ -295,5 +349,22 @@ export async function syncDraftL2(
     }
   }
   if (!failed) deps.writeMarker(`${slug}@${diff.head}`);
-  return { compiled, head: diff.head };
+  return { compiled, head: diff.head, outside };
+}
+
+export async function syncDraftL2(
+  project: number,
+  slug: string,
+  deps: DraftL2Deps = defaultDeps,
+): Promise<{ compiled: number; head: string | null }> {
+  const first = await syncDraftL2Once(project, slug, deps);
+  if (!first.outside) return { compiled: first.compiled, head: first.head };
+  // One extra pass after the draft worker takes control. An unconfirmed compile never reloads by itself.
+  const claimed = await waitForDraftController(CONTROLLER_WAIT_MS);
+  if (!claimed) {
+    console.warn('[studioDraftL2] draft service worker not in control; will retry on next boot');
+    return { compiled: first.compiled, head: first.head };
+  }
+  const second = await syncDraftL2Once(project, slug, deps);
+  return { compiled: second.compiled, head: second.head };
 }

@@ -27,7 +27,8 @@ test('syncDraftL2 skips read and compile when the marker is slug@head', async ()
     },
     readDraftText: async () => { calls.push('read'); return 'text'; },
     apply: async () => { calls.push('apply'); },
-    compile: async () => { calls.push('compile'); return true; },
+    compile: async () => { calls.push('compile'); return 'cached'; },
+    inDraftCache: async () => true,
     hasLocalEdit: () => false,
   };
   const result = await syncDraftL2(102047, 'team-102047', deps);
@@ -56,8 +57,9 @@ test('a failed target compiles the others and does not store the marker', async 
     },
     compile: async (_project, path) => {
       compiled.push(path);
-      return true;
+      return 'cached';
     },
+    inDraftCache: async () => true,
     hasLocalEdit: () => false,
   };
   try {
@@ -80,7 +82,8 @@ test('syncDraftL2 stores slug@head when every target compiles', async () => {
     draftDiff: async () => ({ head: 'fff', files: [{ status: 'M', path: 'l2/cbe/studioDraft.ts' }] }),
     readDraftText: async () => 'export {}',
     apply: async () => {},
-    compile: async () => true,
+    compile: async () => 'cached',
+    inDraftCache: async () => true,
     hasLocalEdit: () => false,
   };
   const result = await syncDraftL2(7, 'user-7', deps);
@@ -107,8 +110,9 @@ test('a target with a local edit is left alone and the marker is stored', async 
     },
     compile: async (_project, path) => {
       calls.push(`compile:${path}`);
-      return true;
+      return 'cached';
     },
+    inDraftCache: async () => true,
     hasLocalEdit: (_project, path) => path === 'l2/b.ts',
   };
   try {
@@ -134,7 +138,8 @@ test('syncDraftL2 applies every target before the first compile', async () => {
     draftDiff: async () => ({ head: 'abc', files: S1_FILES }),
     readDraftText: async () => 'text',
     apply: async (_project, path) => { calls.push(`apply:${path}`); },
-    compile: async (_project, path) => { calls.push(`compile:${path}`); return true; },
+    compile: async (_project, path) => { calls.push(`compile:${path}`); return 'cached'; },
+    inDraftCache: async () => true,
     hasLocalEdit: () => false,
   };
   const result = await syncDraftL2(102047, 'team-102047', deps);
@@ -147,6 +152,63 @@ test('syncDraftL2 applies every target before the first compile', async () => {
     'compile:l2/b.ts',
     'compile:l2/new.ts',
   ]);
+});
+
+test('syncDraftL2 does not store the marker when the compile misses the draft cache', async () => {
+  let marker: string | null = null;
+  const deps: DraftL2Deps = {
+    readMarker: () => marker,
+    writeMarker: (value) => { marker = value; },
+    draftDiff: async () => ({ head: 'abc', files: [{ status: 'M', path: 'l2/a.ts' }] }),
+    readDraftText: async () => 'export {}',
+    apply: async () => {},
+    compile: async () => '/local/_102047_a.js?v=1',
+    inDraftCache: async () => false,
+    hasLocalEdit: () => false,
+  };
+  const result = await syncDraftL2(102047, 'team-102047', deps);
+  assert.deepEqual(result, { compiled: 0, head: 'abc' });
+  assert.equal(marker, null);
+});
+
+test('syncDraftL2 stores the marker when the compile is in the draft cache', async () => {
+  let marker: string | null = null;
+  const deps: DraftL2Deps = {
+    readMarker: () => marker,
+    writeMarker: (value) => { marker = value; },
+    draftDiff: async () => ({ head: 'fff', files: [{ status: 'M', path: 'l2/cbe/studioDraft.ts' }] }),
+    readDraftText: async () => 'export {}',
+    apply: async () => {},
+    compile: async () => '/local/_7_studioDraft.js?v=1',
+    inDraftCache: async () => true,
+    hasLocalEdit: () => false,
+  };
+  const result = await syncDraftL2(7, 'user-7', deps);
+  assert.deepEqual(result, { compiled: 1, head: 'fff' });
+  assert.equal(marker, 'user-7@fff');
+});
+
+test('syncDraftL2 counts a confirmed file and still withholds the marker when another misses the draft cache', async () => {
+  let marker: string | null = null;
+  const deps: DraftL2Deps = {
+    readMarker: () => marker,
+    writeMarker: (value) => { marker = value; },
+    draftDiff: async () => ({
+      head: 'abc',
+      files: [
+        { status: 'M', path: 'l2/a.ts' },
+        { status: 'M', path: 'l2/b.ts' },
+      ],
+    }),
+    readDraftText: async () => 'export {}',
+    apply: async () => {},
+    compile: async (_project, path) => `/local/${path}?v=1`,
+    inDraftCache: async (_slug, url) => url.includes('l2/a.ts'),
+    hasLocalEdit: () => false,
+  };
+  const result = await syncDraftL2(102047, 'team-102047', deps);
+  assert.deepEqual(result, { compiled: 1, head: 'abc' });
+  assert.equal(marker, null);
 });
 
 test('importToL2File reads an l2 import and rejects the rest', () => {

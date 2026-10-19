@@ -230,17 +230,16 @@ export async function loadProjectDefinitions(project: number): Promise<void> {
   // getDefaultDriver throws until the slot exists; this call swallows its own errors.
   const draft = await ensureDefaultDraftCookie(project);
   if (draft.slug) {
+    // The production worker still controls this document. Reload before compiling so the next
+    // boot requests the draft worker; do not mark the reload or sync on this pass.
+    if (draft.changed) {
+      sessionStorage.setItem('collabStudioReenter', '1');
+      location.reload();
+      return;
+    }
     const sync = await syncDraftL2(project, draft.slug);
-    // One reload, then the shell re-enters Studio. A failed compile does not store the sync
-    // marker, so the same slug@head must not reload again. draftDiff failure has no head: only a
-    // cookie change reloads, and that path is not keyed.
-    if (sync.head === null) {
-      if (draft.changed) {
-        sessionStorage.setItem('collabStudioReenter', '1');
-        location.reload();
-        return;
-      }
-    } else if (draft.changed || sync.compiled > 0) {
+    // No head (draftDiff failed): do not reload. compiled counts only JS found in the draft cache.
+    if (sync.head !== null && sync.compiled > 0) {
       const marker = `${draft.slug}@${sync.head}`;
       if (sessionStorage.getItem('collabDraftL2Reloaded') === marker) {
         console.warn(`[studioDraftL2] reload skipped: already reloaded for ${marker}`);
