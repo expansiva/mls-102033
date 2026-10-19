@@ -61,8 +61,9 @@ function parseDraftFile(path: string): ParsedDraftFile | undefined {
   const folder = slash === -1 ? '' : rest.slice(0, slash);
   const filename = slash === -1 ? rest : rest.slice(slash + 1);
   if (!filename || (slash !== -1 && !folder)) return undefined;
-  const dot = filename.lastIndexOf('.');
-  if (dot <= 0) return { level: layer, folder, shortName: filename, extension: '' };
+  // First dot, same split as parseStorFileName (static/libs/mls.js:3568).
+  const dot = filename.indexOf('.');
+  if (dot < 0) return { level: layer, folder, shortName: filename, extension: '' };
   const shortName = filename.slice(0, dot);
   if (!shortName) return undefined;
   return { level: layer, folder, shortName, extension: filename.slice(dot) };

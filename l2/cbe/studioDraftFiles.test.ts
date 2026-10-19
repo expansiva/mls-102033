@@ -31,6 +31,18 @@ test('draftFileOps maps l1, l2 and l3 and drops l4', () => {
   ]);
 });
 
+test('draftFileOps splits the extension at the first dot', () => {
+  assert.deepEqual(draftFileOps([
+    { status: 'M', path: 'l1/a/b.defs.ts', sha: 'shaDefs' },
+    { status: 'A', path: 'l2/c.test.ts', sha: 'shaTest' },
+    { status: 'M', path: 'l2/d.ts', sha: 'shaD' },
+  ]), [
+    { action: 'modify', path: 'l1/a/b.defs.ts', level: 1, folder: 'a', shortName: 'b', extension: '.defs.ts', sha: 'shaDefs' },
+    { action: 'add', path: 'l2/c.test.ts', level: 2, folder: '', shortName: 'c', extension: '.test.ts', sha: 'shaTest' },
+    { action: 'modify', path: 'l2/d.ts', level: 2, folder: '', shortName: 'd', extension: '.ts', sha: 'shaD' },
+  ]);
+});
+
 test('applyDraftFiles keeps a local edit and continues after one failure', async () => {
   const project = 102047;
   const stored: { [key: string]: { versionRef: string } } = {
