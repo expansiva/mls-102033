@@ -9,6 +9,8 @@ const L2_STATUS = new Set(['A', 'M', 'R']);
 const IMPORT_DEPTH = 3;
 const CONTROLLER_WAIT_MS = 10_000;
 const L2_IMPORT = /^\/?_(\d+)_\/l2\/(.+?)(\.js)?$/;
+/** `getUrlLocalWithVersion` (`mls.js:5148`) plus a 17-digit `cacheVersion` (`mls.js:3087`). */
+const COMPILED_L2_URL = /^\/local\/_(\d+)_(.+)\.js\?v=(\d{17})$/;
 
 export interface DraftDiffName {
   status: string;
@@ -23,6 +25,26 @@ export interface DraftL2Deps {
   apply(project: number, path: string, text: string): Promise<void>;
   compile(project: number, path: string): Promise<string | null>;
   inDraftCache(slug: string, url: string): Promise<boolean>;
+  hasLocalEdit(project: number, path: string): boolean;
+  caches?: StaleCacheStorage;
+}
+
+interface StaleCacheRequest {
+  url: string;
+}
+
+interface StaleCache {
+  keys(): Promise<Iterable<StaleCacheRequest>>;
+  delete(request: StaleCacheRequest): Promise<boolean>;
+}
+
+interface StaleCacheStorage {
+  keys(): Promise<string[]>;
+  open(name: string): Promise<StaleCache>;
+}
+
+export interface ForgetStaleDeps {
+  caches?: StaleCacheStorage;
   hasLocalEdit(project: number, path: string): boolean;
 }
 
@@ -274,6 +296,94 @@ function waitForDraftController(timeoutMs: number): Promise<boolean> {
   });
 }
 
+/** `/local/_<project>_….js?v=<17 digits>` → `l2/….ts`. Release versions and other projects → undefined. */
+function compiledL2Source(project: number, url: string): string | undefined {
+  let path = url;
+  if (!path.startsWith('/')) {
+    try {
+      const parsed = new URL(url);
+      path = parsed.pathname + parsed.search;
+    } catch (err) {
+      console.error(`[studioDraftL2] ${url}: ${errorText(err)}`);
+      return undefined;
+    }
+  }
+  const match = COMPILED_L2_URL.exec(path);
+  if (!match || Number(match[1]) !== project) return undefined;
+  return `l2/${match[2]}.ts`;
+}
+
+function browserCaches(): StaleCacheStorage | undefined {
+  return (globalThis.caches as StaleCacheStorage | undefined) ?? undefined;
+}
+
+/** Drop browser-compiled l2 entries (17-digit version) that are no longer in `keep` or a local edit. */
+export async function forgetStaleDraftL2(
+  project: number,
+  slug: string,
+  keep: ReadonlySet<string>,
+  deps: Partial<ForgetStaleDeps> = {},
+): Promise<number> {
+  const caches = deps.caches ?? browserCaches();
+  const hasLocalEdit = deps.hasLocalEdit ?? defaultHasLocalEdit;
+  const count = caches ? await deleteStaleCompiled(project, slug, keep, caches, hasLocalEdit) : 0;
+  console.info(`[studioDraftL2] forgot ${count} compiled l2 entries`);
+  return count;
+}
+
+async function deleteStaleCompiled(
+  project: number,
+  slug: string,
+  keep: ReadonlySet<string>,
+  caches: StaleCacheStorage,
+  hasLocalEdit: (project: number, path: string) => boolean,
+): Promise<number> {
+  const suffix = `-d${slug}`;
+  let names: string[];
+  try {
+    names = await caches.keys();
+  } catch (err) {
+    console.warn(`[studioDraftL2] forget stale caches: ${errorText(err)}`);
+    return 0;
+  }
+  let count = 0;
+  for (const name of names) {
+    if (!name.endsWith(suffix)) continue;
+    let cache: StaleCache;
+    try {
+      cache = await caches.open(name);
+    } catch (err) {
+      console.warn(`[studioDraftL2] forget stale ${name}: ${errorText(err)}`);
+      continue;
+    }
+    let requests: Iterable<StaleCacheRequest>;
+    try {
+      requests = await cache.keys();
+    } catch (err) {
+      console.warn(`[studioDraftL2] forget stale ${name}: ${errorText(err)}`);
+      continue;
+    }
+    for (const request of requests) {
+      const source = compiledL2Source(project, request.url);
+      if (!source || keep.has(source)) continue;
+      let local = false;
+      try {
+        local = hasLocalEdit(project, source);
+      } catch (err) {
+        console.error(`[studioDraftL2] ${source}: ${errorText(err)}`);
+        continue;
+      }
+      if (local) continue;
+      try {
+        if (await cache.delete(request)) count += 1;
+      } catch (err) {
+        console.error(`[studioDraftL2] ${request.url}: ${errorText(err)}`);
+      }
+    }
+  }
+  return count;
+}
+
 function defaultHasLocalEdit(project: number, path: string): boolean {
   const loc = parseL2Ts(path);
   if (!loc) {
@@ -299,17 +409,24 @@ async function syncDraftL2Once(
   project: number,
   slug: string,
   deps: DraftL2Deps,
-): Promise<{ compiled: number; head: string | null; outside: boolean }> {
+): Promise<{ compiled: number; head: string | null; outside: boolean; forgotten: number }> {
   let diff: { head: string; files: DraftDiffName[] };
   try {
     diff = await deps.draftDiff(project, slug);
   } catch (err) {
     console.error(`[studioDraftL2] draftDiff: ${errorText(err)}`);
-    return { compiled: 0, head: null, outside: false };
+    return { compiled: 0, head: null, outside: false, forgotten: 0 };
   }
-  if (deps.readMarker() === `${slug}@${diff.head}`) return { compiled: 0, head: diff.head, outside: false };
-
   const targets = draftL2Targets(diff.files);
+  // Cleanup follows the diff of this boot, including when the marker already matches.
+  const forgotten = await forgetStaleDraftL2(project, slug, new Set(targets), {
+    caches: deps.caches,
+    hasLocalEdit: (fileProject, path) => deps.hasLocalEdit(fileProject, path),
+  });
+  if (deps.readMarker() === `${slug}@${diff.head}`) {
+    return { compiled: 0, head: diff.head, outside: false, forgotten };
+  }
+
   const ready: string[] = [];
   let failed = false;
   for (const path of targets) {
@@ -350,7 +467,7 @@ async function syncDraftL2Once(
     }
   }
   if (!failed) deps.writeMarker(`${slug}@${diff.head}`);
-  return { compiled, head: diff.head, outside };
+  return { compiled, head: diff.head, outside, forgotten };
 }
 
 interface DraftCacheStorage {
@@ -392,15 +509,15 @@ export async function syncDraftL2(
   project: number,
   slug: string,
   deps: DraftL2Deps = defaultDeps,
-): Promise<{ compiled: number; head: string | null }> {
+): Promise<{ compiled: number; head: string | null; forgotten: number }> {
   const first = await syncDraftL2Once(project, slug, deps);
-  if (!first.outside) return { compiled: first.compiled, head: first.head };
+  if (!first.outside) return { compiled: first.compiled, head: first.head, forgotten: first.forgotten };
   // One extra pass after the draft worker takes control. An unconfirmed compile never reloads by itself.
   const claimed = await waitForDraftController(CONTROLLER_WAIT_MS);
   if (!claimed) {
     console.warn('[studioDraftL2] draft service worker not in control; will retry on next boot');
-    return { compiled: first.compiled, head: first.head };
+    return { compiled: first.compiled, head: first.head, forgotten: first.forgotten };
   }
   const second = await syncDraftL2Once(project, slug, deps);
-  return { compiled: second.compiled, head: second.head };
+  return { compiled: second.compiled, head: second.head, forgotten: first.forgotten + second.forgotten };
 }
