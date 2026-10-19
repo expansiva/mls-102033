@@ -10,6 +10,7 @@
 
 import type { StudioMls } from './global.js';
 import { ensureDefaultDraftCookie } from '/_102033_/l2/cbe/studioDraft.js';
+import { applyDraftFiles } from '/_102033_/l2/cbe/studioDraftFiles.js';
 import { syncDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js'; 
 
 const MONACO_SCRIPT_ID = 'cbe-monaco-loader';
@@ -241,9 +242,11 @@ export async function loadProjectDefinitions(project: number): Promise<void> {
       location.reload();
       return;
     }
+    // List and source on every entry, marker or not. Compiled l2 still decides the reload.
+    await applyDraftFiles(project, draft.slug);
     const sync = await syncDraftL2(project, draft.slug);
     // No head (draftDiff failed): do not reload. compiled counts only JS found in the draft cache.
-    if (sync.head !== null && sync.compiled > 0) {
+    if (sync.head !== null && (sync.compiled > 0 || sync.forgotten > 0)) {
       const marker = `${draft.slug}@${sync.head}`;
       if (sessionStorage.getItem('collabDraftL2Reloaded') === marker) {
         console.warn(`[studioDraftL2] reload skipped: already reloaded for ${marker}`);
