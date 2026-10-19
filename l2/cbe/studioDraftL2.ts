@@ -4,6 +4,7 @@
 // It is applied on the editor model directly: storFile.getContent() would return production.
 
 const MARKER_KEY = 'collabDraftL2Synced';
+const RELOADED_KEY = 'collabDraftL2Reloaded';
 const L2_STATUS = new Set(['A', 'M', 'R']);
 const IMPORT_DEPTH = 3;
 const CONTROLLER_WAIT_MS = 10_000;
@@ -350,6 +351,41 @@ async function syncDraftL2Once(
   }
   if (!failed) deps.writeMarker(`${slug}@${diff.head}`);
   return { compiled, head: diff.head, outside };
+}
+
+interface DraftCacheStorage {
+  keys(): Promise<string[]>;
+  delete(cacheName: string): Promise<boolean>;
+}
+
+/** Drop the draft l2 markers and every cache named `…-d<slug>`. Without Cache Storage, only the markers. */
+export async function forgetDraftL2(
+  slug: string,
+  deps: { caches?: DraftCacheStorage; session: { removeItem(key: string): void } } = {
+    caches: globalThis.caches,
+    session: globalThis.sessionStorage,
+  },
+): Promise<void> {
+  deps.session.removeItem(MARKER_KEY);
+  deps.session.removeItem(RELOADED_KEY);
+  const storage = deps.caches;
+  if (!storage) return;
+  const suffix = `-d${slug}`;
+  let names: string[];
+  try {
+    names = await storage.keys();
+  } catch (err) {
+    console.warn(`[studioDraftL2] forget caches: ${errorText(err)}`);
+    return;
+  }
+  for (const name of names) {
+    if (!name.endsWith(suffix)) continue;
+    try {
+      await storage.delete(name);
+    } catch (err) {
+      console.warn(`[studioDraftL2] forget ${name}: ${errorText(err)}`);
+    }
+  }
 }
 
 export async function syncDraftL2(

@@ -1,7 +1,7 @@
 /// <mls fileReference="_102033_/l2/cbe/studioDraftL2.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { draftL2Targets, importToL2File, syncDraftL2, type DraftL2Deps } from '/_102033_/l2/cbe/studioDraftL2.js';
+import { draftL2Targets, forgetDraftL2, importToL2File, syncDraftL2, type DraftL2Deps } from '/_102033_/l2/cbe/studioDraftL2.js';
 
 const S1_FILES = [
   { status: 'M', path: 'l2/a.ts' },
@@ -214,4 +214,21 @@ test('syncDraftL2 counts a confirmed file and still withholds the marker when an
 test('importToL2File reads an l2 import and rejects the rest', () => {
   assert.deepEqual(importToL2File('/_102047_/l2/a/b/c.js'), { project: 102047, folder: 'a/b', shortName: 'c' });
   assert.equal(importToL2File('lit'), null);
+});
+
+test('forgetDraftL2 drops only the draft cache and both markers', async () => {
+  const removed: string[] = [];
+  const deleted: string[] = [];
+  await forgetDraftL2('team-1', {
+    session: { removeItem: (key) => { removed.push(key); } },
+    caches: {
+      keys: async () => ['mls-v2', 'mls-v2-dteam-1', 'mls-v2-dother'],
+      delete: async (name) => {
+        deleted.push(name);
+        return true;
+      },
+    },
+  });
+  assert.deepEqual(deleted, ['mls-v2-dteam-1']);
+  assert.deepEqual(removed, ['collabDraftL2Synced', 'collabDraftL2Reloaded']);
 });

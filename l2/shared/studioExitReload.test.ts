@@ -88,4 +88,54 @@ describe('studio exit reload', { concurrency: false }, () => {
     assert.deepEqual(urls, ['/desenv/sair?to=%2FagendaClinica%3Fx%3D1']);
     assert.equal(reloaded, false);
   });
+
+  test('forgets the draft slug before navigating', async () => {
+    const order: string[] = [];
+    await onStudioExit(() => {}, {
+      cookie: 'collab-draft=team-102047',
+      path: '/agendaClinica?x=1',
+      navigate: () => { order.push('navigate'); },
+      forget: async (slug) => {
+        order.push('forget-start');
+        await Promise.resolve();
+        order.push(`forget:${slug}`);
+      },
+    });
+    assert.deepEqual(order, ['forget-start', 'forget:team-102047', 'navigate']);
+  });
+
+  test('navigates when forget rejects, and warns', async () => {
+    const warnings: unknown[][] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args); };
+    const urls: string[] = [];
+    try {
+      await onStudioExit(() => {}, {
+        cookie: 'collab-draft=team-1',
+        path: '/',
+        navigate: (url) => { urls.push(url); },
+        forget: async () => { throw new Error('cache gone'); },
+      });
+    } finally {
+      console.warn = original;
+    }
+    assert.deepEqual(urls, ['/desenv/sair?to=%2F']);
+    assert.equal(warnings.length, 1);
+    assert.match(String(warnings[0]?.[0]), /forget the draft l2/);
+    assert.match(String(warnings[0]?.[1]), /cache gone/);
+  });
+
+  test('does not forget or navigate without a draft cookie', async () => {
+    await rememberRelease(async () => ({ id: 'rel-stable' }));
+    let forgot = false;
+    const urls: string[] = [];
+    await onStudioExit(() => {}, {
+      cookie: '',
+      path: '/agendaClinica',
+      navigate: (url) => { urls.push(url); },
+      forget: async () => { forgot = true; },
+    });
+    assert.equal(forgot, false);
+    assert.deepEqual(urls, []);
+  });
 });

@@ -42,6 +42,7 @@ import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPage
 import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
 import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
 import { onStudioExit, readCollabReleaseId, rememberRelease } from '/_102033_/l2/cbe/studioExitReload.js';
+import { forgetDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
 import { draftNotice, draftNoticeText } from '/_102033_/l2/cbe/studioDraft.js';
 import { contentPageGenomeToPreserve } from '/_102033_/l2/shared/contentPageGenomePreserve.js';
 import {
@@ -660,7 +661,12 @@ export class CollabAuraShell extends LitElement {
         if (!this.studioModeOn) {
           this.showRuntimeServices();
           this.syncStructureSplit(false);
-          void onStudioExit(() => location.reload(), { cookie: document.cookie, path: location.pathname + location.search, navigate: (url) => location.assign(url) });
+          void onStudioExit(() => location.reload(), {
+            cookie: document.cookie,
+            path: location.pathname + location.search,
+            navigate: (url) => location.assign(url),
+            forget: forgetDraftL2,
+          });
         }
       } else {
         this.rotateHeaderProfile();

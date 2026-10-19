@@ -41,14 +41,28 @@ export function leaveDraftUrl(cookieString: string, path: string): string | null
 }
 
 /** Fresh ping against the entry id. Reload only when they differ; a failed ping warns and does not reload.
- *  With a draft cookie, navigate to `/desenv/sair` instead: that response already loads the current release. */
+ *  With a draft cookie, forget that draft's l2 marker and cache, then navigate to `/desenv/sair`.
+ *  A failing forget warns and still navigates. That response already loads the current release. */
 export async function onStudioExit(
   reload: () => void,
-  leave?: { cookie: string; path: string; navigate: (url: string) => void },
+  leave?: {
+    cookie: string;
+    path: string;
+    navigate: (url: string) => void;
+    forget?: (slug: string) => Promise<void>;
+  },
 ): Promise<void> {
   if (leave !== undefined) {
     const url = leaveDraftUrl(leave.cookie, leave.path);
     if (url !== null) {
+      const slug = readDraftCookie(leave.cookie);
+      if (slug !== undefined) {
+        try {
+          await leave.forget?.(slug);
+        } catch (error: unknown) {
+          console.warn('studio: failed to forget the draft l2', error);
+        }
+      }
       leave.navigate(url);
       return;
     }

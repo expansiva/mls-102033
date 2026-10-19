@@ -233,6 +233,10 @@ export async function loadProjectDefinitions(project: number): Promise<void> {
     // The production worker still controls this document. Reload before compiling so the next
     // boot requests the draft worker; do not mark the reload or sync on this pass.
     if (draft.changed) {
+      // The marker attested a cache this reload replaces. Drop it and keep the cache:
+      // the worker about to take control is the new draft's.
+      sessionStorage.removeItem('collabDraftL2Synced');
+      sessionStorage.removeItem('collabDraftL2Reloaded');
       sessionStorage.setItem('collabStudioReenter', '1');
       location.reload();
       return;
