@@ -136,11 +136,11 @@ test('a dependency that fails to load costs only its own services', async () => 
 
 test('an undeclared _100554_ widget from the scan is dropped, not kept', () => {
   const services = withRuntimeServices([
-    `_100554_serviceUser;_100554_servicePreview,${RUNTIME_STUDIO_SERVICES[0]}`,
+    `_100554_serviceMindMap;_100554_servicePreview,${RUNTIME_STUDIO_SERVICES[0]}`,
     '', '', '', '', '', '', '',
   ]);
   assert.deepEqual(studioWidgets(services), [...RUNTIME_STUDIO_SERVICES]);
-  assert.equal(widgetsOn(services[0], 'left').includes('_100554_serviceUser'), false);
+  assert.equal(widgetsOn(services[0], 'left').includes('_100554_serviceMindMap'), false);
   assert.equal(widgetsOn(services[0], 'right').includes('_100554_servicePreview'), false);
 });
 
