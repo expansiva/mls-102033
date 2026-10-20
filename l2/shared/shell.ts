@@ -439,19 +439,38 @@ export class CollabAuraShell extends LitElement {
    * visitor from cbeMiniCfe.ts — it's claimed here instead now (idempotent either way, so a
    * concurrent load kicked off elsewhere, e.g. a message preview, is just awaited, not repeated).
    */
-  private loadStudioDefinitions(): void {
+  private loadStudioDefinitions(): { monaco: Promise<void>; definitions: Promise<void> } {
     const project = siteProjectFromBoot(this.bootConfig);
-    if (!project) return;
-    void import('/_102033_/l2/cbe/initStudio.js')
-      .then(async (module) => {
-        const mod = module as {
-          initStudio?: (mls: unknown) => Promise<void>;
-          loadProjectDefinitions?: (project: number) => Promise<void>;
-        };
+    if (!project) {
+      return { monaco: Promise.resolve(), definitions: Promise.resolve() };
+    }
+
+    type StudioBoot = {
+      initStudio?: (mls: unknown) => Promise<void>;
+      loadProjectDefinitions?: (project: number) => Promise<void>;
+    };
+    const boot = import('/_102033_/l2/cbe/initStudio.js').then((module) => module as StudioBoot);
+
+    // Resolves even when Monaco fails, so the Studio level still opens.
+    let loaded: StudioBoot | null = null;
+    const monaco = boot
+      .then(async (mod) => {
         if (window.mls) await mod.initStudio?.(window.mls);
-        await mod.loadProjectDefinitions?.(project);
+        loaded = mod;
+      })
+      .catch((error) => {
+        console.warn('[aura-shell] monaco failed; studio services shown anyway', error);
+        loaded = null;
+      });
+
+    const definitions = monaco
+      .then(async () => {
+        if (!loaded) return;
+        await loaded.loadProjectDefinitions?.(project);
       })
       .catch((error) => console.warn('[aura-shell] could not load the project definitions', error));
+
+    return { monaco, definitions };
   }
 
 
@@ -596,7 +615,7 @@ export class CollabAuraShell extends LitElement {
   }
 
   /** Body of Ctrl+Alt+S once the structure is up (lines kept together so the draft reload can re-enter). */
-  private toggleStudioMode(): void {
+  private async toggleStudioMode(): Promise<void> {
     this.studioModeOn = !this.studioModeOn;
     this.requestUpdate();
     if (this.studioModeOn) {
@@ -605,8 +624,12 @@ export class CollabAuraShell extends LitElement {
       // press this. So the first studio session on a browser costs one reload; from then on it
       // is already armed (TASK-102020-live-update-stand-in).
       rememberElementSwapForNextBoot();
-      this.loadStudioDefinitions();
-      // Back to the level the nav1 never left, with its own split.
+      const { monaco } = this.loadStudioDefinitions();
+      await monaco;
+      // Left during the wait (Ctrl+Alt+S): do not open the studio level.
+      if (!this.studioModeOn) return;
+      // Back to the level the nav1 never left, with its own split. After Monaco, so the first
+      // InitMonaco a remembered service runs is the one initStudio already finished.
       this.syncStructureSplit(true);
       void rememberRelease(readCollabReleaseId);
     }
@@ -616,7 +639,7 @@ export class CollabAuraShell extends LitElement {
   private reenterStudioAfterDraftSync(): void {
     if (sessionStorage.getItem('collabStudioReenter') !== '1') return;
     sessionStorage.removeItem('collabStudioReenter');
-    this.toggleStudioMode();
+    void this.toggleStudioMode();
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent) => {
@@ -653,7 +676,7 @@ export class CollabAuraShell extends LitElement {
     if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && event.code === 'KeyS') {
       event.preventDefault();
       if (this.structureUpgraded) {
-        this.toggleStudioMode();
+        void this.toggleStudioMode();
         // Back to client mode: the banner returns, and the nav3s must show the client's own
         // services again. The toolbars remember the last service opened — by now a studio one —
         // so the runtime pair has to be forced, not restored. Same for the split: the studio level
