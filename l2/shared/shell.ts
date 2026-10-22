@@ -38,6 +38,7 @@ import {
 } from '/_102033_/l2/shared/designSystemRuntime.js';
 import { getCollabRouteChunkCache, loadAuraRouteChunk, matchAuraRoute } from '/_102033_/l2/shared/routeRuntime.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
+import { MOBILE_BREAKPOINT_PX } from '/_102033_/l2/shared/breakpoints.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
 import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
 import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
@@ -78,7 +79,6 @@ function isAuraBootConfig(value: unknown): value is MasterFrontendBootConfig {
   );
 }
 
-const MOBILE_BREAKPOINT_PX = 768;
 type AuraDynamicRegionName = Exclude<MasterFrontendRegionName, 'content'>;
 type AuraRegionRendererState = MasterFrontendRegionRendererConfig & { fallback?: boolean };
 type AuraContentRenderer = { tag: string; entrypoint: string };

@@ -11,6 +11,7 @@ import type { ExecutionContext, IAgentMeta } from '/_102036_/l2/shared/interface
 import { notificationsRuntime } from '/_102025_/l2/notificationsRuntime.js';
 import { collabMessagesEnvironmentBase } from '/_102025_/l2/collabMessagesEnvironmentBase.js';
 import { closeAuraAside } from '/_102033_/l2/shellEvents.js';
+import { MOBILE_BREAKPOINT_PX } from '/_102033_/l2/shared/breakpoints.js';
 // brings the global Window.collabBoot declaration into every program that compiles this file
 import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
 
@@ -203,8 +204,29 @@ export const runtimeAgents: NonNullable<CollabMessagesEnvironment['agents']> = {
 
 /** Applies the generic runtime environment (call only when self-hosting —
  * a project-provided messages aside brings its own environment). */
+/**
+ * "See more" of a long chat message opens in the right-hand detail tab, the same `detail` tab as a task (one replaces the other).
+ * Phone layout or no detail panel: false, and the chat expands the content in place as before.
+ * Typed locally until the contract (102036 `details.openContent`) lands; extra keys are ignored by an older contract.
+ */
+export const runtimeDetails = {
+  openContent: async ({ id, title, element }: { id: string; title: string; element: HTMLElement }): Promise<boolean> => {
+    const nav3 = window.collabRuntimeNav3;
+    if (!nav3) return false;
+    if (window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`).matches) return false;
+    ensureAppServiceVisible();
+    const host = document.createElement('service-detail-100554');
+    host.style.display = 'block';
+    host.style.height = '100%';
+    host.appendChild(element);
+    nav3.openTab({ id, title, element: host });
+    closeAuraAside();
+    return true;
+  },
+};
+
 export function applyRuntimeMessagesEnvironment(): void {
-  setEnvironment({
+  const environment: CollabMessagesEnvironment = {
     ...collabMessagesEnvironmentBase,
     notifications: notificationsRuntime,
     agents: runtimeAgents,
@@ -237,5 +259,6 @@ export function applyRuntimeMessagesEnvironment(): void {
         return { openLocal: false, element: undefined };
       },
     },
-  });
+  };
+  setEnvironment(Object.assign(environment, { details: runtimeDetails }));
 }
