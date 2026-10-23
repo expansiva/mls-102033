@@ -70,6 +70,36 @@ export function withRuntimeServices(services: string[], nav2Left?: Element | nul
   return rc;
 }
 
+/**
+ * The list a CLIENT session hands to nav1: the runtime pair and the declared studio widgets, and
+ * nothing scanned from the plugins.
+ *
+ * nav1 downloads the code of every widget on its list, on EVERY level, to read its `details`
+ * (collab-nav-1 `_mergeData`) — so whatever is on the list at boot is paid by every app visitor. The
+ * scanned studio services (serviceSource, servicePreview, serviceGenome...) only matter to someone who
+ * enters studio mode, and arrive then (studioStructure.loadStudioServicesIntoStructure).
+ */
+export function clientServices(nav2Left?: Element | null, nav2Right?: Element | null): string[] {
+  return withRuntimeServices(['', '', '', '', '', '', '', ''], nav2Left, nav2Right);
+}
+
+/** Every distinct widget of a nav1 list — what nav1 will fetch to read the details. */
+export function distinctWidgets(services: string[]): string[] {
+  const found: string[] = [];
+  for (const entry of services) {
+    for (const widget of (entry ?? '').split(/[;,]/u)) {
+      if (widget && !found.includes(widget)) found.push(widget);
+    }
+  }
+  return found;
+}
+
+/** Console trace of a list handed to nav1, so what each mode loads can be followed in devtools. */
+export function logServices(label: string, services: string[]): void {
+  const widgets = distinctWidgets(services);
+  console.info(`[studio-services] ${label}: ${widgets.length} service(s) handed to nav1`, widgets);
+}
+
 export interface MlsPluginApi {
   plugin?: {
     loadAll?: (project: number, force?: boolean) => Promise<unknown>;
@@ -108,7 +138,9 @@ export async function buildStudioServices(
   // Failure is contained per project: one dependency that does not load (e.g. a file the lib
   // rejects with "invalid path") costs only its own services, never the whole list.
   const projectList: number[] = [];
-  for (const project of collectScanProjects(siteProject, api)) {
+  const scanProjects = collectScanProjects(siteProject, api);
+  console.info('[studio-services] scanning the plugins of', scanProjects);
+  for (const project of scanProjects) {
     try {
       await api.stor?.server?.loadProjectInfoIfNeeded?.(project);
       await api.plugin.loadAll(project, false);

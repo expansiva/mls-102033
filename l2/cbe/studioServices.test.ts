@@ -9,6 +9,8 @@ import {
   STUDIO_BASE_PROJECT,
   STUDIO_TOOLS_SCOPE,
   buildStudioServices,
+  clientServices,
+  distinctWidgets,
   loadStudioTools,
   resetStudioTools,
   withRuntimeServices,
@@ -234,4 +236,26 @@ test('a tool that fails to load does not take the scan down', async () => {
     throw new Error('404');
   });
   assert.deepEqual(result, [], 'reported as nothing loaded, not thrown');
+});
+
+// ── Client boot carries only the client services ────────────────────────────────────────────────
+
+test('the client list is the runtime pair plus the declared widgets — nothing scanned', () => {
+  const services = clientServices();
+  assert.equal(services.length, 8);
+  for (const entry of services) {
+    assert.deepEqual(widgetsOn(entry, 'left'), [SERVICE_MESSAGES]);
+    assert.deepEqual(widgetsOn(entry, 'right'), [SERVICE_APP, ...RUNTIME_STUDIO_SERVICES]);
+  }
+});
+
+test('nav1 fetches each widget once — distinctWidgets is what the client boot downloads', () => {
+  assert.deepEqual(distinctWidgets(clientServices()), [SERVICE_MESSAGES, SERVICE_APP, ...RUNTIME_STUDIO_SERVICES]);
+});
+
+test('the studio list keeps the client entries on every level (the way back from studio)', () => {
+  const scanned = ['', '', ';_102020_/l2/aura/services/servicePreview', '', '', '', '', '_102020_/l2/aura/services/serviceBehavior;'];
+  const studio = distinctWidgets(withRuntimeServices(scanned));
+  for (const widget of distinctWidgets(clientServices())) assert.ok(studio.includes(widget), widget);
+  assert.ok(studio.includes('_102020_/l2/aura/services/servicePreview'));
 });

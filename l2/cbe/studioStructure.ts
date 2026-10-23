@@ -32,6 +32,7 @@ import {
   SERVICE_MESSAGES,
   SERVICE_APP,
 } from '/_102033_/l2/cbe/studioHeader.js';
+import { clientServices, logServices } from '/_102033_/l2/cbe/studioServices.js';
 import { setStudioTailwind } from '/_102033_/l2/cbe/studioTailwind.js';
 import { applyRuntimeSplit } from '/_102033_/l2/cbe/studioSplit.js';
 // Runtime services must be DEFINED before the nav3 instances them (the nav3
@@ -79,9 +80,9 @@ let tailwindWatchInstalled = false;
  * change is needed — same channel serviceClientApp watches to show/hide its edit tools.
  *
  * The observer STAYS connected after the first activation: entering studio mode loads the JIT once
- * (never twice), and leaving it makes the JIT's sheet inert, so the app falls back to exactly the css
- * the client is served. Without that, a page edited in the studio would keep looking finished in
- * client mode — masking the very problem the JIT works around.
+ * (never twice). Leaving it would make the JIT's sheet inert, but that is switched off for now
+ * (SUSPEND_ON_STUDIO_EXIT in studioTailwind): classes added by a local edit have no rule in the built
+ * css, so suspending left edited pages unstyled in client mode.
  */
 function watchStudioModeForTailwind(container: HTMLElement): void {
   // The shell retries the upgrade up to 3 times (attemptStructureUpgrade) — one observer is enough.
@@ -139,18 +140,15 @@ export async function upgradeToStudioStructure(container: HTMLElement, siteProje
   page.append(nav1, spliter);
   container.appendChild(page);
 
-  // nav1 services (studio scan; anonymous fallback), with the runtime services
-  // PREPENDED on level 7 — the nav1/nav2 flow owns the nav3 data-service, so
-  // our widgets must be part of its service list, not set manually.
+  // nav1 services — the CLIENT list only: the runtime pair (messages left, app right) and the
+  // declared studio widgets, on every level. The nav1/nav2 flow owns the nav3 data-service, so our
+  // widgets must be part of its service list, not set manually. The plugin scan (the studio
+  // services) waits for studio mode: nav1 downloads every widget on its list to read its details, so
+  // scanning here made every app visitor pay for the studio (loadStudioServicesIntoStructure).
   const nav1El = nav1 as HTMLElement & { services?: { services: string[] } };
-  let services = ANONYMOUS_SERVICES;
-  try {
-    services = await buildStudioServices(siteProject);
-  } catch { /* anonymous fallback */ }
-  // EVERY level gets the runtime pair (messages left, app right) prepended and
-  // shown by default — the unified nav3 is active on all nav1 tabs. Shared with
-  // the studio header so both toolbars offer the same way back (withRuntimeServices).
-  nav1El.services = { services: withRuntimeServices(services, nav2Left, nav2Right) };
+  const services = clientServices(nav2Left, nav2Right);
+  logServices('client mode', services);
+  nav1El.services = { services };
 
   nav1.setAttribute('status', 'enabled');
 
@@ -167,4 +165,63 @@ export async function upgradeToStudioStructure(container: HTMLElement, siteProje
   }, 600);
 
   return page;
+}
+
+interface StudioNav1 extends HTMLElement {
+  services?: { services: string[] };
+  actualServices?: unknown;
+}
+
+/** One scan per structure: entering and leaving studio mode again keeps the list. */
+const studioServicesLoaded = new WeakMap<Element, Promise<void>>();
+
+/**
+ * Swaps nav1's client list for the full studio list — the first time studio mode is entered.
+ *
+ * Until then the session only carries the client services (see upgradeToStudioStructure). The
+ * plugin scan runs here, and nav1/nav2 are made to read the new list on the level they are on: a
+ * later level switch already rereads `nav1.services` by itself (collab-nav-1 `_fireChangeLevel`).
+ *
+ * The reread goes through two collab-nav-1 / collab-nav-2 internals, because they offer no public
+ * "services changed" entry: `_prepareServices()` rebuilds nav1.actualServices from nav1.services, and
+ * the nav2 status cycle start -> enabled makes each toolbar read it again (`_renderAfterEnabled`) and
+ * restore its last service. The level-init side of `_fireChangeLevel` is deliberately not replayed.
+ */
+export function loadStudioServicesIntoStructure(host: ParentNode, siteProject: number): Promise<void> {
+  const nav1 = host.querySelector('collab-nav-1') as StudioNav1 | null;
+  if (!nav1) return Promise.resolve();
+  const pending = studioServicesLoaded.get(nav1);
+  if (pending) return pending;
+
+  const run = (async () => {
+    const nav2Left = host.querySelector('collab-nav-2[toolbarposition="left"]');
+    const nav2Right = host.querySelector('collab-nav-2[toolbarposition="right"]');
+    let scanned = ANONYMOUS_SERVICES;
+    try {
+      scanned = await buildStudioServices(siteProject);
+    } catch (error) {
+      console.warn('[studio-services] plugin scan failed — keeping the anonymous defaults', error);
+    }
+    // Same list the studio header builds: the runtime pair on every level, so a toolbar is never
+    // left without the way back to the app or the messages.
+    const services = withRuntimeServices(scanned, nav2Left, nav2Right);
+    logServices('studio mode', services);
+    nav1.services = { services };
+
+    const prepare = (nav1 as unknown as { _prepareServices?: () => Promise<void> })._prepareServices;
+    if (typeof prepare !== 'function') {
+      console.warn('[studio-services] collab-nav-1 has no _prepareServices — the new list shows on the next level switch');
+      return;
+    }
+    await prepare.call(nav1);
+    for (const nav2 of [nav2Left, nav2Right]) {
+      if (!nav2) continue;
+      nav2.setAttribute('status', 'start');
+      await (nav2 as HTMLElement & { updateComplete?: Promise<unknown> }).updateComplete;
+      nav2.setAttribute('status', 'enabled');
+    }
+    console.info('[studio-services] studio services ready on the current level');
+  })();
+  studioServicesLoaded.set(nav1, run);
+  return run;
 }

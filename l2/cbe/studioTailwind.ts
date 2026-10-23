@@ -14,7 +14,8 @@
 //
 // Client sessions never see any of this: studioStructure calls setStudioTailwind() with the shell's
 // `data-studio-mode`, and the CDN bundle is only fetched the first time that turns true. Leaving studio
-// mode does not (cannot) unload the JIT — its sheet is made inert instead, see JIT_SUSPENDED_MEDIA.
+// mode does not (cannot) unload the JIT — its sheet could be made inert (JIT_SUSPENDED_MEDIA), but
+// that is switched off for now, see SUSPEND_ON_STUDIO_EXIT.
 
 /**
  * Pinned so the studio renders what the BUILD will generate.
@@ -79,6 +80,17 @@ ${STUDIO_TAILWIND_THEME}
  */
 export const JIT_SUSPENDED_MEDIA = 'not all';
 
+/**
+ * Whether leaving studio mode makes the JIT sheet inert. OFF for now.
+ *
+ * Suspending broke pages edited in the studio: the edit lives in the local copy (and the SW serves
+ * that JS), but the built sheet was generated from the published code, so any class the edit
+ * introduced came out unstyled in client mode. Until the css follows the local edits, the JIT stays
+ * live for the rest of the session once loaded. A reload still drops it (it is only loaded on entering
+ * studio mode) — that gap is known and accepted for now.
+ */
+export const SUSPEND_ON_STUDIO_EXIT = false;
+
 /** The JIT's own output sheet, adopted when the script finishes loading (see adoptJitStyle). */
 let jitStyleElement: HTMLStyleElement | undefined;
 let jitStyleCandidates: HTMLStyleElement[] = [];
@@ -98,11 +110,11 @@ export function applyJitSuspension(style: JitStyleTarget, isSuspended: boolean):
 }
 
 /**
- * Follows the studio mode both ways: `true` loads the JIT (once) and makes its sheet live, `false`
- * makes it inert so the app renders with exactly the css the client is served.
+ * Follows the studio mode: `true` loads the JIT (once) and makes its sheet live, `false` makes it inert
+ * only when SUSPEND_ON_STUDIO_EXIT is on (it is off — see there).
  */
 export function setStudioTailwind(active: boolean): void {
-  suspended = !active;
+  suspended = SUSPEND_ON_STUDIO_EXIT && !active;
   if (active) ensureStudioTailwind();
   if (jitStyleElement) applyJitSuspension(jitStyleElement, suspended);
 }

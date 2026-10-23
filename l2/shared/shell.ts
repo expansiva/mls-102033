@@ -439,6 +439,23 @@ export class CollabAuraShell extends LitElement {
    * visitor from cbeMiniCfe.ts — it's claimed here instead now (idempotent either way, so a
    * concurrent load kicked off elsewhere, e.g. a message preview, is just awaited, not repeated).
    */
+  /**
+   * Hands nav1 the studio services — on the first studio entry only (idempotent per structure).
+   *
+   * The client boot gives nav1 only the client services: nav1 downloads the code of every service on
+   * its list to read its details, so the studio ones would cost every app visitor.
+   */
+  private loadStudioServices(): void {
+    const host = this.querySelector('.studio-structure-host');
+    if (!host || !this.structureUpgraded) return;
+    const siteProject = siteProjectFromBoot(this.bootConfig);
+    void import('/_102033_/l2/cbe/studioStructure.js')
+      .then((module) => (module as {
+        loadStudioServicesIntoStructure?: (host: ParentNode, siteProject: number) => Promise<void>;
+      }).loadStudioServicesIntoStructure?.(host, siteProject))
+      .catch((error) => console.warn('[aura-shell] could not load the studio services', error));
+  }
+
   private loadStudioDefinitions(): { monaco: Promise<void>; definitions: Promise<void> } {
     const project = siteProjectFromBoot(this.bootConfig);
     if (!project) {
@@ -625,6 +642,9 @@ export class CollabAuraShell extends LitElement {
       // is already armed (TASK-102020-live-update-stand-in).
       rememberElementSwapForNextBoot();
       const { monaco } = this.loadStudioDefinitions();
+      // The studio services (the plugin scan) were left out of the client boot; first entry
+      // brings them.
+      this.loadStudioServices();
       await monaco;
       // Left during the wait (Ctrl+Alt+S): do not open the studio level.
       if (!this.studioModeOn) return;
