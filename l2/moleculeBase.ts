@@ -412,11 +412,18 @@ export class MoleculeAuraElement extends StateLitElement {
   }
 
   /**
-   * Takes a snapshot: reads outerHTML from slot tag children,
-   * parses into isolated Document.
+   * Takes a snapshot: deep-imports the slot tag children into an inert,
+   * empty Document. The nodes are copied as nodes (comments, text, attributes,
+   * namespaces), never serialized and reparsed: reparsing turned the Lit
+   * comment markers inside a <Title> into literal text.
    */
   private _takeSnapshot(): void {
-    const parts: string[] = [];
+    // Static empty skeleton (no <title> in head, unlike createHTMLDocument);
+    // a parsed document has no browsing context, so nothing imported upgrades.
+    const snapshot = new DOMParser().parseFromString(
+      '<!DOCTYPE html><html><head></head><body></body></html>',
+      'text/html'
+    );
     const children = Array.from(this.children);
 
     for (const child of children) {
@@ -425,15 +432,11 @@ export class MoleculeAuraElement extends StateLitElement {
         st => st.toUpperCase() === tagName
       );
       if (isSlotTag) {
-        parts.push(child.outerHTML);
+        snapshot.body.appendChild(snapshot.importNode(child, true));
       }
     }
 
-    const parser = new DOMParser();
-    this._snapshot = parser.parseFromString(
-      `<body>${parts.join('')}</body>`,
-      'text/html'
-    );
+    this._snapshot = snapshot;
   }
 
   // ===========================================================================
