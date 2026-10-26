@@ -26,7 +26,24 @@ export interface DraftL2Deps {
   compile(project: number, path: string): Promise<string | null>;
   inDraftCache(slug: string, url: string): Promise<boolean>;
   hasLocalEdit(project: number, path: string): boolean;
+  /** Bodies already stored for this l2 source, read before compile. `null` when the cache cannot be read. */
+  previousCompiled?(project: number, slug: string, path: string): Promise<string[] | null>;
+  /** Body written for `url`. `null` when it cannot be read. */
+  compiledBody?(slug: string, url: string): Promise<string | null>;
   caches?: StaleCacheStorage;
+}
+
+export interface DraftReloadStore {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+export interface DraftL2Sync {
+  compiled: number;
+  head: string | null;
+  forgotten: number;
+  /** Identity of the compiled bodies that differ from the draft cache. Empty when nothing differs. */
+  mark: string;
 }
 
 interface StaleCacheRequest {
@@ -403,19 +420,150 @@ const defaultDeps: DraftL2Deps = {
   compile: compileDraft,
   inDraftCache: defaultInDraftCache,
   hasLocalEdit: defaultHasLocalEdit,
+  previousCompiled: defaultPreviousCompiled,
+  compiledBody: defaultCompiledBody,
 };
+
+interface BodyCache {
+  keys(): Promise<Iterable<{ url: string }>>;
+  match(request: string | { url: string }): Promise<{ text(): Promise<string> } | undefined>;
+}
+
+interface BodyCacheStorage {
+  keys(): Promise<string[]>;
+  open(name: string): Promise<BodyCache>;
+}
+
+function bodyCaches(): BodyCacheStorage | undefined {
+  return (globalThis.caches as BodyCacheStorage | undefined) ?? undefined;
+}
+
+/** FNV-1a over the bodies that differ. Stable across tabs; not the branch head. */
+function compiledMark(slug: string, parts: readonly string[]): string {
+  let hash = 2166136261;
+  for (const part of parts) {
+    for (let i = 0; i < part.length; i += 1) {
+      hash ^= part.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+  }
+  return `${slug}@${(hash >>> 0).toString(16)}`;
+}
+
+async function defaultCompiledBody(slug: string, url: string): Promise<string | null> {
+  const storage = bodyCaches();
+  if (!storage) {
+    console.warn(`[studioDraftL2] ${url}: Cache Storage is unavailable`);
+    return null;
+  }
+  const suffix = `-d${slug}`;
+  try {
+    for (const name of await storage.keys()) {
+      if (!name.endsWith(suffix)) continue;
+      const hit = await (await storage.open(name)).match(url);
+      if (!hit) continue;
+      return await hit.text();
+    }
+  } catch (err) {
+    console.warn(`[studioDraftL2] ${url}: ${errorText(err)}`);
+    return null;
+  }
+  return null;
+}
+
+async function defaultPreviousCompiled(project: number, slug: string, path: string): Promise<string[] | null> {
+  const storage = bodyCaches();
+  if (!storage) {
+    console.warn(`[studioDraftL2] ${path}: Cache Storage is unavailable`);
+    return null;
+  }
+  const suffix = `-d${slug}`;
+  const bodies: string[] = [];
+  try {
+    for (const name of await storage.keys()) {
+      if (!name.endsWith(suffix)) continue;
+      const cache = await storage.open(name);
+      for (const request of await cache.keys()) {
+        if (compiledL2Source(project, request.url) !== path) continue;
+        const hit = await cache.match(request);
+        if (!hit) continue;
+        bodies.push(await hit.text());
+      }
+    }
+  } catch (err) {
+    console.warn(`[studioDraftL2] ${path}: ${errorText(err)}`);
+    return null;
+  }
+  return bodies;
+}
+
+/**
+ * One reload per compiled-content mark. `store` is shared by every tab (localStorage):
+ * a new tab with the same mark does not reload again.
+ * Returns whether `reload` was called.
+ */
+export function reloadDraftCompiled(
+  changed: boolean,
+  mark: string,
+  store: DraftReloadStore | undefined,
+  reload: () => void,
+): boolean {
+  if (!changed) return false;
+  if (!store || mark.length === 0) {
+    console.warn('[studioDraftL2] compiled content changed but the reload mark is missing');
+    reload();
+    return true;
+  }
+  let current: string | null = null;
+  try {
+    current = store.getItem(RELOADED_KEY);
+  } catch (err) {
+    console.warn(`[studioDraftL2] reload mark unreadable: ${errorText(err)}`);
+  }
+  if (current === mark) {
+    console.warn(`[studioDraftL2] reload skipped: already reloaded for ${mark}`);
+    return false;
+  }
+  try {
+    store.setItem(RELOADED_KEY, mark);
+  } catch (err) {
+    console.warn(`[studioDraftL2] reload mark not stored: ${errorText(err)}`);
+  }
+  reload();
+  return true;
+}
+
+/**
+ * Whether this entry needs the one reload, and its mark. Compiled bodies that differ carry their own mark.
+ * Stale l2 dropped from the draft cache (the draft went back to the published one, st26) needs the reload
+ * too: the page already holds the dropped module in memory.
+ */
+export function draftReloadDecision(slug: string, sync: DraftL2Sync): { changed: boolean; mark: string } {
+  const dropped = sync.forgotten > 0;
+  const droppedMark = dropped && sync.head !== null ? `${slug}@${sync.head}:dropped` : '';
+  return { changed: sync.compiled > 0 || dropped, mark: sync.mark || droppedMark };
+}
+
+export function clearDraftReloadMark(store: { removeItem(key: string): void } | undefined): void {
+  if (!store) return;
+  try {
+    store.removeItem(RELOADED_KEY);
+  } catch (err) {
+    console.warn(`[studioDraftL2] reload mark not cleared: ${errorText(err)}`);
+  }
+}
 
 async function syncDraftL2Once(
   project: number,
   slug: string,
   deps: DraftL2Deps,
-): Promise<{ compiled: number; head: string | null; outside: boolean; forgotten: number }> {
+): Promise<DraftL2Sync & { outside: boolean }> {
   let diff: { head: string; files: DraftDiffName[] };
   try {
     diff = await deps.draftDiff(project, slug);
   } catch (err) {
     console.error(`[studioDraftL2] draftDiff: ${errorText(err)}`);
-    return { compiled: 0, head: null, outside: false, forgotten: 0 };
+    return { compiled: 0, head: null, outside: false, forgotten: 0, mark: '' };
   }
   const targets = draftL2Targets(diff.files);
   // Cleanup follows the diff of this boot, including when the marker already matches.
@@ -424,7 +572,7 @@ async function syncDraftL2Once(
     hasLocalEdit: (fileProject, path) => deps.hasLocalEdit(fileProject, path),
   });
   if (deps.readMarker() === `${slug}@${diff.head}`) {
-    return { compiled: 0, head: diff.head, outside: false, forgotten };
+    return { compiled: 0, head: diff.head, outside: false, forgotten, mark: '' };
   }
 
   const ready: string[] = [];
@@ -444,8 +592,22 @@ async function syncDraftL2Once(
     }
   }
 
+  // Snapshot before compile: compile overwrites the cache, and the reload compares bytes, not the head.
+  const previous = new Map<string, string[] | null>();
+  if (deps.previousCompiled) {
+    for (const path of ready) {
+      try {
+        previous.set(path, await deps.previousCompiled(project, slug, path));
+      } catch (err) {
+        console.warn(`[studioDraftL2] ${path}: ${errorText(err)}`);
+        previous.set(path, null);
+      }
+    }
+  }
+
   let compiled = 0;
   let outside = false;
+  const changedBodies: string[] = [];
   for (const path of ready) {
     try {
       const url = await deps.compile(project, path);
@@ -460,14 +622,42 @@ async function syncDraftL2Once(
         console.warn(`[studioDraftL2] ${path}: compiled outside the draft cache`);
         continue;
       }
-      compiled += 1;
+      if (await compiledBodyDiffers(deps, previous, slug, path, url, changedBodies)) compiled += 1;
     } catch (err) {
       failed = true;
       console.error(`[studioDraftL2] ${path}: ${errorText(err)}`);
     }
   }
   if (!failed) deps.writeMarker(`${slug}@${diff.head}`);
-  return { compiled, head: diff.head, outside, forgotten };
+  const mark = changedBodies.length > 0 ? compiledMark(slug, changedBodies) : '';
+  return { compiled, head: diff.head, outside, forgotten, mark };
+}
+
+/** True when the new body is not already in the draft cache. Without a reader, every confirmed compile counts. */
+async function compiledBodyDiffers(
+  deps: DraftL2Deps,
+  previous: ReadonlyMap<string, string[] | null>,
+  slug: string,
+  path: string,
+  url: string,
+  changedBodies: string[],
+): Promise<boolean> {
+  if (!deps.previousCompiled || !deps.compiledBody) return true;
+  const before = previous.get(path);
+  let after: string | null;
+  try {
+    after = await deps.compiledBody(slug, url);
+  } catch (err) {
+    console.warn(`[studioDraftL2] ${path}: ${errorText(err)}`);
+    return true;
+  }
+  if (before === undefined || before === null || after === null) {
+    console.warn(`[studioDraftL2] ${path}: compiled body unreadable`);
+    return true;
+  }
+  if (before.includes(after)) return false;
+  changedBodies.push(`${path}\n${after}`);
+  return true;
 }
 
 interface DraftCacheStorage {
@@ -485,6 +675,11 @@ export async function forgetDraftL2(
 ): Promise<void> {
   deps.session.removeItem(MARKER_KEY);
   deps.session.removeItem(RELOADED_KEY);
+  try {
+    clearDraftReloadMark(globalThis.localStorage);
+  } catch (err) {
+    console.warn(`[studioDraftL2] reload mark not cleared: ${errorText(err)}`);
+  }
   const storage = deps.caches;
   if (!storage) return;
   const suffix = `-d${slug}`;
@@ -509,15 +704,20 @@ export async function syncDraftL2(
   project: number,
   slug: string,
   deps: DraftL2Deps = defaultDeps,
-): Promise<{ compiled: number; head: string | null; forgotten: number }> {
+): Promise<DraftL2Sync> {
   const first = await syncDraftL2Once(project, slug, deps);
-  if (!first.outside) return { compiled: first.compiled, head: first.head, forgotten: first.forgotten };
+  if (!first.outside) return { compiled: first.compiled, head: first.head, forgotten: first.forgotten, mark: first.mark };
   // One extra pass after the draft worker takes control. An unconfirmed compile never reloads by itself.
   const claimed = await waitForDraftController(CONTROLLER_WAIT_MS);
   if (!claimed) {
     console.warn('[studioDraftL2] draft service worker not in control; will retry on next boot');
-    return { compiled: first.compiled, head: first.head, forgotten: first.forgotten };
+    return { compiled: first.compiled, head: first.head, forgotten: first.forgotten, mark: first.mark };
   }
   const second = await syncDraftL2Once(project, slug, deps);
-  return { compiled: second.compiled, head: second.head, forgotten: first.forgotten + second.forgotten };
+  return {
+    compiled: second.compiled,
+    head: second.head,
+    forgotten: first.forgotten + second.forgotten,
+    mark: second.mark,
+  };
 }

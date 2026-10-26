@@ -1,7 +1,7 @@
 /// <mls fileReference="_102033_/l2/cbe/studioDraftL2.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { draftL2Targets, forgetDraftL2, forgetStaleDraftL2, importToL2File, syncDraftL2, type DraftL2Deps } from '/_102033_/l2/cbe/studioDraftL2.js';
+import { draftL2Targets, draftReloadDecision, forgetDraftL2, forgetStaleDraftL2, importToL2File, reloadDraftCompiled, syncDraftL2, type DraftL2Deps, type DraftReloadStore } from '/_102033_/l2/cbe/studioDraftL2.js';
 
 const S1_FILES = [
   { status: 'M', path: 'l2/a.ts' },
@@ -32,7 +32,7 @@ test('syncDraftL2 skips read and compile when the marker is slug@head', async ()
     hasLocalEdit: () => false,
   };
   const result = await syncDraftL2(102047, 'team-102047', deps);
-  assert.deepEqual(result, { compiled: 0, head: 'abc', forgotten: 0 });
+  assert.deepEqual(result, { compiled: 0, head: 'abc', forgotten: 0, mark: '' });
   // head is only known after draftDiff; read and compile stay idle.
   assert.deepEqual(calls, ['diff']);
 });
@@ -64,7 +64,7 @@ test('a failed target compiles the others and does not store the marker', async 
   };
   try {
     const result = await syncDraftL2(102047, 'team-102047', deps);
-    assert.deepEqual(result, { compiled: 2, head: 'def', forgotten: 0 });
+    assert.deepEqual(result, { compiled: 2, head: 'def', forgotten: 0, mark: '' });
     assert.equal(marker, null);
     assert.deepEqual(applied, ['l2/a.ts:text l2/a.ts', 'l2/new.ts:text l2/new.ts']);
     assert.deepEqual(compiled, ['l2/a.ts', 'l2/new.ts']);
@@ -87,7 +87,7 @@ test('syncDraftL2 stores slug@head when every target compiles', async () => {
     hasLocalEdit: () => false,
   };
   const result = await syncDraftL2(7, 'user-7', deps);
-  assert.deepEqual(result, { compiled: 1, head: 'fff', forgotten: 0 });
+  assert.deepEqual(result, { compiled: 1, head: 'fff', forgotten: 0, mark: '' });
   assert.equal(marker, 'user-7@fff');
 });
 
@@ -117,7 +117,7 @@ test('a target with a local edit is left alone and the marker is stored', async 
   };
   try {
     const result = await syncDraftL2(102047, 'team-102047', deps);
-    assert.deepEqual(result, { compiled: 2, head: 'abc', forgotten: 0 });
+    assert.deepEqual(result, { compiled: 2, head: 'abc', forgotten: 0, mark: '' });
     assert.equal(marker, 'team-102047@abc');
     assert.deepEqual(calls, [
       'read:l2/a.ts', 'apply:l2/a.ts',
@@ -146,7 +146,7 @@ test('syncDraftL2 applies every target before the first compile', async () => {
     hasLocalEdit: () => false,
   };
   const result = await syncDraftL2(102047, 'team-102047', deps);
-  assert.deepEqual(result, { compiled: 3, head: 'abc', forgotten: 0 });
+  assert.deepEqual(result, { compiled: 3, head: 'abc', forgotten: 0, mark: '' });
   assert.deepEqual(calls, [
     'apply:l2/a.ts',
     'apply:l2/b.ts',
@@ -170,7 +170,7 @@ test('syncDraftL2 does not store the marker when the compile misses the draft ca
     hasLocalEdit: () => false,
   };
   const result = await syncDraftL2(102047, 'team-102047', deps);
-  assert.deepEqual(result, { compiled: 0, head: 'abc', forgotten: 0 });
+  assert.deepEqual(result, { compiled: 0, head: 'abc', forgotten: 0, mark: '' });
   assert.equal(marker, null);
 });
 
@@ -187,7 +187,7 @@ test('syncDraftL2 stores the marker when the compile is in the draft cache', asy
     hasLocalEdit: () => false,
   };
   const result = await syncDraftL2(7, 'user-7', deps);
-  assert.deepEqual(result, { compiled: 1, head: 'fff', forgotten: 0 });
+  assert.deepEqual(result, { compiled: 1, head: 'fff', forgotten: 0, mark: '' });
   assert.equal(marker, 'user-7@fff');
 });
 
@@ -210,7 +210,7 @@ test('syncDraftL2 counts a confirmed file and still withholds the marker when an
     hasLocalEdit: () => false,
   };
   const result = await syncDraftL2(102047, 'team-102047', deps);
-  assert.deepEqual(result, { compiled: 1, head: 'abc', forgotten: 0 });
+  assert.deepEqual(result, { compiled: 1, head: 'abc', forgotten: 0, mark: '' });
   assert.equal(marker, null);
 });
 
@@ -304,6 +304,81 @@ test('syncDraftL2 forgets compiled l2 outside the diff even when the marker matc
     },
   };
   const result = await syncDraftL2(102047, 'team-102047', deps);
-  assert.deepEqual(result, { compiled: 0, head: 'abc', forgotten: 1 });
+  assert.deepEqual(result, { compiled: 0, head: 'abc', forgotten: 1, mark: '' });
   assert.deepEqual(deleted, [gone]);
+});
+
+test('reload follows the compiled body, once per mark', async () => {
+  const cached = new Map<string, string[]>([['l2/a.ts', ['same']]]);
+  const produced = new Map<string, string>([['/local/a.js?v=1', 'same']]);
+  const deps: DraftL2Deps = {
+    readMarker: () => null,
+    writeMarker: () => {},
+    draftDiff: async () => ({ head: 'abc', files: [{ status: 'M', path: 'l2/a.ts' }] }),
+    readDraftText: async () => 'export {}',
+    apply: async () => {},
+    compile: async () => '/local/a.js?v=1',
+    inDraftCache: async () => true,
+    hasLocalEdit: () => false,
+    previousCompiled: async (_project, _slug, path) => cached.get(path) ?? [],
+    compiledBody: async (_slug, url) => produced.get(url) ?? null,
+  };
+  const store = new Map<string, string>();
+  const memory: DraftReloadStore = {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => { store.set(key, value); },
+  };
+  const reloads: string[] = [];
+  const reload = () => { reloads.push('reload'); };
+  const warns: string[] = [];
+  const previous = console.warn;
+  console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(' ')); };
+  try {
+    const same = await syncDraftL2(102047, 'team-102047', deps);
+    assert.equal(same.compiled, 0);
+    assert.equal(same.mark, '');
+    assert.equal(reloadDraftCompiled(same.compiled > 0, same.mark, memory, reload), false);
+
+    cached.set('l2/a.ts', ['old']);
+    produced.set('/local/a.js?v=1', 'new');
+    const changed = await syncDraftL2(102047, 'team-102047', deps);
+    assert.equal(changed.compiled, 1);
+    assert.notEqual(changed.mark, '');
+    assert.equal(reloadDraftCompiled(changed.compiled > 0, changed.mark, memory, reload), true);
+    assert.deepEqual(reloads, ['reload']);
+
+    const again = await syncDraftL2(102047, 'team-102047', deps);
+    assert.equal(again.mark, changed.mark);
+    assert.equal(reloadDraftCompiled(true, again.mark, memory, reload), false);
+    assert.deepEqual(reloads, ['reload']);
+    assert.equal(store.get('collabDraftL2Reloaded'), changed.mark);
+    assert.equal(warns.some((line) => line.includes('already reloaded')), true);
+  } finally {
+    console.warn = previous;
+  }
+});
+
+test('stale l2 dropped from the draft cache reloads once, with its own mark', () => {
+  assert.deepEqual(
+    draftReloadDecision('team-1', { compiled: 0, head: 'abc', forgotten: 1, mark: '' }),
+    { changed: true, mark: 'team-1@abc:dropped' },
+  );
+  assert.deepEqual(
+    draftReloadDecision('team-1', { compiled: 1, head: 'abc', forgotten: 1, mark: 'team-1@f00' }),
+    { changed: true, mark: 'team-1@f00' },
+  );
+  assert.deepEqual(
+    draftReloadDecision('team-1', { compiled: 0, head: 'abc', forgotten: 0, mark: '' }),
+    { changed: false, mark: '' },
+  );
+  const reloads: string[] = [];
+  const decision = draftReloadDecision('team-1', { compiled: 0, head: 'abc', forgotten: 2, mark: '' });
+  const store = new Map<string, string>();
+  const memory: DraftReloadStore = {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => { store.set(key, value); },
+  };
+  assert.equal(reloadDraftCompiled(decision.changed, decision.mark, memory, () => { reloads.push('reload'); }), true);
+  assert.equal(reloadDraftCompiled(decision.changed, decision.mark, memory, () => { reloads.push('reload'); }), false);
+  assert.equal(reloads.length, 1);
 });

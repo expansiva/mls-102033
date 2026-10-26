@@ -11,7 +11,7 @@
 import type { StudioMls } from './global.js';
 import { ensureDefaultDraftCookie } from '/_102033_/l2/cbe/studioDraft.js';
 import { applyDraftFiles } from '/_102033_/l2/cbe/studioDraftFiles.js';
-import { syncDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js'; 
+import { clearDraftReloadMark, draftReloadDecision, reloadDraftCompiled, syncDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js'; 
 
 const MONACO_SCRIPT_ID = 'cbe-monaco-loader';
 
@@ -238,25 +238,31 @@ export async function loadProjectDefinitions(project: number): Promise<void> {
       // the worker about to take control is the new draft's.
       sessionStorage.removeItem('collabDraftL2Synced');
       sessionStorage.removeItem('collabDraftL2Reloaded');
+      try {
+        clearDraftReloadMark(localStorage);
+      } catch (err) {
+        console.warn('[studioDraftL2] reload mark not cleared:', err);
+      }
       sessionStorage.setItem('collabStudioReenter', '1');
       location.reload();
       return;
     }
-    // List and source on every entry, marker or not. Compiled l2 still decides the reload.
+    // List and source on every entry, marker or not. Compiled bytes decide the reload, not the head.
     await applyDraftFiles(project, draft.slug);
     const sync = await syncDraftL2(project, draft.slug);
-    // No head (draftDiff failed): do not reload. compiled counts only JS found in the draft cache.
-    if (sync.head !== null && (sync.compiled > 0 || sync.forgotten > 0)) {
-      const marker = `${draft.slug}@${sync.head}`;
-      if (sessionStorage.getItem('collabDraftL2Reloaded') === marker) {
-        console.warn(`[studioDraftL2] reload skipped: already reloaded for ${marker}`);
-      } else {
-        sessionStorage.setItem('collabDraftL2Reloaded', marker);
-        sessionStorage.setItem('collabStudioReenter', '1');
-        location.reload();
-        return;
-      }
+    // No head (draftDiff failed): do not reload. compiled counts JS whose body differs from the draft cache.
+    // The mark lives in localStorage, so a new tab shares it.
+    let reloadStore: { getItem(key: string): string | null; setItem(key: string, value: string): void } | undefined;
+    try {
+      reloadStore = localStorage;
+    } catch (err) {
+      console.warn('[studioDraftL2] reload mark storage unavailable:', err);
     }
+    const decision = draftReloadDecision(draft.slug, sync);
+    if (sync.head !== null && reloadDraftCompiled(decision.changed, decision.mark, reloadStore, () => {
+      sessionStorage.setItem('collabStudioReenter', '1');
+      location.reload();
+    })) return;
   }
   const mls = (window as unknown as { mls?: MlsDefinitionApi }).mls;
   const editor = mls?.editor;
