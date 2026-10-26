@@ -35,12 +35,59 @@ export interface DraftDiffResult {
   files: DraftDiffFile[];
 }
 
+/** One editor model of a source file. `.d.ts` has none. */
+export type SourceModelSlot = 'ts' | 'test' | 'html' | 'style' | 'defs';
+
+export function sourceModelSlot(extension: string): SourceModelSlot | undefined {
+  if (extension === '.ts') return 'ts';
+  if (extension === '.test.ts') return 'test';
+  if (extension === '.defs.ts') return 'defs';
+  if (extension === '.html') return 'html';
+  if (extension === '.less') return 'style';
+  return undefined;
+}
+
+/**
+ * Bytes `_checkSameContent` hashes. `.less` drops the token block and trims;
+ * every other source file is hashed as stored.
+ */
+export function draftContentCrc(text: string, extension: string): string {
+  const source = extension === '.less'
+    ? text.replace(/\/\/Start Less Tokens[\s\S]*?\/\/End Less Tokens/g, '').trim()
+    : text;
+  return mls.common.crc.crc32(source).toString(16);
+}
+
+/** CRC of the last draft send, per file. Not the published baseline. */
+const sentCrc = new Map<string, string>();
+
+function sentCrcKey(file: DraftFileIdentity): string {
+  return `${file.project}\u0000${file.level}\u0000${file.folder}\u0000${file.shortName}\u0000${file.extension}`;
+}
+
+export function rememberSentCrc(file: DraftFileIdentity, crc: string): void {
+  sentCrc.set(sentCrcKey(file), crc);
+}
+
+export function sentCrcOf(file: DraftFileIdentity): string | undefined {
+  return sentCrc.get(sentCrcKey(file));
+}
+
+interface DraftStoredRow {
+  versionRef: string;
+  status?: string;
+  inLocalStorage?: boolean;
+  getHistoryContent?(ref: string): Promise<string | null>;
+  getContent?(): Promise<string | Blob | null>;
+  getValueInfo?(): Promise<mls.stor.IFileInfoValue | null | undefined>;
+}
+
 export interface DraftFilesDeps {
   draftDiff(project: number, slug: string): Promise<DraftDiffResult>;
   hasLocalEdit(project: number, path: string): boolean;
   addOrUpdateFile(info: DraftFileIdentity & { versionRef: string }): Promise<unknown>;
   fileKey(info: DraftFileIdentity): string;
-  files(): { [key: string]: { versionRef: string; status?: string } };
+  files(): { [key: string]: DraftStoredRow };
 }
 
 /** Published commit from the last draftDiff. Undo reads it to load the published blob. */
@@ -275,6 +322,136 @@ async function applyOp(
   return 'added';
 }
 
+function identityOf(project: number, loc: ParsedDraftFile): DraftFileIdentity {
+  return {
+    project,
+    level: loc.level,
+    shortName: loc.shortName,
+    extension: loc.extension,
+    folder: loc.folder,
+  };
+}
+
+function rowAt(project: number, path: string, deps: DraftFilesDeps): DraftStoredRow | undefined {
+  const loc = parseDraftFile(path);
+  if (!loc) return undefined;
+  return deps.files()[deps.fileKey(identityOf(project, loc))];
+}
+
+type ValueInfoFn = () => Promise<mls.stor.IFileInfoValue | null | undefined>;
+
+/** Original `getValueInfo` under our wrapper, or null when the wrapper had none. */
+const pinBase = new WeakMap<ValueInfoFn, ValueInfoFn | null>();
+
+/**
+ * `_createModel` keeps `info.originalCRC` only when `info.content` is set, and it
+ * reads `getValueInfo` before replacing it. Return the draft text with the published CRC.
+ */
+function installPublishedCrc(row: DraftStoredRow, crc: string, path: string): void {
+  const current = row.getValueInfo;
+  const known = current ? pinBase.get(current) : undefined;
+  const base = known !== undefined ? known ?? undefined : current?.bind(row);
+  const readContent = row.getContent?.bind(row);
+  const pinned: ValueInfoFn = async () => {
+    const info = base ? await base() : undefined;
+    if (info?.content) return { ...info, originalCRC: crc };
+    let loaded: string | Blob | null = null;
+    try {
+      loaded = readContent ? await readContent() : null;
+    } catch (err) {
+      console.error(`[studioDraftFiles] ${path}: ${errorText(err)}`);
+    }
+    if (typeof loaded !== 'string' || loaded.length === 0) {
+      console.error(`[studioDraftFiles] ${path}: published baseline has no draft text to keep`);
+      return { content: null, originalCRC: crc };
+    }
+    return { content: loaded, originalCRC: crc };
+  };
+  pinBase.set(pinned, base ?? null);
+  row.getValueInfo = pinned;
+}
+
+function assignOpenModel(project: number, loc: ParsedDraftFile, crc: string): void {
+  const slot = sourceModelSlot(loc.extension);
+  if (!slot) return;
+  const editor = mls.editor;
+  if (!editor?.getKeyModel || !editor.models) return;
+  try {
+    const key = editor.getKeyModel(project, loc.shortName, loc.folder, loc.level);
+    const model = editor.models[key]?.[slot];
+    if (!model) return;
+    model.originalCRC = crc;
+  } catch (err) {
+    console.error(`[studioDraftFiles] ${loc.shortName}: could not set the published CRC`, err);
+  }
+}
+
+function plantPublishedCrc(project: number, path: string, text: string, deps: DraftFilesDeps): void {
+  const loc = parseDraftFile(path);
+  const row = rowAt(project, path, deps);
+  if (!loc || !row) {
+    console.error(`[studioDraftFiles] ${path}: no stored row for the published baseline`);
+    return;
+  }
+  let crc: string;
+  try {
+    crc = draftContentCrc(text, loc.extension);
+  } catch (err) {
+    console.error(`[studioDraftFiles] ${path}: ${errorText(err)}`);
+    return;
+  }
+  installPublishedCrc(row, crc, path);
+  assignOpenModel(project, loc, crc);
+}
+
+async function seedSentCrc(project: number, path: string, deps: DraftFilesDeps): Promise<void> {
+  const loc = parseDraftFile(path);
+  const row = rowAt(project, path, deps);
+  if (!loc || !row || row.inLocalStorage === true || !row.getContent) return;
+  let loaded: string | Blob | null;
+  try {
+    loaded = await row.getContent.call(row);
+  } catch (err) {
+    console.error(`[studioDraftFiles] ${path}: ${errorText(err)}`);
+    return;
+  }
+  if (typeof loaded !== 'string') {
+    console.error(`[studioDraftFiles] ${path}: draft text is not a string`);
+    return;
+  }
+  try {
+    rememberSentCrc(identityOf(project, loc), draftContentCrc(loaded, loc.extension));
+  } catch (err) {
+    console.error(`[studioDraftFiles] ${path}: ${errorText(err)}`);
+  }
+}
+
+async function publishedText(
+  project: number,
+  file: DraftDiffFile,
+  main: string,
+  deps: DraftFilesDeps,
+): Promise<string | null> {
+  const publishedPath = file.status === 'R' && file.from ? file.from : file.path;
+  const row = rowAt(project, publishedPath, deps);
+  const read = row?.getHistoryContent?.bind(row);
+  if (!read) {
+    console.error(`[studioDraftFiles] ${file.path}: no getHistoryContent for the published baseline`);
+    return null;
+  }
+  try {
+    const text = await read(main);
+    if (text === null) {
+      console.error(`[studioDraftFiles] ${file.path}: published content is missing at ${main}`);
+      return null;
+    }
+    return text;
+  } catch (err) {
+    console.error(`[studioDraftFiles] ${file.path}: ${errorText(err)}`);
+    return null;
+  }
+}
+
 export async function applyDraftFiles(
   project: number,
   slug: string,
@@ -298,6 +475,16 @@ export async function applyDraftFiles(
       console.error(`[studioDraftFiles] ${file.path}: ${errorText(err)}`);
       continue;
     }
+    // Rename deletes the published path. Read that blob before the row is gone.
+    // A modify that is not in the map yet is read after applyOp creates the row.
+    const wantBaseline = Boolean(diff.main)
+      && (file.status === 'M' || file.status === 'R')
+      && Boolean(parseDraftFile(file.path));
+    const publishedPath = file.status === 'R' && file.from ? file.from : file.path;
+    let published: string | null | undefined;
+    if (wantBaseline && diff.main && (file.status === 'R' || rowAt(project, publishedPath, deps))) {
+      published = await publishedText(project, file, diff.main, deps);
+    }
     for (const op of ops) {
       if (deps.hasLocalEdit(project, op.path)) {
         console.info(`[studioDraftFiles] ${op.path}: local edit kept`);
@@ -310,6 +497,12 @@ export async function applyDraftFiles(
         console.error(`[studioDraftFiles] ${op.path}: ${errorText(err)}`);
       }
     }
+    if (wantBaseline && published === undefined && diff.main && file.status === 'M') {
+      published = await publishedText(project, file, diff.main, deps);
+    }
+    if (typeof published !== 'string') continue;
+    plantPublishedCrc(project, file.path, published, deps);
+    await seedSentCrc(project, file.path, deps);
   }
   return counts;
 }

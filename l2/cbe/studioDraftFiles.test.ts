@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   applyDraftFiles,
+  draftContentCrc,
   draftFileOps,
   draftPublishedCommit,
   rememberDraftMain,
+  sentCrcOf,
   type DraftDiffFile,
   type DraftFileIdentity,
   type DraftFilesDeps,
@@ -180,5 +182,122 @@ test('applyDraftFiles stores main and a response without main does not wipe it',
   } finally {
     console.error = previousError;
     globalThis.fetch = previousFetch;
+  }
+});
+
+test('published CRC is the history blob, including a model born later', async () => {
+  const project = 102047;
+  const changed = { project, level: 2, folder: '', shortName: 'changed', extension: '.ts' };
+  const added = { project, level: 2, folder: '', shortName: 'added', extension: '.ts' };
+  const next = { project, level: 2, folder: '', shortName: 'next', extension: '.ts' };
+  const prev = { project, level: 2, folder: '', shortName: 'prev', extension: '.ts' };
+  const panel = { project, level: 2, folder: '', shortName: 'panel', extension: '.less' };
+  const changedKey = fileKey(changed);
+  const addedKey = fileKey(added);
+  const nextKey = fileKey(next);
+  const prevKey = fileKey(prev);
+  const panelKey = fileKey(panel);
+  const publishedTs = 'published-body';
+  const draftTs = 'draft-body';
+  const publishedLess = 'a{}\n//Start Less Tokens\n.t{}\n//End Less Tokens';
+  const draftLess = 'b{}';
+  const live = { originalCRC: 'sent-crc' };
+  const stored: {
+    [key: string]: {
+      versionRef: string;
+      status?: string;
+      inLocalStorage?: boolean;
+      getHistoryContent?: (ref: string) => Promise<string | null>;
+      getContent?: () => Promise<string>;
+      getValueInfo?: () => Promise<{ content: string | null; originalCRC?: string }>;
+    };
+  } = {
+    [changedKey]: {
+      versionRef: 'old',
+      getHistoryContent: async (ref) => (ref === 'main1' ? publishedTs : null),
+      getContent: async () => draftTs,
+    },
+    [prevKey]: {
+      versionRef: 'oldPrev',
+      getHistoryContent: async (ref) => (ref === 'main1' ? 'old-body' : null),
+    },
+    [panelKey]: {
+      versionRef: 'oldLess',
+      getHistoryContent: async (ref) => (ref === 'main1' ? publishedLess : null),
+      getContent: async () => draftLess,
+    },
+  };
+  const host = globalThis as { mls?: { editor?: unknown; common?: unknown } };
+  const previousEditor = host.mls?.editor;
+  const previousCommon = host.mls?.common;
+  if (!host.mls) host.mls = {};
+  host.mls.common = {
+    crc: {
+      crc32: (value: string) => {
+        let hash = 0;
+        for (const ch of value) hash = (hash * 33 + ch.charCodeAt(0)) >>> 0;
+        return hash;
+      },
+    },
+  };
+  host.mls.editor = {
+    getKeyModel: (_project: number, shortName: string, folder: string, level: number) =>
+      `${level}/${folder}/${shortName}`,
+    models: { '2//changed': { ts: live } },
+  };
+  const errors: string[] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+  try {
+    await applyDraftFiles(project, 'team-102047', {
+      draftDiff: async () => ({
+        head: 'abc',
+        main: 'main1',
+        files: [
+          { status: 'M', path: 'l2/changed.ts', sha: 'shaM' },
+          { status: 'A', path: 'l2/added.ts', sha: 'shaA' },
+          { status: 'R', path: 'l2/next.ts', sha: 'shaR', from: 'l2/prev.ts' },
+          { status: 'M', path: 'l2/panel.less', sha: 'shaLess' },
+        ],
+      }),
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async (info) => {
+        const row = {
+          versionRef: info.versionRef,
+          getContent: async () => (info.shortName === 'next' ? 'renamed-body' : ''),
+        };
+        stored[fileKey(info)] = row;
+        return row;
+      },
+      fileKey,
+      files: () => stored,
+    });
+
+    const publishedCrc = draftContentCrc(publishedTs, '.ts');
+    assert.equal(live.originalCRC, publishedCrc);
+    const born = await stored[panelKey].getValueInfo?.();
+    assert.equal(born?.content, draftLess);
+    assert.equal(born?.originalCRC, draftContentCrc(publishedLess, '.less'));
+    assert.notEqual(born?.originalCRC, draftContentCrc(publishedLess, '.ts'));
+    const haveInfo = !!born && !!born.content;
+    const chosen = haveInfo ? born?.originalCRC : draftContentCrc(draftLess, '.less');
+    assert.equal(chosen, draftContentCrc(publishedLess, '.less'));
+    assert.equal(chosen === draftContentCrc(draftLess, '.less') ? 'nochange' : 'changed', 'changed');
+    assert.equal(chosen === draftContentCrc(publishedLess, '.less') ? 'nochange' : 'changed', 'nochange');
+    assert.equal(sentCrcOf(changed), draftContentCrc(draftTs, '.ts'));
+    assert.equal(sentCrcOf(panel), draftContentCrc(draftLess, '.less'));
+    assert.equal(sentCrcOf(next), draftContentCrc('renamed-body', '.ts'));
+    assert.equal(sentCrcOf(added), undefined);
+    assert.equal(stored[addedKey]?.getValueInfo, undefined);
+    const renamedInfo = await stored[nextKey].getValueInfo?.();
+    assert.equal(renamedInfo?.originalCRC, draftContentCrc('old-body', '.ts'));
+    assert.equal(prevKey in stored, false);
+    assert.deepEqual(errors, []);
+  } finally {
+    console.error = previousError;
+    if (host.mls) {
+      host.mls.editor = previousEditor;
+      host.mls.common = previousCommon;
+    }
   }
 });
