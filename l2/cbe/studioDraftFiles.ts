@@ -28,12 +28,35 @@ export interface DraftFileIdentity {
   folder: string;
 }
 
+export interface DraftDiffResult {
+  head: string;
+  /** Commit of main, when the server sent it. */
+  main?: string;
+  files: DraftDiffFile[];
+}
+
 export interface DraftFilesDeps {
-  draftDiff(project: number, slug: string): Promise<{ head: string; files: DraftDiffFile[] }>;
+  draftDiff(project: number, slug: string): Promise<DraftDiffResult>;
   hasLocalEdit(project: number, path: string): boolean;
   addOrUpdateFile(info: DraftFileIdentity & { versionRef: string }): Promise<unknown>;
   fileKey(info: DraftFileIdentity): string;
   files(): { [key: string]: { versionRef: string; status?: string } };
+}
+
+/** Published commit from the last draftDiff. Undo reads it to load the published blob. */
+let publishedCommit: string | undefined;
+
+export function draftPublishedCommit(): string | undefined {
+  return publishedCommit;
+}
+
+/** Keep a non-empty main. An empty value does not wipe a commit already stored. */
+export function rememberDraftMain(main: string): void {
+  if (main.length === 0) {
+    console.error('[studioDraftFiles] draftDiff main is empty');
+    return;
+  }
+  publishedCommit = main;
 }
 
 interface ParsedDraftFile {
@@ -148,14 +171,21 @@ function draftDiffFile(item: unknown): DraftDiffFile {
   return file;
 }
 
-async function requestDraftDiff(project: number, slug: string): Promise<{ head: string; files: DraftDiffFile[] }> {
+async function requestDraftDiff(project: number, slug: string): Promise<DraftDiffResult> {
   const parsed = await postExec({ action: 'draftDiff', project, draft: slug, names: true });
   if (!isRecord(parsed) || parsed.status !== 'files' || typeof parsed.head !== 'string' || parsed.head.length === 0) {
     const code = isRecord(parsed) && typeof parsed.code === 'string' ? parsed.code : 'bad response';
     throw new Error(code);
   }
   if (!Array.isArray(parsed.files)) throw new Error('draftDiff response has no files array');
-  return { head: parsed.head, files: parsed.files.map(draftDiffFile) };
+  const files = parsed.files.map(draftDiffFile);
+  // The list and the source do not need main; only the undo does, and it reports the gap itself.
+  if (typeof parsed.main !== 'string' || parsed.main.length === 0) {
+    console.error('[studioDraftFiles] draftDiff response has no main; undo cannot find the published version');
+    return { head: parsed.head, files };
+  }
+  rememberDraftMain(parsed.main);
+  return { head: parsed.head, main: parsed.main, files };
 }
 
 function defaultHasLocalEdit(project: number, path: string): boolean {
@@ -250,13 +280,14 @@ export async function applyDraftFiles(
   slug: string,
   deps: DraftFilesDeps = defaultDeps,
 ): Promise<{ added: number; changed: number; removed: number }> {
-  let diff: { head: string; files: DraftDiffFile[] };
+  let diff: DraftDiffResult;
   try {
     diff = await deps.draftDiff(project, slug);
   } catch (err) {
     console.error(`[studioDraftFiles] draftDiff: ${errorText(err)}`);
     return { added: 0, changed: 0, removed: 0 };
   }
+  if (typeof diff.main === 'string') rememberDraftMain(diff.main);
 
   const counts = { added: 0, changed: 0, removed: 0 };
   for (const file of diff.files) {

@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   applyDraftFiles,
   draftFileOps,
+  draftPublishedCommit,
+  rememberDraftMain,
   type DraftDiffFile,
   type DraftFileIdentity,
   type DraftFilesDeps,
@@ -138,4 +140,45 @@ test('applyDraftFiles marks M, A and R and still deletes D', async () => {
   assert.equal(stored[nextKey]?.status, 'renamed');
   assert.equal(prevKey in stored, false);
   assert.equal(goneKey in stored, false);
+});
+
+test('applyDraftFiles stores main and a response without main does not wipe it', async () => {
+  const errors: string[] = [];
+  const previousError = console.error;
+  const previousFetch = globalThis.fetch;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+  rememberDraftMain('keep');
+  try {
+    await applyDraftFiles(1, 'team-1', {
+      draftDiff: async () => ({ head: 'abc', files: [] }),
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async () => ({ versionRef: '0' }),
+      fileKey: () => 'k',
+      files: () => ({}),
+    });
+    assert.equal(draftPublishedCommit(), 'keep');
+
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({ status: 'files', head: 'hhh', main: 'mmm', files: [] }),
+    }) as Response;
+    await applyDraftFiles(7, 'team-7');
+    assert.equal(draftPublishedCommit(), 'mmm');
+
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({ status: 'files', head: 'hhh', files: [] }),
+    }) as Response;
+    const result = await applyDraftFiles(7, 'team-7');
+    assert.deepEqual(result, { added: 0, changed: 0, removed: 0 });
+    assert.equal(draftPublishedCommit(), 'mmm');
+    assert.equal(errors.some((line) => line.includes('draftDiff response has no main')), true);
+
+    rememberDraftMain('');
+    assert.equal(draftPublishedCommit(), 'mmm');
+    assert.equal(errors.some((line) => line.includes('draftDiff main is empty')), true);
+  } finally {
+    console.error = previousError;
+    globalThis.fetch = previousFetch;
+  }
 });
