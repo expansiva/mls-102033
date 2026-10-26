@@ -99,3 +99,43 @@ test('applyDraftFiles keeps a local edit and continues after one failure', async
     console.info = previousInfo;
   }
 });
+
+test('applyDraftFiles marks M, A and R and still deletes D', async () => {
+  const project = 102047;
+  const changedKey = fileKey({ project, level: 2, folder: '', shortName: 'changed', extension: '.ts' });
+  const addedKey = fileKey({ project, level: 2, folder: '', shortName: 'added', extension: '.ts' });
+  const nextKey = fileKey({ project, level: 2, folder: '', shortName: 'next', extension: '.ts' });
+  const prevKey = fileKey({ project, level: 2, folder: '', shortName: 'prev', extension: '.ts' });
+  const goneKey = fileKey({ project, level: 2, folder: '', shortName: 'gone', extension: '.ts' });
+  const stored: { [key: string]: { versionRef: string; status?: string } } = {
+    [changedKey]: { versionRef: 'oldChanged' },
+    [prevKey]: { versionRef: 'oldPrev' },
+    [goneKey]: { versionRef: 'oldGone' },
+  };
+  const deps: DraftFilesDeps = {
+    draftDiff: async () => ({
+      head: 'abc',
+      files: [
+        { status: 'M', path: 'l2/changed.ts', sha: 'shaM' },
+        { status: 'A', path: 'l2/added.ts', sha: 'shaA' },
+        { status: 'R', path: 'l2/next.ts', sha: 'shaR', from: 'l2/prev.ts' },
+        { status: 'D', path: 'l2/gone.ts', sha: null },
+      ],
+    }),
+    hasLocalEdit: () => false,
+    addOrUpdateFile: async (info) => {
+      const row = { versionRef: info.versionRef, status: undefined as string | undefined };
+      stored[fileKey(info)] = row;
+      return row;
+    },
+    fileKey,
+    files: () => stored,
+  };
+  await applyDraftFiles(project, 'team-102047', deps);
+  assert.equal(stored[changedKey]?.status, 'changed');
+  assert.equal(stored[changedKey]?.versionRef, 'shaM');
+  assert.equal(stored[addedKey]?.status, 'new');
+  assert.equal(stored[nextKey]?.status, 'renamed');
+  assert.equal(prevKey in stored, false);
+  assert.equal(goneKey in stored, false);
+});

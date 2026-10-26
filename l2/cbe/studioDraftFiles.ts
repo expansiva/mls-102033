@@ -33,7 +33,7 @@ export interface DraftFilesDeps {
   hasLocalEdit(project: number, path: string): boolean;
   addOrUpdateFile(info: DraftFileIdentity & { versionRef: string }): Promise<unknown>;
   fileKey(info: DraftFileIdentity): string;
-  files(): { [key: string]: { versionRef: string } };
+  files(): { [key: string]: { versionRef: string; status?: string } };
 }
 
 interface ParsedDraftFile {
@@ -183,7 +183,43 @@ const defaultDeps: DraftFilesDeps = {
   files: () => mls.stor.files,
 };
 
-async function applyOp(project: number, op: DraftFileOp, deps: DraftFilesDeps): Promise<'added' | 'changed' | 'removed'> {
+type DraftStorStatus = 'new' | 'changed' | 'renamed';
+
+function draftStorStatus(gitStatus: string): DraftStorStatus | undefined {
+  if (gitStatus === 'A') return 'new';
+  if (gitStatus === 'M') return 'changed';
+  if (gitStatus === 'R') return 'renamed';
+  return undefined;
+}
+
+function asStoredFile(value: unknown): { versionRef: string; status?: string } | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  if (typeof (value as { versionRef?: unknown }).versionRef !== 'string') return undefined;
+  return value as { versionRef: string; status?: string };
+}
+
+function writeDraftStatus(
+  op: DraftFileOp,
+  row: { status?: string } | undefined,
+  status: DraftStorStatus | undefined,
+): void {
+  if (!status) {
+    console.error(`[studioDraftFiles] ${op.path}: no draft status to store`);
+    return;
+  }
+  if (!row) {
+    console.error(`[studioDraftFiles] ${op.path}: no stored row for status ${status}`);
+    return;
+  }
+  row.status = status;
+}
+
+async function applyOp(
+  project: number,
+  op: DraftFileOp,
+  deps: DraftFilesDeps,
+  status: DraftStorStatus | undefined,
+): Promise<'added' | 'changed' | 'removed'> {
   const base: DraftFileIdentity = {
     project,
     level: op.level,
@@ -201,9 +237,11 @@ async function applyOp(project: number, op: DraftFileOp, deps: DraftFilesDeps): 
   const existing = stored[key];
   if (op.action === 'modify' && existing) {
     existing.versionRef = op.sha;
+    writeDraftStatus(op, existing, status);
     return 'changed';
   }
-  await deps.addOrUpdateFile({ ...base, versionRef: op.sha });
+  const created = asStoredFile(await deps.addOrUpdateFile({ ...base, versionRef: op.sha }));
+  writeDraftStatus(op, created ?? deps.files()[key], status);
   return 'added';
 }
 
@@ -235,7 +273,7 @@ export async function applyDraftFiles(
         continue;
       }
       try {
-        const outcome = await applyOp(project, op, deps);
+        const outcome = await applyOp(project, op, deps, draftStorStatus(file.status));
         counts[outcome] += 1;
       } catch (err) {
         console.error(`[studioDraftFiles] ${op.path}: ${errorText(err)}`);
