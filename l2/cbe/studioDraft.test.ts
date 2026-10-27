@@ -2,12 +2,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  applyCollabModeNotice,
   buildDraftCookie,
   defaultDraftFor,
   draftNotice,
+  enterDraft,
   ensureDefaultDraftCookie,
   isVmDriver,
   readDraftCookie,
+  requestModeChange,
+  resolveDefaultDraft,
+  sendServiceWorkerMode,
+  type RequestModeChangeDeps,
 } from '/_102033_/l2/cbe/studioDraft.js';
 
 const PROJECT = 102056;
@@ -231,6 +237,154 @@ test('no path writes document.cookie', async () => {
     fs.readFile(new URL('./studioDraft.ts', import.meta.url), 'utf8'),
   );
   assert.equal(/document\.cookie\s*=/.test(source), false);
+});
+
+function modeDeps(overrides: Partial<RequestModeChangeDeps> = {}): RequestModeChangeDeps & { calls: string[]; errors: string[] } {
+  const calls: string[] = [];
+  const errors: string[] = [];
+  return {
+    calls,
+    errors,
+    project: 102056,
+    resolveDraft: async (project) => {
+      calls.push('resolveDraft');
+      return `team-${project}`;
+    },
+    enterDraft: async (_project, slug) => {
+      calls.push('draftEnter');
+      return { statusCode: 200, ok: true, slug };
+    },
+    sendToServiceWorker: async (message) => {
+      calls.push(`setMode:${message.mode}`);
+      if (message.mode === 'studio') return { mode: 'studio', project: message.project, draft: message.draft };
+      return { mode: 'production' };
+    },
+    reportError: (message) => {
+      errors.push(message);
+    },
+    ...overrides,
+  };
+}
+
+test('studio mode calls draftEnter and then the service worker setMode', async () => {
+  const deps = modeDeps();
+  const result = await requestModeChange('production', 'studio', deps);
+  assert.deepEqual(result, { mode: 'studio' });
+  assert.deepEqual(deps.calls, ['resolveDraft', 'draftEnter', 'setMode:studio']);
+  assert.deepEqual(deps.errors, []);
+});
+
+test('production mode calls only the service worker setMode', async () => {
+  const deps = modeDeps({
+    resolveDraft: async () => { throw new Error('resolveDraft'); },
+    enterDraft: async () => { throw new Error('draftEnter'); },
+  });
+  const result = await requestModeChange('studio', 'production', deps);
+  assert.deepEqual(result, { mode: 'production' });
+  assert.deepEqual(deps.calls, ['setMode:production']);
+  assert.deepEqual(deps.errors, []);
+});
+
+test('an Error reply from the service worker undoes the mode and is logged', async () => {
+  const deps = modeDeps({
+    sendToServiceWorker: async (message) => {
+      deps.calls.push(`setMode:${message.mode}`);
+      return 'Error: draft cache';
+    },
+  });
+  const entered = await requestModeChange('production', 'studio', deps);
+  assert.deepEqual(entered, { mode: 'production' });
+  assert.deepEqual(deps.errors, ['Error: draft cache']);
+  assert.deepEqual(deps.calls, ['resolveDraft', 'draftEnter', 'setMode:studio']);
+
+  const left = await requestModeChange('studio', 'production', modeDeps({
+    sendToServiceWorker: async () => 'Error: busy',
+    reportError: (message) => { deps.errors.push(message); },
+  }));
+  assert.deepEqual(left, { mode: 'studio' });
+  assert.deepEqual(deps.errors, ['Error: draft cache', 'Error: busy']);
+});
+
+test('a failed draftEnter does not call the service worker', async () => {
+  const deps = modeDeps({
+    enterDraft: async () => {
+      deps.calls.push('draftEnter');
+      return { statusCode: 401, ok: false };
+    },
+  });
+  const result = await requestModeChange('production', 'studio', deps);
+  assert.deepEqual(result, { mode: 'production' });
+  assert.deepEqual(deps.calls, ['resolveDraft', 'draftEnter']);
+  assert.deepEqual(deps.errors, ['[shell] draftEnter failed: 401']);
+});
+
+test('collab-mode gives the mode to show and ignores other messages', () => {
+  assert.equal(applyCollabModeNotice('production', { type: 'collab-mode', mode: 'studio', project: 102056, draft: 'team-102056' }), 'studio');
+  assert.equal(applyCollabModeNotice('studio', { type: 'collab-mode', mode: 'production' }), 'production');
+  assert.equal(applyCollabModeNotice('studio', { type: 'collab-mode', mode: 'studio' }), 'studio');
+  assert.equal(applyCollabModeNotice('production', { type: 'other', mode: 'studio' }), 'production');
+});
+
+test('enterDraft posts draftEnter and keeps a non-ok status', async () => {
+  const bodies: unknown[] = [];
+  const ok = await enterDraft(102056, 'team-102056', {
+    postExec: async (body) => {
+      bodies.push(body);
+      return { statusCode: 200, ok: true, slug: 'user-ada', head: 'abc' };
+    },
+  });
+  assert.deepEqual(bodies, [{ action: 'draftEnter', project: 102056, draft: 'team-102056' }]);
+  assert.deepEqual(ok, { statusCode: 200, ok: true, slug: 'user-ada', head: 'abc' });
+
+  const missing = await enterDraft(102056, 'nope', {
+    postExec: async () => { throw new Error('should not post'); },
+  });
+  assert.deepEqual(missing, { statusCode: 400, ok: false });
+
+  const rejected = await enterDraft(102056, 'team-102056', {
+    postExec: async () => ({ statusCode: 503, ok: false }),
+  });
+  assert.deepEqual(rejected, { statusCode: 503, ok: false });
+});
+
+test('resolveDefaultDraft reads studio.defaultDraft and falls back to the team slug', async () => {
+  assert.equal(
+    await resolveDefaultDraft(102056, { getProjectConf: async () => ({ studio: { defaultDraft: 'user-ada' } }) }),
+    'user-ada',
+  );
+  assert.equal(
+    await resolveDefaultDraft(102056, { getProjectConf: async () => { throw new Error('missing'); } }),
+    'team-102056',
+  );
+});
+
+test('sendServiceWorkerMode posts setMode through a MessageChannel port', async () => {
+  let posted: unknown;
+  const result = await sendServiceWorkerMode(
+    { action: 'setMode', mode: 'studio', project: 102056, draft: 'team-102056' },
+    {
+      controller: {
+        postMessage(message, transfer) {
+          posted = message;
+          const port = transfer[0] as MessagePort;
+          port.postMessage({ mode: 'studio', project: 102056, draft: 'team-102056' });
+        },
+      },
+      MessageChannel,
+    },
+  );
+  assert.deepEqual(posted, { action: 'setMode', mode: 'studio', project: 102056, draft: 'team-102056' });
+  assert.deepEqual(result, { mode: 'studio', project: 102056, draft: 'team-102056' });
+});
+
+test('sendServiceWorkerMode rejects when the service worker does not answer', async () => {
+  await assert.rejects(
+    () => sendServiceWorkerMode(
+      { action: 'setMode', mode: 'production' },
+      { controller: { postMessage() { /* stays silent */ } }, MessageChannel, timeoutMs: 30 },
+    ),
+    /timed out/,
+  );
 });
 
 test('getDefaultDriver throwing does not fetch', async () => {

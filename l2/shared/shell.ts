@@ -44,7 +44,17 @@ import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPage
 import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
 import { onStudioExit, readCollabReleaseId, rememberRelease } from '/_102033_/l2/cbe/studioExitReload.js';
 import { forgetDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
-import { draftNotice, draftNoticeText } from '/_102033_/l2/cbe/studioDraft.js';
+import {
+  applyCollabModeNotice,
+  draftNotice,
+  draftNoticeText,
+  enterDraft,
+  postDraftEnter,
+  requestModeChange,
+  resolveDefaultDraftFromMls,
+  sendServiceWorkerMode,
+  type CollabRunMode,
+} from '/_102033_/l2/cbe/studioDraft.js';
 import { contentPageGenomeToPreserve } from '/_102033_/l2/shared/contentPageGenomePreserve.js';
 import {
   attachViewportMsizeListeners,
@@ -94,6 +104,8 @@ type AuraSitesControls = {
   getDS?: () => string | undefined;
   setDS?: (designSystem: string) => Promise<void>;
   listDS?: () => string[];
+  getMode?: () => CollabRunMode;
+  setMode?: (mode: CollabRunMode) => Promise<void>;
 };
 
 const DEFAULT_REGION_TAGS: Record<Exclude<MasterFrontendRegionName, 'content'>, string> = {
@@ -158,6 +170,10 @@ export class CollabAuraShell extends LitElement {
   private structureUpgradeFailed = false;
   private studioModeOn = false;
   private structureUpgradeAttempted = false;
+  // Bumped when a service-worker broadcast arrives, so an in-flight setMode does not
+  // apply a stale reply over the mode the other tabs already published.
+  private modeEpoch = 0;
+  private modeChain: Promise<void> = Promise.resolve();
   private structureRetriesLeft = 67;
   // Phone: the same structure shows one nav3 at a time (mobilePane.ts). The header's ☰ — the aside
   // toggle of the classic layout — switches between them; navigating shows the app.
@@ -242,6 +258,7 @@ export class CollabAuraShell extends LitElement {
     window.addEventListener(AURA_CLOSE_ASIDE_EVENT, this.handleCloseAside as EventListener);
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('popstate', this.handlePopState);
+    navigator.serviceWorker?.addEventListener('message', this.handleServiceWorkerMode);
     this.unsubscribeInteraction = subscribeToInteractionState((state) => {
       this.interactionState = state;
       this.requestUpdate();
@@ -265,6 +282,7 @@ export class CollabAuraShell extends LitElement {
     window.removeEventListener(AURA_CLOSE_ASIDE_EVENT, this.handleCloseAside as EventListener);
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('popstate', this.handlePopState);
+    navigator.serviceWorker?.removeEventListener('message', this.handleServiceWorkerMode);
     this.unsubscribeInteraction?.();
     this.topBandScrollHost?.removeEventListener('scroll', this.handleTopBandScroll, true);
     super.disconnectedCallback();
@@ -631,29 +649,80 @@ export class CollabAuraShell extends LitElement {
     this.requestUpdate();
   }
 
-  /** Body of Ctrl+Alt+S once the structure is up (lines kept together so the draft reload can re-enter). */
+  /** Body of Ctrl+Alt+S once the structure is up. The mode change goes through `setMode`. */
   private async toggleStudioMode(): Promise<void> {
-    this.studioModeOn = !this.studioModeOn;
-    this.requestUpdate();
-    if (this.studioModeOn) {
-      // Arms the live update of edited elements — on the NEXT boot, not this one. The stand-in
-      // has to be installed before the first `define`, which is long past by the time anyone can
-      // press this. So the first studio session on a browser costs one reload; from then on it
-      // is already armed (TASK-102020-live-update-stand-in).
-      rememberElementSwapForNextBoot();
-      const { monaco } = this.loadStudioDefinitions();
-      // The studio services (the plugin scan) were left out of the client boot; first entry
-      // brings them.
-      this.loadStudioServices();
-      await monaco;
-      // Left during the wait (Ctrl+Alt+S): do not open the studio level.
-      if (!this.studioModeOn) return;
-      // Back to the level the nav1 never left, with its own split. After Monaco, so the first
-      // InitMonaco a remembered service runs is the one initStudio already finished.
-      this.syncStructureSplit(true);
-      void rememberRelease(readCollabReleaseId);
-    }
+    await this.setMode(this.studioModeOn ? 'production' : 'studio');
   }
+
+  /** Monaco and the studio services. Callers decide the mode; this only paints it. */
+  private async applyStudioInterface(studioOn: boolean): Promise<void> {
+    if (this.studioModeOn === studioOn) return;
+    this.studioModeOn = studioOn;
+    this.requestUpdate();
+    if (!this.studioModeOn) {
+      this.showRuntimeServices();
+      this.syncStructureSplit(false);
+      return;
+    }
+    // Arms the live update of edited elements — on the NEXT boot, not this one. The stand-in
+    // has to be installed before the first `define`, which is long past by the time anyone can
+    // press this. So the first studio session on a browser costs one reload; from then on it
+    // is already armed (TASK-102020-live-update-stand-in).
+    rememberElementSwapForNextBoot();
+    const { monaco } = this.loadStudioDefinitions();
+    // The studio services (the plugin scan) were left out of the client boot; first entry
+    // brings them.
+    this.loadStudioServices();
+    await monaco;
+    // Left during the wait (Ctrl+Alt+S): do not open the studio level.
+    if (!this.studioModeOn) return;
+    // Back to the level the nav1 never left, with its own split. After Monaco, so the first
+    // InitMonaco a remembered service runs is the one initStudio already finished.
+    this.syncStructureSplit(true);
+    void rememberRelease(readCollabReleaseId);
+  }
+
+  private getMode(): CollabRunMode {
+    return this.studioModeOn ? 'studio' : 'production';
+  }
+
+  private setMode(mode: CollabRunMode): Promise<void> {
+    const run = this.modeChain.then(() => this.commitMode(mode));
+    this.modeChain = run.then(
+      () => undefined,
+      (error: unknown) => {
+        console.error('[shell] setMode failed:', error);
+      },
+    );
+    return run;
+  }
+
+  private async commitMode(mode: CollabRunMode): Promise<void> {
+    if (mode !== 'studio' && mode !== 'production') {
+      console.error('[shell] setMode: mode must be studio or production:', mode);
+      return;
+    }
+    const epoch = this.modeEpoch;
+    const outcome = await requestModeChange(this.getMode(), mode, {
+      project: siteProjectFromBoot(this.bootConfig),
+      resolveDraft: resolveDefaultDraftFromMls,
+      enterDraft: (project, slug) => enterDraft(project, slug, { postExec: postDraftEnter }),
+      sendToServiceWorker: (message) => sendServiceWorkerMode(message),
+      reportError: (message) => console.error(message),
+    });
+    if (epoch !== this.modeEpoch) return;
+    const wantOn = outcome.mode === 'studio';
+    if (wantOn === this.studioModeOn) return;
+    void this.applyStudioInterface(wantOn);
+  }
+
+  /** `{type:'collab-mode'}` from the service worker. Does not call `setMode` back and does not reload. */
+  private readonly handleServiceWorkerMode = (event: MessageEvent): void => {
+    const next = applyCollabModeNotice(this.getMode(), event.data);
+    if (next === this.getMode()) return;
+    this.modeEpoch += 1;
+    void this.applyStudioInterface(next === 'studio');
+  };
 
   /** Spent before entering, so the reload that follows a draft sync cannot re-enter a second time. */
   private reenterStudioAfterDraftSync(): void {
@@ -696,21 +765,21 @@ export class CollabAuraShell extends LitElement {
     if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && event.code === 'KeyS') {
       event.preventDefault();
       if (this.structureUpgraded) {
-        void this.toggleStudioMode();
-        // Back to client mode: the banner returns, and the nav3s must show the client's own
-        // services again. The toolbars remember the last service opened — by now a studio one —
-        // so the runtime pair has to be forced, not restored. Same for the split: the studio level
-        // the user was on has its own, and the client's has to be put back.
-        if (!this.studioModeOn) {
-          this.showRuntimeServices();
-          this.syncStructureSplit(false);
-          void onStudioExit(() => location.reload(), {
-            cookie: document.cookie,
-            path: location.pathname + location.search,
-            navigate: (url) => location.assign(url),
-            forget: forgetDraftL2,
-          });
-        }
+        const leaving = this.studioModeOn;
+        void this.toggleStudioMode().then(() => {
+          // The reload on the way out stays here until s2. `applyStudioInterface` already
+          // put the client services and the client split back; this only reloads.
+          if (leaving && !this.studioModeOn) {
+            void onStudioExit(() => location.reload(), {
+              cookie: document.cookie,
+              path: location.pathname + location.search,
+              navigate: (url) => location.assign(url),
+              forget: forgetDraftL2,
+            });
+          }
+        }).catch((error: unknown) => {
+          console.error('[shell] setMode failed:', error);
+        });
       } else {
         this.rotateHeaderProfile();
       }
@@ -1075,6 +1144,10 @@ export class CollabAuraShell extends LitElement {
         setDS: (designSystem: string) => this.setDS(designSystem),
         listDS: () => this.listDS(),
       };
+      const modeControls = {
+        getMode: () => this.getMode(),
+        setMode: (mode: CollabRunMode) => this.setMode(mode),
+      };
       register({
         getHeader: () => this.getRegionIndex('header'),
         setHeader: (index: number) => this.setRegionByIndex('header', index),
@@ -1084,8 +1157,9 @@ export class CollabAuraShell extends LitElement {
         setPage: (genome: number) => { void this.setContentPage(genome); },
         ...languageControls,
         ...designSystemControls,
+        ...modeControls,
       });
-      // Compatibility with an already-published mls.js that predates the language/DS
+      // Compatibility with an already-published mls.js that predates the language/DS/mode
       // forwarders. A future mls.js exposes these itself and this branch is skipped.
       if (sites) {
         sites.getLanguage ??= languageControls.getLanguage;
@@ -1094,6 +1168,8 @@ export class CollabAuraShell extends LitElement {
         sites.getDS ??= designSystemControls.getDS;
         sites.setDS ??= designSystemControls.setDS;
         sites.listDS ??= designSystemControls.listDS;
+        sites.getMode ??= modeControls.getMode;
+        sites.setMode ??= modeControls.setMode;
       }
       return;
     }
