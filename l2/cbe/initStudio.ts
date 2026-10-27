@@ -111,10 +111,12 @@ type DriverHost = NonNullable<NonNullable<MlsDriverApi['stor']>['others']>;
  * next source read failed with `Driver _<project>_<name> not found`.
  */
 let registration: Promise<void> | null = null;
+let vmRegistration: Promise<void> | null = null;
 
 /** Clears the one-shot guard so tests can register again. */
 export function resetVmDriverRegistration(): void {
   registration = null;
+  vmRegistration = null;
 }
 
 /**
@@ -155,18 +157,30 @@ async function registerDriverInSlot(
  * driver, which only exists here. Dynamic imports on purpose — these classes extend
  * DriverIOBase, which only exists once the mls lib is loaded.
  *
- * ON DEMAND, when the studio opens — never at boot: an app visitor never reads a .ts
- * source, so an app page must not pay for these imports. Called from BOTH studio doors
- * (loadProjectDefinitions, reached by Ctrl+Alt+S, and studioHeader): the header only
- * mounts through the `setHeader(2)` path, which Ctrl+Alt+S never takes. Callers can rely
- * on the await: everyone shares the same in-flight registration.
+ * The VM driver is registered at boot (`registerVmDriver` from cbeMiniCfe) so
+ * any page can read project files from disk (e.g. config.json for the messages
+ * menu) without opening the Studio. Git drivers stay ON DEMAND when the studio
+ * opens: an app visitor must not pay for those 100554 imports. Called from BOTH
+ * studio doors (loadProjectDefinitions, reached by Ctrl+Alt+S, and studioHeader):
+ * the header only mounts through the `setHeader(2)` path, which Ctrl+Alt+S never
+ * takes. Callers can rely on the await: everyone shares the same in-flight
+ * registration. A taken slot is left alone, so boot's vm is not replaced.
  */
 export function registerDrivers(): Promise<void> {
   if (!registration) registration = runRegistration();
   return registration;
 }
 
-async function runRegistration(): Promise<void> {
+/**
+ * Registers only the VM disk driver. Memoized; shares the in-flight vm work
+ * with `runRegistration` so a second call does not addDriver twice.
+ */
+export function registerVmDriver(): Promise<void> {
+  if (!vmRegistration) vmRegistration = runVmRegistration();
+  return vmRegistration;
+}
+
+async function runVmRegistration(): Promise<void> {
   const others = (window as unknown as { mls?: MlsDriverApi }).mls?.stor?.others;
   if (!others?.addDriver) {
     console.warn('[initStudio] mls.stor.others.addDriver unavailable — no driver registered; any getDefaultDriver call will throw until this resolves');
@@ -176,6 +190,15 @@ async function runRegistration(): Promise<void> {
     const { DriverVm } = await import('/_102033_/l2/cbe/driverVm.js');
     return new DriverVm();
   });
+}
+
+async function runRegistration(): Promise<void> {
+  const others = (window as unknown as { mls?: MlsDriverApi }).mls?.stor?.others;
+  if (!others?.addDriver) {
+    console.warn('[initStudio] mls.stor.others.addDriver unavailable — no driver registered; any getDefaultDriver call will throw until this resolves');
+    return;
+  }
+  await registerVmDriver();
   await registerDriverInSlot(others, 'github', async () => {
     const url = '/_100554_/l2/driverGithub.js';
     const { DriverGitHub } = await import(url);

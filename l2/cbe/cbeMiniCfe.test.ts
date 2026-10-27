@@ -1,6 +1,9 @@
 /// <mls fileReference="_102033_/l2/cbe/cbeMiniCfe.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { loadMlsScript } from '/_102033_/l2/cbe/cbeMiniCfeLoad.js';
 
 type ScriptEl = {
@@ -71,4 +74,15 @@ test('loadMlsScript sem window.latest emite warn e ainda carrega o pin', async (
     console.warn = origWarn;
     host.restore();
   }
+});
+
+test('boot registers the vm driver right after the lib loads and before the login, and not the git drivers', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'cbeMiniCfe.ts'), 'utf8');
+  const lib = src.indexOf('await loadMlsScript()');
+  const vm = src.indexOf('await registerVmDriver()');
+  const login = src.indexOf('await mls.api.cbeLogin()');
+  assert.ok(lib >= 0 && vm > lib, 'registerVmDriver must run after the mls lib is loaded (DriverVm extends a lib class)');
+  assert.ok(login > vm, 'registerVmDriver must run before the login, so any read can find the driver');
+  assert.equal(src.includes('registerDrivers'), false, 'the git drivers stay on demand: boot must not call registerDrivers');
+  assert.equal(/driverGit(hub|lab)/iu.test(src), false, 'boot must not import the git drivers');
 });

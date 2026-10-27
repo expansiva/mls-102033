@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   registerDrivers,
+  registerVmDriver,
   resetVmDriverRegistration,
 } from '/_102033_/l2/cbe/initStudio.js';
 
@@ -46,6 +47,30 @@ function installDriverHost() {
     },
   };
 }
+
+test('T6v: registerVmDriver preenche só vm; registerDrivers depois não troca o vm', async () => {
+  resetVmDriverRegistration();
+  const host = installDriverHost();
+  const origInfo = console.info;
+  const origWarn = console.warn;
+  console.info = () => undefined;
+  console.warn = () => undefined;
+  try {
+    await registerVmDriver();
+    assert.equal(host.calls.length, 1, 'só o slot vm');
+    assert.equal(host.calls[0]?.provider, 'vm');
+    const vm = host.slots.get('vm');
+    await registerVmDriver();
+    assert.equal(host.calls.length, 1, 'chamada repetida não duplica');
+    await registerDrivers();
+    assert.equal(host.slots.get('vm'), vm, 'registerDrivers não troca o vm');
+    assert.equal(host.calls.filter((c) => c.provider === 'vm').length, 1);
+  } finally {
+    console.info = origInfo;
+    console.warn = origWarn;
+    host.restore();
+  }
+});
 
 test('T6: o driver da VM entra no slot vm, e o github fica para o driver real', async () => {
   resetVmDriverRegistration();

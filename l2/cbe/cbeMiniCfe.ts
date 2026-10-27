@@ -11,7 +11,7 @@
 //   mls.stor.localDB.getAllKeys()   -> keys persisted in IndexedDB (mlsDB)
 
 import { completeProviderConnection, establishRuntimeAuthSession, getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
-import { setOrgActual, listenForLoadMonaco } from '/_102033_/l2/cbe/initStudio.js';
+import { setOrgActual, listenForLoadMonaco, registerVmDriver } from '/_102033_/l2/cbe/initStudio.js';
 import { loadMlsScript } from '/_102033_/l2/cbe/cbeMiniCfeLoad.js';
 import { installReleaseConsoleHelper } from '/_102033_/l2/cbe/releaseInfo.js';
 import type { StudioMls } from '/_102033_/l2/cbe/global.js';
@@ -58,6 +58,7 @@ export async function initCbeMiniCfe(): Promise<void> {
     await loadMlsScript();
     const mls = window.mls;
     if (!mls) return;
+    await registerVmDriver();
 
     // Monaco is NOT loaded here anymore — it used to download unconditionally for every
     // visitor (a multi-MB payload nobody but a developer or the message previews below ever
