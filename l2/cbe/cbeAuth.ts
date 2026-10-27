@@ -21,6 +21,101 @@ interface AuthSessionResponse {
   orgs?: Array<{ id: string; name: string }>;
 }
 
+type GitProvider = 'github' | 'gitlab';
+
+const PROVIDER_KEY: Record<GitProvider, string> = { github: 'keyGitHub', gitlab: 'keyGitLab' };
+
+const PROVIDER_TEXT = {
+  en: {
+    stateRejected: 'The provider connection could not be confirmed. Start it again from the studio.',
+    exchangeFailed: 'The provider connection failed. Start it again from the studio.',
+  },
+  pt: {
+    stateRejected: 'Não foi possível confirmar a conexão com o provedor. Comece de novo pelo studio.',
+    exchangeFailed: 'A conexão com o provedor falhou. Comece de novo pelo studio.',
+  },
+} as const;
+
+function isGitProvider(value: string | null): value is GitProvider {
+  return value === 'github' || value === 'gitlab';
+}
+
+function providerMessage(key: keyof typeof PROVIDER_TEXT.en): string {
+  const lang = (document.documentElement?.lang || '').toLowerCase();
+  const table = lang.startsWith('pt') ? PROVIDER_TEXT.pt : PROVIDER_TEXT.en;
+  return table[key];
+}
+
+function showProviderNotice(message: string): void {
+  const id = 'cbe-provider-notice';
+  let notice = document.getElementById(id);
+  if (!notice) {
+    notice = document.createElement('div');
+    notice.id = id;
+    notice.setAttribute('role', 'alert');
+    notice.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:10001;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px;color:#102a43;font-family:"Segoe UI",sans-serif;';
+  }
+  notice.textContent = message;
+  if (!notice.isConnected) document.body.appendChild(notice);
+}
+
+function clearProviderQuery(): void {
+  history.replaceState(null, '', window.location.pathname);
+}
+
+/**
+ * After collab-auth login has filled `providersConnected`: exchange a GitHub
+ * or GitLab code, drop a provider key on disconnect, and mark stored keys as
+ * connected. The token stays in localStorage; it is never logged.
+ */
+export async function completeProviderConnection(providersConnected: string[]): Promise<void> {
+  const params = new URLSearchParams(window.location.search);
+  const source = params.get('source');
+  if (isGitProvider(source)) {
+    if (params.get('function') === 'disconnect') {
+      localStorage.removeItem(PROVIDER_KEY[source]);
+      clearProviderQuery();
+    } else if (params.has('code') || params.has('state')) {
+      const code = params.get('code') ?? '';
+      const state = params.get('state') ?? '';
+      const expected = localStorage.getItem('pluginCollabLogin');
+      if (!code || !state || !expected || expected !== state) {
+        console.error('[cbeAuth] provider callback rejected');
+        showProviderNotice(providerMessage('stateRejected'));
+        clearProviderQuery(); // a code is single-use: never leave it in the address bar or the history
+      } else {
+        const redirectUri = `${window.location.origin}?source=${source}`;
+        try {
+          const response = await fetch('/exec', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'providerToken', source, code, redirectUri }),
+          });
+          const body = await response.json() as { token?: unknown };
+          if (response.ok && typeof body.token === 'string' && body.token) {
+            localStorage.setItem(PROVIDER_KEY[source], body.token);
+            localStorage.removeItem('pluginCollabLogin');
+          } else {
+            console.error(`[cbeAuth] provider token exchange failed (HTTP ${response.status})`);
+            showProviderNotice(providerMessage('exchangeFailed'));
+          }
+        } catch (error) {
+          // Name only: the message of a failed request must not reach the console.
+          console.error(`[cbeAuth] provider token exchange failed (${error instanceof Error ? error.name : 'unknown'})`);
+          showProviderNotice(providerMessage('exchangeFailed'));
+        }
+        clearProviderQuery();
+      }
+    }
+  }
+  for (const provider of ['github', 'gitlab'] as const) {
+    if (localStorage.getItem(PROVIDER_KEY[provider]) && !providersConnected.includes(provider)) {
+      providersConnected.push(provider);
+    }
+  }
+}
+
 /** Complete the existing OAuth callback before the shared cfe login consumes it. */
 export async function establishRuntimeAuthSession(): Promise<boolean> {
   if (!window.location.hash.includes('access_token=')) return true;
@@ -210,8 +305,10 @@ declare global {
   }
 }
 
-window.collabRuntimeAuth = {
-  login: startCollabLogin,
-  logout: logoutCollab,
-  user: getLoginUser,
-};
+if (typeof window !== 'undefined') {
+  window.collabRuntimeAuth = {
+    login: startCollabLogin,
+    logout: logoutCollab,
+    user: getLoginUser,
+  };
+}

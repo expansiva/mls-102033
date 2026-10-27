@@ -10,7 +10,7 @@
 //   mls.stor.orgs                   -> orgs/projects returned by the login
 //   mls.stor.localDB.getAllKeys()   -> keys persisted in IndexedDB (mlsDB)
 
-import { establishRuntimeAuthSession, getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
+import { completeProviderConnection, establishRuntimeAuthSession, getLoginUser, showLoginGateIfNeeded } from '/_102033_/l2/cbe/cbeAuth.js';
 import { setOrgActual, listenForLoadMonaco } from '/_102033_/l2/cbe/initStudio.js';
 import { loadMlsScript } from '/_102033_/l2/cbe/cbeMiniCfeLoad.js';
 import { installReleaseConsoleHelper } from '/_102033_/l2/cbe/releaseInfo.js';
@@ -88,6 +88,8 @@ export async function initCbeMiniCfe(): Promise<void> {
     }
 
     const rc = await mls.api.cbeLogin();
+    const connected = (mls as unknown as { l0?: { providersConnected?: string[] } }).l0?.providersConnected;
+    if (connected) await completeProviderConnection(connected);
 
     // Sets mls.l5.actualOrg now that the login has populated mls.stor.orgs —
     // mirrors collabInit's setProjectActual -> setOrgActual sequence (see
