@@ -11,6 +11,7 @@ import type { ExecutionContext, IAgentMeta } from '/_102036_/l2/shared/interface
 import { notificationsRuntime } from '/_102025_/l2/notificationsRuntime.js';
 import { collabMessagesEnvironmentBase } from '/_102025_/l2/collabMessagesEnvironmentBase.js';
 import { closeAuraAside } from '/_102033_/l2/shellEvents.js';
+import { openModuleTab } from '/_102033_/l2/shared/moduleTab.js';
 import { MOBILE_BREAKPOINT_PX } from '/_102033_/l2/shared/breakpoints.js';
 // brings the global Window.collabBoot declaration into every program that compiles this file
 import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
@@ -89,9 +90,8 @@ function ensureAppServiceVisible(): void {
 /**
  * Program navigation for the unified shell:
  * - Pages of the CURRENT app: SPA navigation (pushState + popstate), no reload.
- * - Other apps (monitor, audit, another module): a nav3 content TAB hosting an
- *   iframe — no full-page flicker, each app keeps its own design system in its
- *   own context, and the "several screens as tabs" workflow falls out for free.
+ * - Other apps (monitor, audit, another module): a nav3 content tab whose div
+ *   mounts that module's page in this document. No iframe.
  * - Fallback (no nav3 yet): plain navigation.
  */
 export async function openProgramUnified(item: { url?: string; pageName?: string }): Promise<void> {
@@ -113,32 +113,11 @@ export async function openProgramUnified(item: { url?: string; pageName?: string
   const nav3 = window.collabRuntimeNav3;
   if (nav3) {
     const moduleName = item.url.replace(/^\//u, '').split('/')[0] || item.pageName || 'app';
-    const tabId = `app-${moduleName}`;
-    const existing = appFrames.get(tabId);
-    if (existing?.isConnected) {
-      // Same module already open: navigate the live iframe (its own history)
-      // and just activate the tab — no teardown, no reload of the whole app.
-      try {
-        const current = existing.contentWindow?.location;
-        if (current && current.pathname + current.search !== item.url) {
-          current.href = item.url;
-        }
-      } catch { /* cross-origin frame — leave it as is */ }
-      nav3.activateTab(tabId);
-      return;
-    }
-    const frame = document.createElement('iframe');
-    frame.src = item.url;
-    frame.style.cssText = 'display:block;width:100%;height:100%;border:0;';
-    appFrames.set(tabId, frame);
-    nav3.openTab({ id: tabId, title: moduleName, element: frame });
+    await openModuleTab(`/${moduleName}`, item.url);
     return;
   }
   window.location.href = item.url;
 }
-
-// One iframe per foreign module tab, reused across menu clicks.
-const appFrames = new Map<string, HTMLIFrameElement>();
 
 // ── Agents ───────────────────────────────────────────────────────
 // Without this section the contract falls back to defaultAgents, whose
