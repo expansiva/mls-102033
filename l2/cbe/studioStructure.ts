@@ -35,6 +35,7 @@ import {
 import { clientServices, logServices } from '/_102033_/l2/cbe/studioServices.js';
 import { setStudioTailwind } from '/_102033_/l2/cbe/studioTailwind.js';
 import { applyRuntimeSplit } from '/_102033_/l2/cbe/studioSplit.js';
+import { getSessionUser } from '/_102033_/l2/shared/sessionUser.js';
 // Runtime services must be DEFINED before the nav3 instances them (the nav3
 // attaches directly when customElements.get(tag) resolves).
 import '/_102033_/l2/cbe/serviceClientApp.js';
@@ -151,6 +152,14 @@ export async function upgradeToStudioStructure(container: HTMLElement, siteProje
   nav1El.services = { services };
 
   nav1.setAttribute('status', 'enabled');
+
+  // The user avatar on nav1 — the part of collabInit.enableNav nobody else does on the VM. Same
+  // source as the app header (/session/info `picture`); no photo keeps nav1's default user icon.
+  void getSessionUser().then((user) => {
+    if (!user.picture) return;
+    (nav1 as HTMLElement & { changeIconToImage?: (tabIndex: number, src: string) => void })
+      .changeIconToImage?.(7, user.picture);
+  });
 
   // Production split: messages fixed-ish at 375px left, the app taking the rest (the photo layout);
   // on a phone, one of the two fullscreen (the shell's data-mobile-pane).
