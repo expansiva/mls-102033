@@ -11,6 +11,7 @@
 import type { StudioMls } from './global.js';
 import { activeDraft, readCollabModeNotice } from '/_102033_/l2/cbe/studioDraft.js';
 import { applyDraftFiles, draftPublishedCommit } from '/_102033_/l2/cbe/studioDraftFiles.js';
+import { swapVisibleScreen } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { draftL2Targets, publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
 
 const MONACO_SCRIPT_ID = 'cbe-monaco-loader';
@@ -453,8 +454,8 @@ export async function listChangedDraftTs(project: number, slug: string): Promise
 }
 
 async function applyChangedOnVisible(ref: DraftScreenRef): Promise<void> {
-  const { applyChangedOnMounted } = await import('/_102020_/l2/aura/studio/studioLiveUpdateWatcher.js');
-  await applyChangedOnMounted(ref);
+  // The tool lives in the Studio plugin (102020); this project only asks through the slot.
+  await swapVisibleScreen(ref);
 }
 
 /**

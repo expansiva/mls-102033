@@ -73,10 +73,56 @@ export function currentEditHost(): IStudioEditHost | null {
   return current;
 }
 
-/** Only for tests: forget every tool and the last state. */
+/** One screen of the running app that the draft changed. */
+export interface IVisibleScreenRef {
+  project: number;
+  shortName: string;
+  folder: string;
+  level: number;
+}
+
+/** Swaps that screen live when it is the one showing. The tool that knows how registers it. */
+export type VisibleScreenSwap = (ref: IVisibleScreenRef) => Promise<void>;
+
+let visibleSwap: VisibleScreenSwap | null = null;
+const waitingSwaps = new Map<string, IVisibleScreenRef>();
+
+function swapKey(ref: IVisibleScreenRef): string {
+  return `${ref.project}/${ref.level}/${ref.folder}/${ref.shortName}`;
+}
+
+/**
+ * The live-update tool announces how to swap a visible screen. Same direction as `registerStudioEditTool`:
+ * this project never names the Studio plugin. A swap asked for before the tool loaded (the plugin scan runs
+ * when studio mode turns on) waits and is replayed here, once per screen.
+ */
+export function registerVisibleScreenSwap(swap: VisibleScreenSwap): () => void {
+  visibleSwap = swap;
+  const waiting = [...waitingSwaps.values()];
+  waitingSwaps.clear();
+  for (const ref of waiting) {
+    void swap(ref).catch((err: unknown) => console.warn('[studioEditSlot] visible swap failed:', err));
+  }
+  return () => {
+    if (visibleSwap === swap) visibleSwap = null;
+  };
+}
+
+/** Asks for the live swap of one screen; held until a tool registers when none has yet. */
+export async function swapVisibleScreen(ref: IVisibleScreenRef): Promise<void> {
+  if (!visibleSwap) {
+    waitingSwaps.set(swapKey(ref), ref);
+    return;
+  }
+  await visibleSwap(ref);
+}
+
+/** Only for tests: forget every tool, the last state and the swap. */
 export function resetStudioEditSlot(): void {
   tools.clear();
   current = null;
+  visibleSwap = null;
+  waitingSwaps.clear();
 }
 
 /**
