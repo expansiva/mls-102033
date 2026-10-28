@@ -9,6 +9,8 @@ import {
   registerVmDriver,
   resetVmDriverRegistration,
 } from '/_102033_/l2/cbe/initStudio.js';
+import { environment, setEnvironment } from '/_102036_/l2/environmentContract.js';
+import { ensureRuntimeMessagesEnvironment } from '/_102033_/l2/cbe/runtimeMessagesEnvironment.js';
 
 type AddCall = { driver: unknown; provider: string };
 
@@ -178,6 +180,56 @@ test('T9: o segundo chamador só resolve depois do registro terminar', async () 
   } finally {
     console.info = origInfo;
     console.warn = origWarn;
+    host.restore();
+  }
+});
+
+test('rt146: o Studio aplica o ambiente do chat uma vez, sem criar o painel', async () => {
+  resetVmDriverRegistration();
+  const host = installDriverHost();
+  const created: string[] = [];
+  let asideTag: string | null = 'cafe-flow-messages-aside-102051';
+  const previousDocument = (globalThis as { document?: unknown }).document;
+  const document = {
+    querySelector(selector: string) {
+      if (selector !== '[data-region-host="aside"] > *' || !asideTag) return null;
+      return { tagName: asideTag };
+    },
+    createElement(tag: string) {
+      created.push(tag);
+      return { style: {}, appendChild() {}, setAttribute() {} };
+    },
+  };
+  (globalThis as { document: unknown }).document = document;
+  const studioWindow = (globalThis as { window: { location?: { origin: string } } }).window;
+  studioWindow.location = { origin: 'https://studio.example' };
+  const origInfo = console.info;
+  const origWarn = console.warn;
+  console.info = () => undefined;
+  console.warn = () => undefined;
+  const apiUrl = () => environment.config.getApiUrl();
+  try {
+    await registerDrivers();
+    assert.notEqual(apiUrl(), 'https://studio.example/msg');
+    assert.deepEqual(created, []);
+
+    asideTag = null;
+    resetVmDriverRegistration();
+    await registerDrivers();
+    assert.equal(apiUrl(), 'https://studio.example/msg');
+    assert.equal(created.includes('collab-messages-102025'), false);
+
+    setEnvironment({});
+    ensureRuntimeMessagesEnvironment();
+    resetVmDriverRegistration();
+    await registerDrivers();
+    assert.notEqual(apiUrl(), 'https://studio.example/msg');
+  } finally {
+    console.info = origInfo;
+    console.warn = origWarn;
+    setEnvironment({});
+    if (previousDocument === undefined) delete (globalThis as { document?: unknown }).document;
+    else (globalThis as { document: unknown }).document = previousDocument;
     host.restore();
   }
 });

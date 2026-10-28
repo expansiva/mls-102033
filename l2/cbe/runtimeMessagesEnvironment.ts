@@ -204,6 +204,22 @@ export const runtimeDetails = {
   },
 };
 
+/** Aside de projeto (ex.: 102051): traz o ambiente dele. Sem isso, o runtime aplica o seu. */
+export function projectMessagesAside(): Element | null {
+  const asideContent = document.querySelector('[data-region-host="aside"] > *');
+  if (!asideContent?.tagName.toLowerCase().includes('messages')) return null;
+  return asideContent;
+}
+
+let runtimeMessagesEnvironmentApplied = false;
+
+/** Aplica o ambiente genérico uma vez. Aside de projeto ou visita anterior: não faz nada. */
+export function ensureRuntimeMessagesEnvironment(): void {
+  if (runtimeMessagesEnvironmentApplied || projectMessagesAside()) return;
+  applyRuntimeMessagesEnvironment();
+  runtimeMessagesEnvironmentApplied = true;
+}
+
 export function applyRuntimeMessagesEnvironment(): void {
   const environment: CollabMessagesEnvironment = {
     ...collabMessagesEnvironmentBase,

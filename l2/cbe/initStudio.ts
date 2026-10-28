@@ -193,7 +193,21 @@ async function runVmRegistration(): Promise<void> {
   });
 }
 
+async function applyChatEnvironment(): Promise<void> {
+  try {
+    const { ensureRuntimeMessagesEnvironment } = await import('/_102033_/l2/cbe/runtimeMessagesEnvironment.js');
+    ensureRuntimeMessagesEnvironment();
+  } catch (error) {
+    console.warn('[initStudio] runtime messages environment not applied:', error);
+  }
+}
+
+/** Chat environment and drivers go in parallel: the chat import chain must not delay `addDriver`. */
 async function runRegistration(): Promise<void> {
+  await Promise.all([applyChatEnvironment(), registerDriverSlots()]);
+}
+
+async function registerDriverSlots(): Promise<void> {
   const others = (window as unknown as { mls?: MlsDriverApi }).mls?.stor?.others;
   if (!others?.addDriver) {
     console.warn('[initStudio] mls.stor.others.addDriver unavailable — no driver registered; any getDefaultDriver call will throw until this resolves');

@@ -34,13 +34,25 @@ function loadEnsureMessages(moves: { count: number }, localDeps: Deps = deps): (
 }
 
 type Deps = {
-  loadEnvironment: () => Promise<{ applyRuntimeMessagesEnvironment: () => void }>;
+  loadEnvironment: () => Promise<{
+    projectMessagesAside: () => { tagName: string } | null;
+    ensureRuntimeMessagesEnvironment: () => void;
+  }>;
   loadMessages: () => Promise<void>;
 };
 
+function projectMessagesAsideFromDocument(): { tagName: string } | null {
+  const asideContent = document.querySelector('[data-region-host="aside"] > *');
+  if (!asideContent?.tagName.toLowerCase().includes('messages')) return null;
+  return asideContent;
+}
+
 const deps: Deps = {
   async loadEnvironment() {
-    return { applyRuntimeMessagesEnvironment() { /* replaced per test */ } };
+    return {
+      projectMessagesAside: projectMessagesAsideFromDocument,
+      ensureRuntimeMessagesEnvironment() { /* replaced per test */ },
+    };
   },
   async loadMessages() { /* replaced per test */ },
 };
@@ -119,7 +131,10 @@ test('ensureMessages adopts the existing aside once and keeps height, tab, and t
   const moves = { count: 0 };
   const opened: string[] = [];
   const ensureMessages = loadEnsureMessages(moves, {
-    async loadEnvironment() { opened.push('env'); return { applyRuntimeMessagesEnvironment() {} }; },
+    async loadEnvironment() {
+      opened.push('env');
+      return { projectMessagesAside: projectMessagesAsideFromDocument, ensureRuntimeMessagesEnvironment() {} };
+    },
     async loadMessages() { opened.push('module'); },
   });
   const owner = {};
@@ -145,7 +160,7 @@ test('ensureMessages adopts the existing aside once and keeps height, tab, and t
   assert.equal(aside.parentNode, host);
   assert.deepEqual(steps, ['height', 'tab:3']);
   assert.equal(host.ensuring, false);
-  assert.deepEqual(opened, []);
+  assert.deepEqual(opened, ['env']);
 });
 
 test('ensureMessages leaves an aside that is already in the host', async () => {
@@ -205,7 +220,10 @@ test('ensureMessages creates one self-hosted element and does not move it', asyn
   const envCalls: string[] = [];
   const ensureMessages = loadEnsureMessages(moves, {
     async loadEnvironment() {
-      return { applyRuntimeMessagesEnvironment() { envCalls.push('env'); } };
+      return {
+        projectMessagesAside: projectMessagesAsideFromDocument,
+        ensureRuntimeMessagesEnvironment() { envCalls.push('env'); },
+      };
     },
     async loadMessages() { envCalls.push('module'); },
   });

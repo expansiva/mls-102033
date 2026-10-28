@@ -126,16 +126,15 @@ export class ServiceRuntimeMessages extends ServiceBase {
     if (this.ensuring || this.querySelector('collab-messages-102025')) return;
     this.ensuring = true;
     try {
-      const asideContent = document.querySelector('[data-region-host="aside"] > *');
-      const isMessagesAside = asideContent?.tagName.toLowerCase().includes('messages') ?? false;
-      if (asideContent && isMessagesAside) {
+      const { ensureRuntimeMessagesEnvironment, projectMessagesAside } = await import('/_102033_/l2/cbe/runtimeMessagesEnvironment.js');
+      const asideContent = projectMessagesAside();
+      if (asideContent) {
         moveConnectedRegion(this, asideContent);
         this.applyInnerHeight();
         this.setMessagesTab(this.initialTabIndex());
         return;
       }
-      const { applyRuntimeMessagesEnvironment } = await import('/_102033_/l2/cbe/runtimeMessagesEnvironment.js');
-      applyRuntimeMessagesEnvironment();
+      ensureRuntimeMessagesEnvironment();
       await import('/_102025_/l2/collabMessages.js');
       if (!customElements.get('collab-messages-102025') && window.mls) {
         window.dispatchEvent(new Event('mls:ready'));
