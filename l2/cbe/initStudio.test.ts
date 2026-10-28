@@ -1,8 +1,10 @@
 /// <mls fileReference="_102033_/l2/cbe/initStudio.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { rememberDraftMain } from '/_102033_/l2/cbe/studioDraftFiles.js';
 import {
   enterStudioDraft,
+  handleCollabModeMessage,
   registerDrivers,
   registerVmDriver,
   resetVmDriverRegistration,
@@ -194,5 +196,91 @@ test('enterStudioDraft lists the draft and publishes l2 without reload', async (
     assert.deepEqual(calls, ['apply', 'publish']);
   } finally {
     (globalThis as { location?: { reload?: () => void } }).location = previous;
+  }
+});
+
+test('enter swaps each compiled ts; production collab-mode compiles the release then swaps', async () => {
+  const calls: string[] = [];
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const origWarn = console.warn;
+  console.warn = () => undefined;
+  (globalThis as { window: unknown }).window = {
+    mls: {
+      editor: {
+        getModels: () => ({
+          ts: {
+            model: { setValue: (text: string) => { calls.push(`set:${text}`); } },
+            storFile: { project: 7 },
+            compilerResults: { modelNeedCompile: false },
+          },
+        }),
+      },
+      stor: { others: { getDefaultDriver: async () => ({ getHistoryContent: async (_file: unknown, ref: string) => (ref === 'main-sha' ? 'release-text' : null) }) } },
+      l2: { typescript: { compileAndPostProcess: async () => { calls.push('compile'); return true; } } },
+    },
+  };
+  rememberDraftMain('main-sha');
+  try {
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => { calls.push('apply'); },
+      publishL2: async () => { calls.push('publish'); },
+      changedTs: async () => [
+        { project: 7, shortName: 'page11', folder: 'web/page11', level: 2 },
+        { project: 7, shortName: 'other', folder: 'web/page12', level: 2 },
+      ],
+      applyChanged: async (ref) => { calls.push(`swap:${ref.shortName}`); },
+    });
+    assert.deepEqual(calls, ['apply', 'publish', 'swap:page11', 'swap:other']);
+    calls.length = 0;
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(calls, [
+      'set:release-text', 'compile', 'swap:page11',
+      'set:release-text', 'compile', 'swap:other',
+    ]);
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'studio' });
+    await handleCollabModeMessage({ type: 'nope' });
+    assert.equal(calls.length, 6);
+  } finally {
+    console.warn = origWarn;
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window: unknown }).window = previousWindow;
+  }
+});
+
+test('production exit does not swap a screen that has no published version', async () => {
+  const calls: string[] = [];
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const origWarn = console.warn;
+  console.warn = () => undefined;
+  (globalThis as { window: unknown }).window = {
+    mls: {
+      editor: {
+        getModels: () => ({
+          ts: {
+            model: { setValue: (text: string) => { calls.push(`set:${text}`); } },
+            storFile: { project: 7 },
+            compilerResults: { modelNeedCompile: false },
+          },
+        }),
+      },
+      stor: { others: { getDefaultDriver: async () => ({ getHistoryContent: async () => null }) } },
+      l2: { typescript: { compileAndPostProcess: async () => { calls.push('compile'); return true; } } },
+    },
+  };
+  rememberDraftMain('main-sha');
+  try {
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => undefined,
+      publishL2: async () => undefined,
+      changedTs: async () => [{ project: 7, shortName: 'new', folder: 'web/page13', level: 2 }],
+      applyChanged: async (ref) => { calls.push(`swap:${ref.shortName}`); },
+    });
+    calls.length = 0;
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(calls, []);
+  } finally {
+    console.warn = origWarn;
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window: unknown }).window = previousWindow;
   }
 });

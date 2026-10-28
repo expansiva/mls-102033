@@ -9,9 +9,9 @@
 // LoadMonaco listener that calls initStudio() on demand.
 
 import type { StudioMls } from './global.js';
-import { activeDraft } from '/_102033_/l2/cbe/studioDraft.js';
-import { applyDraftFiles } from '/_102033_/l2/cbe/studioDraftFiles.js';
-import { publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
+import { activeDraft, readCollabModeNotice } from '/_102033_/l2/cbe/studioDraft.js';
+import { applyDraftFiles, draftPublishedCommit } from '/_102033_/l2/cbe/studioDraftFiles.js';
+import { draftL2Targets, publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
 
 const MONACO_SCRIPT_ID = 'cbe-monaco-loader';
 
@@ -231,14 +231,235 @@ const SKIP_PROJECTS = [100529, 100131];
 
 let definitionsLoaded = false;
 
+/** One l2 `.ts` the draft compiled. `level` is 2. */
+export interface DraftScreenRef {
+  project: number;
+  shortName: string;
+  folder: string;
+  level: number;
+}
+
 export interface StudioDraftEntryDeps {
   applyFiles(project: number, slug: string): Promise<unknown>;
   publishL2(project: number, slug: string): Promise<unknown>;
+  /** Compiled draft `.ts` files, after `publishL2`. Absent when the caller only publishes. */
+  changedTs?(project: number, slug: string): Promise<DraftScreenRef[]>;
+  /** Swaps one visible screen. Same function on the way out, after the production compile. */
+  applyChanged?(ref: DraftScreenRef): Promise<void>;
+}
+
+/** Screens the last entry compiled. Exit swaps these back to production. */
+let visibleRefs: DraftScreenRef[] = [];
+let swapChanged: ((ref: DraftScreenRef) => Promise<void>) | null = null;
+let modeListenerOn = false;
+
+interface ProductionStorFile {
+  project?: number;
+}
+
+interface ProductionModel {
+  model?: { setValue?: (text: string) => void };
+  storFile?: ProductionStorFile;
+  compilerResults?: { modelNeedCompile?: boolean };
+}
+
+interface ProductionDriver {
+  getHistoryContent?: (fileInfo: ProductionStorFile, ref: string) => Promise<string | null>;
+}
+
+interface ProductionMls {
+  stor?: { others?: { getDefaultDriver?: (project: number) => Promise<ProductionDriver | null | undefined> | ProductionDriver | null | undefined } };
+  editor?: {
+    getModels?: (
+      project: number,
+      shortName: string,
+      folder: string,
+      level?: number,
+    ) => { ts?: ProductionModel } | undefined;
+  };
+  l2?: {
+    typescript?: {
+      compileAndPostProcess?: (
+        model: ProductionModel,
+        runAfterCompile: boolean,
+        saveCache: boolean,
+      ) => Promise<boolean>;
+    };
+  };
+}
+
+function productionMls(): ProductionMls | undefined {
+  const fromWindow = (globalThis as unknown as { window?: { mls?: ProductionMls } }).window?.mls;
+  return fromWindow ?? (globalThis as unknown as { mls?: ProductionMls }).mls;
+}
+
+/**
+ * The published source of one screen: `getHistoryContent` at the commit of `main` that `draftDiff` sent.
+ * The row's own `getContent` would read the draft blob (the draft apply moved its `versionRef`), so it
+ * is not production. Null when the screen has no published version or the read failed.
+ */
+async function publishedSource(ref: DraftScreenRef, storFile: ProductionStorFile): Promise<string | null> {
+  const main = draftPublishedCommit();
+  if (!main) {
+    console.warn('[initStudio] draftDiff sent no main; production version was not restored', ref);
+    return null;
+  }
+  try {
+    const driver = await productionMls()?.stor?.others?.getDefaultDriver?.(ref.project);
+    if (!driver?.getHistoryContent) {
+      console.warn('[initStudio] driver has no getHistoryContent; production version was not restored', ref);
+      return null;
+    }
+    const text = await driver.getHistoryContent(storFile, main);
+    if (typeof text !== 'string') {
+      console.warn('[initStudio] no published version of this screen; it stays as it is', {
+        changed: `${ref.project}/${ref.folder}/${ref.shortName}`,
+      });
+      return null;
+    }
+    return text;
+  } catch (err) {
+    console.warn('[initStudio] published source failed', ref, err);
+    return null;
+  }
+}
+
+/**
+ * Puts the published source back on the model and compiles it into the cache.
+ * The model still holds the draft until this runs.
+ * False when there is nothing to swap — the caller must not apply the draft over production.
+ */
+async function restoreProduction(ref: DraftScreenRef): Promise<boolean> {
+  const model = productionMls()?.editor?.getModels?.(ref.project, ref.shortName, ref.folder, ref.level)?.ts;
+  if (!model?.model?.setValue || !model.storFile) {
+    console.warn('[initStudio] no model; production version was not compiled', {
+      changed: `${ref.project}/${ref.folder}/${ref.shortName}`,
+    });
+    return false;
+  }
+  const content = await publishedSource(ref, model.storFile);
+  if (content === null) return false;
+  model.model.setValue(content);
+  if (model.compilerResults) model.compilerResults.modelNeedCompile = true;
+  const compile = productionMls()?.l2?.typescript?.compileAndPostProcess;
+  if (!compile) {
+    console.warn('[initStudio] compileAndPostProcess missing; production version was not compiled', ref);
+    return false;
+  }
+  try {
+    const ok = await compile(model, true, true);
+    if (!ok) {
+      console.warn('[initStudio] production compile failed', {
+        changed: `${ref.project}/${ref.folder}/${ref.shortName}`,
+      });
+      return false;
+    }
+  } catch (err) {
+    console.warn('[initStudio] production compile failed', ref, err);
+    return false;
+  }
+  return true;
+}
+
+/** `{type:'collab-mode'}` with `production`: swap the visible screens to the release. Studio is the entry path. */
+export async function handleCollabModeMessage(data: unknown): Promise<void> {
+  const notice = readCollabModeNotice(data);
+  if (!notice || notice.mode !== 'production') return;
+  if (!swapChanged) {
+    console.warn('[initStudio] production mode with no draft screens to swap');
+    return;
+  }
+  for (const ref of visibleRefs) {
+    const restored = await restoreProduction(ref);
+    if (!restored) continue;
+    await swapChanged(ref);
+  }
+}
+
+function listenForProductionSwap(): void {
+  if (modeListenerOn) return;
+  modeListenerOn = true;
+  const sw = globalThis.navigator?.serviceWorker;
+  if (!sw || typeof sw.addEventListener !== 'function') {
+    console.warn('[initStudio] service worker missing; this tab will not swap the visible screen on collab-mode');
+    return;
+  }
+  sw.addEventListener('message', (event: MessageEvent) => {
+    void handleCollabModeMessage(event.data);
+  });
+}
+
+/** `l2/<folder/>shortName.ts` from `draftL2Targets`. Null when the path is not that shape. */
+function refFromDraftPath(project: number, path: string): DraftScreenRef | null {
+  if (!path.startsWith('l2/') || !path.endsWith('.ts') || path.endsWith('.d.ts') || path.endsWith('.test.ts')) {
+    return null;
+  }
+  const rest = path.slice(3, -3);
+  const slash = rest.lastIndexOf('/');
+  const folder = slash === -1 ? '' : rest.slice(0, slash);
+  const shortName = slash === -1 ? rest : rest.slice(slash + 1);
+  if (!shortName) return null;
+  return { project, shortName, folder, level: 2 };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** l2 `.ts` files the draft differs from production. Empty when the diff cannot be read. */
+export async function listChangedDraftTs(project: number, slug: string): Promise<DraftScreenRef[]> {
+  let response: Response;
+  try {
+    response = await fetch('/exec', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'draftDiff', project, draft: slug, names: true }),
+    });
+  } catch (err) {
+    console.error('[initStudio] draftDiff failed:', err);
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch (err) {
+    console.error('[initStudio] draftDiff response is not json:', err);
+    return [];
+  }
+  if (!response.ok || !isRecord(parsed) || parsed.status !== 'files' || !Array.isArray(parsed.files)) {
+    const code = isRecord(parsed) && typeof parsed.code === 'string' ? parsed.code : `HTTP ${response.status}`;
+    console.error('[initStudio] draftDiff:', code);
+    return [];
+  }
+  const files: { status: string; path: string }[] = [];
+  for (const item of parsed.files) {
+    if (!isRecord(item) || typeof item.status !== 'string' || typeof item.path !== 'string') {
+      console.error('[initStudio] draftDiff file entry is invalid');
+      return [];
+    }
+    files.push({ status: item.status, path: item.path });
+  }
+  const refs: DraftScreenRef[] = [];
+  for (const path of draftL2Targets(files)) {
+    const ref = refFromDraftPath(project, path);
+    if (!ref) {
+      console.error('[initStudio] draft path is not an l2 ts:', path);
+      continue;
+    }
+    refs.push(ref);
+  }
+  return refs;
+}
+
+async function applyChangedOnVisible(ref: DraftScreenRef): Promise<void> {
+  const { applyChangedOnMounted } = await import('/_102020_/l2/aura/studio/studioLiveUpdateWatcher.js');
+  await applyChangedOnMounted(ref);
 }
 
 /**
  * On studio entry: the draft list, then each l2 that differs from production compiled into the
- * service worker. Does not reload and does not write a `-d<slug>` cache.
+ * service worker, then the visible screens swapped. Does not reload and does not write a `-d<slug>` cache.
  */
 export async function enterStudioDraft(
   project: number,
@@ -251,6 +472,12 @@ export async function enterStudioDraft(
   }
   await deps.applyFiles(project, slug);
   await deps.publishL2(project, slug);
+  if (!deps.changedTs || !deps.applyChanged) return;
+  const refs = await deps.changedTs(project, slug);
+  visibleRefs = refs;
+  swapChanged = deps.applyChanged;
+  listenForProductionSwap();
+  for (const ref of refs) await deps.applyChanged(ref);
 }
 
 /**
@@ -278,6 +505,8 @@ export async function loadProjectDefinitions(project: number): Promise<void> {
   await enterStudioDraft(project, activeDraft(), {
     applyFiles: (prj, slug) => applyDraftFiles(prj, slug),
     publishL2: (prj, slug) => publishDraftL2(prj, slug),
+    changedTs: (prj, slug) => listChangedDraftTs(prj, slug),
+    applyChanged: (ref) => applyChangedOnVisible(ref),
   });
   if (definitionsLoaded) return;
   const mls = (window as unknown as { mls?: MlsDefinitionApi }).mls;
