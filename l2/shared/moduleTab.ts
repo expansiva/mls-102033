@@ -13,6 +13,7 @@ interface ModuleTabHost {
 
 const bootCache = new Map<string, MasterFrontendBootConfig>();
 const hosts = new Map<string, ModuleTabHost>();
+let shellRoute = '';
 
 function tabId(basePath: string): string {
   return `mod-${basePath}`;
@@ -88,12 +89,69 @@ async function renderRoute(
   return boot.moduleId || matched.title;
 }
 
+function currentHref(): string {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function bootOwns(path: string): boolean {
+  const basePath = window.collabBoot?.basePath ?? '';
+  if (!basePath) return false;
+  const pathname = pathnameOf(path);
+  return pathname === basePath || pathname.startsWith(`${basePath}/`);
+}
+
 function tabIsOpen(basePath: string): ModuleTabHost | undefined {
   const host = hosts.get(basePath);
   const nav = window.collabRuntimeNav3;
   if (!host || !nav || !host.div.isConnected) return undefined;
   if (!nav.listTabs().includes(tabId(basePath))) return undefined;
   return host;
+}
+
+export function findModuleTabForPath(path: string): { basePath: string; route: string } | undefined {
+  const pathname = pathnameOf(path);
+  let found: { basePath: string; route: string } | undefined;
+  for (const [basePath, host] of hosts) {
+    if (!tabIsOpen(basePath)) continue;
+    if (pathname !== basePath && !pathname.startsWith(`${basePath}/`)) continue;
+    if (!found || basePath.length > found.basePath.length) {
+      found = { basePath, route: host.route };
+    }
+  }
+  return found;
+}
+
+export function rememberShellRoute(route: string): void {
+  if (route) shellRoute = route;
+}
+
+export function readShellRoute(): string {
+  return shellRoute;
+}
+
+/** Point the bar at the active content tab. The boot module keeps `shellRoute`. */
+export function syncHistoryForContentTab(id: string): void {
+  if (!window.location || typeof window.history?.replaceState !== 'function') return;
+  const current = currentHref();
+  if (id === 'app') {
+    const target = shellRoute;
+    if (target && target !== current) window.history.replaceState({}, '', target);
+    return;
+  }
+  if (!id.startsWith('mod-')) return;
+  const tab = findModuleTabForPath(id.slice(4));
+  if (!tab) return;
+  if (bootOwns(current)) rememberShellRoute(current);
+  if (tab.route && tab.route !== current) window.history.replaceState({}, '', tab.route);
+}
+
+/** Back/forward: the open module tab that owns `href` renders it and becomes active. */
+export async function revealModuleTabForLocation(href: string): Promise<boolean> {
+  const tab = findModuleTabForPath(href);
+  if (!tab || bootOwns(href)) return false;
+  if (tab.route !== href) await navigateModuleTab(tab.basePath, href);
+  window.collabRuntimeNav3?.activateTab(tabId(tab.basePath));
+  return true;
 }
 
 export async function navigateModuleTab(
@@ -143,4 +201,5 @@ export async function openModuleTab(
     showTabError(div, error);
   }
   nav.openTab({ id: tabId(basePath), title: host.title, element: div });
+  syncHistoryForContentTab(tabId(basePath));
 }

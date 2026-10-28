@@ -5,7 +5,14 @@
 // the SPA and, worse, leaves the shell's expected-navigation promise pending — every menu click
 // would then end in the 10s TIMEOUT of beginExpectedNavigationLoad with no request involved.
 
+import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
 import { beginExpectedNavigationLoad, runBlockingUiAction } from '/_102033_/l2/shared/interactionRuntime.js';
+import {
+  findModuleTabForPath,
+  openModuleTab,
+  rememberShellRoute,
+  navigateModuleTab,
+} from '/_102033_/l2/shared/moduleTab.js';
 
 function traceLazy(event: string, details?: Record<string, unknown>) {
   if (!window.isTraceLazy) {
@@ -53,6 +60,38 @@ async function pushRoute(href: string, signal?: AbortSignal): Promise<void> {
   traceLazy('pushRoute.resolved', { href });
 }
 
+function bootBasePath(): string {
+  const boot: MasterFrontendBootConfig | undefined = window.collabBoot;
+  return boot?.basePath ?? '';
+}
+
+function basePathForNewTab(href: string, hinted: string, bootBase: string): string {
+  const path = href.split(/[?#]/u, 1)[0];
+  if (hinted && hinted !== bootBase && (path === hinted || path.startsWith(`${hinted}/`))) {
+    return hinted;
+  }
+  const segment = path.split('/').filter(Boolean)[0];
+  return segment ? `/${segment}` : path;
+}
+
+/** Module tab: pushState, render that tab, activate it. popstate settles the expected load. */
+async function pushModuleTab(href: string, basePath: string, alreadyOpen: boolean, signal?: AbortSignal): Promise<void> {
+  const pendingLoad = beginExpectedNavigationLoad(signal);
+  const bootBase = bootBasePath();
+  if (bootBase && isInternalModuleHref(window.location.pathname, bootBase)) {
+    rememberShellRoute(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+  }
+  traceLazy('pushModuleTab.dispatch', { href, basePath, alreadyOpen });
+  window.history.pushState({}, '', href);
+  if (alreadyOpen) await navigateModuleTab(basePath, href);
+  else await openModuleTab(basePath, href);
+  window.collabRuntimeNav3?.activateTab(`mod-${basePath}`);
+  const PopState = globalThis.PopStateEvent ?? Event;
+  window.dispatchEvent(new PopState('popstate'));
+  await pendingLoad;
+  traceLazy('pushModuleTab.resolved', { href });
+}
+
 /**
  * Navigates to `href`: SPA push inside the current module (guarded by the blocking UI), full page
  * load anywhere else. Returns false when the href is not navigable (empty, or not absolute).
@@ -62,9 +101,28 @@ export function auraNavigate(href: string, options: AuraNavigateOptions = {}): b
     return false;
   }
 
-  const basePath = options.basePath ?? '';
-  if (!isInternalModuleHref(href, basePath)) {
-    window.location.href = href;
+  const hinted = options.basePath ?? '';
+  const bootBase = bootBasePath() || hinted;
+  const path = href.split(/[?#]/u, 1)[0];
+  const ownedByBoot = Boolean(bootBase) && isInternalModuleHref(path, bootBase);
+  const openTab = ownedByBoot ? undefined : findModuleTabForPath(path);
+
+  if (!ownedByBoot) {
+    const basePath = openTab?.basePath ?? basePathForNewTab(href, hinted, bootBase);
+    traceLazy('auraNavigate.moduleTab', { href, basePath, alreadyOpen: Boolean(openTab) });
+    const retry = () => pushModuleTab(href, basePath, Boolean(openTab));
+    void runBlockingUiAction(
+      async (signal) => {
+        await pushModuleTab(href, basePath, Boolean(openTab), signal);
+      },
+      {
+        mode: 'silent',
+        busyLabel: options.busyLabel ?? 'Carregando pagina...',
+        errorTitle: options.errorTitle ?? 'Nao foi possivel carregar esta pagina',
+        retry,
+      },
+    );
+    options.afterNavigate?.();
     return true;
   }
 

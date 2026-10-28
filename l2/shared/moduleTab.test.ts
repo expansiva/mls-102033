@@ -2,7 +2,18 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
-import { openModuleTab } from '/_102033_/l2/shared/moduleTab.js';
+import { auraNavigate } from '/_102033_/l2/shared/layout/auraNavigate.js';
+import {
+  bindExpectedNavigationLoad,
+  consumeExpectedNavigationLoad,
+} from '/_102033_/l2/shared/interactionRuntime.js';
+import {
+  findModuleTabForPath,
+  openModuleTab,
+  readShellRoute,
+  revealModuleTabForLocation,
+  syncHistoryForContentTab,
+} from '/_102033_/l2/shared/moduleTab.js';
 
 interface FakeElement {
   tagName: string;
@@ -167,6 +178,125 @@ test('an unknown route shows the error in the tab', async () => {
     assert.equal(errors.length > 0, true);
   } finally {
     console.error = previousError;
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('navigation stays in the module tab, back returns there, and activating a tab sets the URL', async () => {
+  const opened: Array<{ id: string; element: FakeElement }> = [];
+  const tabs: string[] = [];
+  const stack = ['/home'];
+  let index = 0;
+  const location = { pathname: '/home', search: '', hash: '' };
+  const main = createElement('main-page');
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+
+  const apply = (url: string) => {
+    const parsed = new URL(url, 'http://collab.local');
+    location.pathname = parsed.pathname;
+    location.search = parsed.search;
+    location.hash = parsed.hash;
+  };
+
+  globalThis.document = { createElement } as unknown as Document;
+  globalThis.window = {
+    collabRouteChunkCache: new Set<string>(['/tarefas/page.js', '/tarefas/lista.js']),
+    collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+    collabBoot: { basePath: '/home' },
+    location,
+    history: {
+      pushState(_state: unknown, _title: string, url: string) {
+        stack.splice(index + 1);
+        stack.push(url);
+        index += 1;
+        apply(url);
+      },
+      replaceState(_state: unknown, _title: string, url: string) {
+        stack[index] = url;
+        apply(url);
+      },
+      back() {
+        if (index > 0) index -= 1;
+        apply(stack[index]);
+        window.dispatchEvent(new Event('popstate'));
+      },
+    },
+    collabRuntimeNav3: {
+      openTab(tab: { id: string; element: FakeElement }) {
+        opened.push({ id: tab.id, element: tab.element });
+        if (!tabs.includes(tab.id)) tabs.push(tab.id);
+      },
+      activateTab(id: string) {
+        syncHistoryForContentTab(id);
+      },
+      closeTab() {},
+      listTabs: () => tabs,
+    },
+    addEventListener(type: string, fn: EventListener) {
+      if (type === 'popstate') {
+        const previous = (window as unknown as { onpop?: EventListener }).onpop;
+        (window as unknown as { onpop?: EventListener }).onpop = (event: Event) => {
+          previous?.(event);
+          fn(event);
+        };
+      }
+    },
+    dispatchEvent(event: Event) {
+      const onpop = (window as unknown as { onpop?: EventListener }).onpop;
+      if (event.type === 'popstate') onpop?.(event);
+      return true;
+    },
+  } as unknown as Window & typeof globalThis;
+
+  window.addEventListener('popstate', () => {
+    const pending = consumeExpectedNavigationLoad();
+    const href = `${location.pathname}${location.search}${location.hash}`;
+    const ownedByBoot = href === '/home' || href.startsWith('/home/');
+    const work = !ownedByBoot && findModuleTabForPath(href)
+      ? revealModuleTabForLocation(href)
+      : Promise.resolve();
+    bindExpectedNavigationLoad(pending, work);
+  });
+
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    ...boot('/tarefas', 'tarefas', '/tarefas', 'tarefas-page'),
+    routes: [
+      { path: '/tarefas', entrypoint: '/tarefas/page.js', tag: 'tarefas-page', title: 'tarefas' },
+      { path: '/tarefas/lista', entrypoint: '/tarefas/lista.js', tag: 'tarefas-lista', title: 'lista' },
+    ],
+  }), { status: 200 })) as typeof fetch;
+
+  const flush = async () => {
+    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  try {
+    await openModuleTab('/tarefas', '/tarefas', async () => ({}));
+    syncHistoryForContentTab('mod-/tarefas');
+    assert.equal(location.pathname, '/tarefas');
+    assert.equal(readShellRoute(), '/home');
+    const tarefas = opened[0].element;
+    assert.equal(main.child, null);
+
+    assert.equal(auraNavigate('/tarefas/lista', { basePath: '/tarefas' }), true);
+    await flush();
+    assert.equal(tarefas.child?.tagName, 'TAREFAS-LISTA');
+    assert.equal(main.child, null);
+    assert.equal(location.pathname, '/tarefas/lista');
+
+    window.history.back();
+    await flush();
+    assert.equal(location.pathname, '/tarefas');
+    assert.equal(tarefas.child?.tagName, 'TAREFAS-PAGE');
+    assert.equal(main.child, null);
+
+    syncHistoryForContentTab('app');
+    assert.equal(location.pathname, '/home');
+  } finally {
     globalThis.window = previousWindow;
     globalThis.document = previousDocument;
     globalThis.fetch = previousFetch;

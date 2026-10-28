@@ -37,6 +37,13 @@ import {
   setRuntimeDesignSystem,
 } from '/_102033_/l2/shared/designSystemRuntime.js';
 import { getCollabRouteChunkCache, loadAuraRouteChunk, matchAuraRoute } from '/_102033_/l2/shared/routeRuntime.js';
+import { isInternalModuleHref } from '/_102033_/l2/shared/layout/auraNavigate.js';
+import {
+  findModuleTabForPath,
+  rememberShellRoute,
+  revealModuleTabForLocation,
+  syncHistoryForContentTab,
+} from '/_102033_/l2/shared/moduleTab.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 import { MOBILE_BREAKPOINT_PX } from '/_102033_/l2/shared/breakpoints.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
@@ -846,7 +853,20 @@ export class CollabAuraShell extends LitElement {
     // bind the beginExpectedNavigationLoad promise never resolves and every menu
     // navigation ends in a 10s TIMEOUT (no network request involved).
     const pendingLoad = consumeExpectedNavigationLoad();
-    bindExpectedNavigationLoad(pendingLoad, this.loadActiveRoute());
+    const path = window.location.pathname;
+    const href = `${path}${window.location.search}${window.location.hash}`;
+    const bootBase = this.bootConfig?.basePath ?? '';
+    const ownedByBoot = Boolean(bootBase) && isInternalModuleHref(path, bootBase);
+    const moduleTab = ownedByBoot ? undefined : findModuleTabForPath(path);
+    if (moduleTab) {
+      bindExpectedNavigationLoad(pendingLoad, revealModuleTabForLocation(href));
+    } else {
+      if (ownedByBoot) {
+        rememberShellRoute(href);
+        if (this.activeContentTabId.startsWith('mod-')) this.activateContentTab('app');
+      }
+      bindExpectedNavigationLoad(pendingLoad, this.loadActiveRoute());
+    }
     this.requestUpdate();
   };
 
@@ -1271,6 +1291,7 @@ export class CollabAuraShell extends LitElement {
 
   private readonly activateContentTab = (id: string): void => {
     if (id !== 'app' && !this.contentTabs.some((entry) => entry.id === id)) return;
+    syncHistoryForContentTab(id);
     this.activeContentTabId = id;
   };
 
