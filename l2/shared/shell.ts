@@ -740,6 +740,7 @@ export class CollabAuraShell extends LitElement {
       state = await loadRecordedMode({
         send: (message) => sendServiceWorkerMode(message),
         reportError: (message) => console.error(message),
+        reportWarning: (message) => console.warn(message),
         stillCurrent,
       });
     } catch (err) {

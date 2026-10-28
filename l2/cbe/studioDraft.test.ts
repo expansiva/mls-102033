@@ -219,6 +219,7 @@ test('boot getMode posts the action and returns the recorded slug', async () => 
       return { mode: 'studio', project: PROJECT, draft: 'team-102056' };
     },
     reportError: (message) => { errors.push(message); },
+    reportWarning: () => { throw new Error('no warning expected'); },
   });
   assert.deepEqual(sent, { action: 'getMode' });
   assert.deepEqual(errors, []);
@@ -227,9 +228,24 @@ test('boot getMode posts the action and returns the recorded slug', async () => 
   const failed = await loadRecordedMode({
     send: async () => 'Error: draft cache',
     reportError: (message) => { errors.push(message); },
+    reportWarning: () => { throw new Error('no warning expected'); },
   });
   assert.deepEqual(failed, { mode: 'production' });
   assert.deepEqual(errors, ['Error: draft cache']);
+});
+
+test('boot getMode without a service worker controller is a warning, not an error', async () => {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const result = await loadRecordedMode({
+    send: (message) => sendServiceWorkerMode(message as { action: 'getMode' }, { MessageChannel: globalThis.MessageChannel }),
+    reportError: (message) => { errors.push(message); },
+    reportWarning: (message) => { warnings.push(message); },
+  });
+  assert.deepEqual(result, { mode: 'production' });
+  assert.deepEqual(errors, []);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /controller is not available/);
 });
 
 test('sendServiceWorkerMode posts setMode through a MessageChannel port', async () => {

@@ -145,6 +145,9 @@ function browserServiceWorkerModeDeps(): ServiceWorkerModeDeps {
   };
 }
 
+/** The page has no service worker in control yet (first visit, or none). An expected state, not a failure. */
+export class ServiceWorkerUnavailableError extends Error {}
+
 /** One round-trip on `ports[0]` (MessageChannel). Reply is the mode state, or `"Error: <cause>"`. */
 export function sendServiceWorkerMode(
   message: ServiceWorkerModeMessage,
@@ -152,7 +155,7 @@ export function sendServiceWorkerMode(
 ): Promise<unknown> {
   const controller = deps.controller;
   if (!controller) {
-    return Promise.reject(new Error('service worker controller is not available'));
+    return Promise.reject(new ServiceWorkerUnavailableError('service worker controller is not available'));
   }
   const channel = new deps.MessageChannel();
   const timeoutMs = deps.timeoutMs ?? 3000;
@@ -248,6 +251,8 @@ export function applyRecordedModeReply(reply: unknown, reportError: (message: st
 export interface LoadRecordedModeDeps {
   send: (message: { action: 'getMode' }) => Promise<unknown>;
   reportError: (message: string) => void;
+  /** No service worker in control at boot: logged as a warning and the tab stays in production. */
+  reportWarning: (message: string) => void;
   /** When this is false after the reply, a newer mode already won and the mirror is put back. */
   stillCurrent?: () => boolean;
 }
@@ -258,6 +263,11 @@ export async function loadRecordedMode(deps: LoadRecordedModeDeps): Promise<Coll
   try {
     reply = await deps.send({ action: 'getMode' });
   } catch (err) {
+    if (err instanceof ServiceWorkerUnavailableError) {
+      deps.reportWarning(`[studioDraft] getMode: ${err.message}; this tab stays in production`);
+      rememberCollabMode({ mode: 'production' });
+      return modeState();
+    }
     reply = err instanceof Error ? err : new Error(errorText(err));
   }
   const previous = modeState();
