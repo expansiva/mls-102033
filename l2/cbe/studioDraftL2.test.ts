@@ -1,7 +1,7 @@
 /// <mls fileReference="_102033_/l2/cbe/studioDraftL2.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { draftL2Targets, draftReloadDecision, forgetDraftL2, forgetStaleDraftL2, importToL2File, reloadDraftCompiled, syncDraftL2, type DraftL2Deps, type DraftReloadStore } from '/_102033_/l2/cbe/studioDraftL2.js';
+import { compileDraftForWorker, draftL2Targets, draftReloadDecision, forgetDraftL2, forgetStaleDraftL2, importToL2File, publishDraftL2, reloadDraftCompiled, syncDraftL2, type DraftL2Deps, type DraftReloadStore, type DraftWorkerAdd, type PublishDraftL2Deps } from '/_102033_/l2/cbe/studioDraftL2.js';
 
 const S1_FILES = [
   { status: 'M', path: 'l2/a.ts' },
@@ -381,4 +381,104 @@ test('stale l2 dropped from the draft cache reloads once, with its own mark', ()
   assert.equal(reloadDraftCompiled(decision.changed, decision.mark, memory, () => { reloads.push('reload'); }), true);
   assert.equal(reloadDraftCompiled(decision.changed, decision.mark, memory, () => { reloads.push('reload'); }), false);
   assert.equal(reloads.length, 1);
+});
+
+test('publishDraftL2 sends add with the draft slug and does not reload', async () => {
+  const adds: DraftWorkerAdd[] = [];
+  const reloads: string[] = [];
+  const previous = (globalThis as { location?: { reload?: () => void } }).location;
+  (globalThis as { location: { reload: () => void } }).location = {
+    reload: () => { reloads.push('reload'); },
+  };
+  const deps: PublishDraftL2Deps = {
+    draftDiff: async () => ({
+      head: 'abc',
+      files: [
+        { status: 'M', path: 'l2/a.ts' },
+        { status: 'A', path: 'l2/pasta/nome.ts' },
+        { status: 'M', path: 'l2/local.ts' },
+        { status: 'M', path: 'l2/bad.ts' },
+        { status: 'D', path: 'l2/gone.ts' },
+      ],
+    }),
+    readDraftText: async (_project, path) => `text ${path}`,
+    apply: async () => {},
+    compile: async (_project, path) => {
+      if (path === 'l2/bad.ts') return null;
+      const short = path.slice(3, -3);
+      return { path: `_102047_${short}.js`, version: `v-${short}`, content: `js-${short}` };
+    },
+    postAdd: async (message) => { adds.push(message); },
+    hasLocalEdit: (_project, path) => path === 'l2/local.ts',
+  };
+  try {
+    const result = await publishDraftL2(102047, 'team-102047', deps);
+    assert.equal(result.sent, 2);
+    assert.deepEqual(reloads, []);
+    assert.deepEqual(adds, [
+      {
+        action: 'add',
+        path: '_102047_a.js',
+        version: 'v-a',
+        content: 'js-a',
+        contentType: 'application/javascript',
+        draft: 'team-102047',
+      },
+      {
+        action: 'add',
+        path: '_102047_pasta/nome.js',
+        version: 'v-pasta/nome',
+        content: 'js-pasta/nome',
+        contentType: 'application/javascript',
+        draft: 'team-102047',
+      },
+    ]);
+    assert.equal(adds.every((message) => message.action === 'add' && message.draft === 'team-102047'), true);
+  } finally {
+    (globalThis as { location?: { reload?: () => void } }).location = previous;
+  }
+});
+
+test('compileDraftForWorker compiles with saveCache false', async () => {
+  const saveCacheFlags: boolean[] = [];
+  const model = {
+    storFile: { project: 7, folder: 'pasta', shortName: 'nome', extension: '.ts' },
+    compilerResults: {
+      modelNeedCompile: false,
+      imports: [] as string[],
+      cacheVersion: '',
+      prodJS: '',
+    },
+  };
+  const previous = (globalThis as { mls?: unknown }).mls;
+  (globalThis as { mls: unknown }).mls = {
+    editor: { getModels: () => ({ ts: model }) },
+    l2: {
+      typescript: {
+        compileAndPostProcess: async (
+          _model: typeof model,
+          _runAfterCompile: boolean,
+          saveCache: boolean,
+        ) => {
+          saveCacheFlags.push(saveCache);
+          model.compilerResults.cacheVersion = '20260101120000000';
+          model.compilerResults.prodJS = 'compiled';
+          model.compilerResults.imports = [];
+          return true;
+        },
+      },
+    },
+  };
+  try {
+    const compiled = await compileDraftForWorker(7, 'l2/pasta/nome.ts');
+    assert.equal(saveCacheFlags.includes(true), false);
+    assert.deepEqual(saveCacheFlags, [false, false]);
+    assert.deepEqual(compiled, {
+      path: '_7_pasta/nome.js',
+      version: '20260101120000000',
+      content: 'compiled',
+    });
+  } finally {
+    (globalThis as { mls?: unknown }).mls = previous;
+  }
 });

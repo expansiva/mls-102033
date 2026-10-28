@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  enterStudioDraft,
   registerDrivers,
   registerVmDriver,
   resetVmDriverRegistration,
@@ -176,5 +177,22 @@ test('T9: o segundo chamador só resolve depois do registro terminar', async () 
     console.info = origInfo;
     console.warn = origWarn;
     host.restore();
+  }
+});
+
+test('enterStudioDraft lists the draft and publishes l2 without reload', async () => {
+  const calls: string[] = [];
+  const previous = (globalThis as { location?: { reload?: () => void } }).location;
+  (globalThis as { location: { reload: () => void } }).location = {
+    reload: () => { calls.push('reload'); },
+  };
+  try {
+    await enterStudioDraft(102047, 'team-102047', {
+      applyFiles: async () => { calls.push('apply'); },
+      publishL2: async () => { calls.push('publish'); },
+    });
+    assert.deepEqual(calls, ['apply', 'publish']);
+  } finally {
+    (globalThis as { location?: { reload?: () => void } }).location = previous;
   }
 });

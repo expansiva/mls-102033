@@ -5,6 +5,7 @@
 
 const MARKER_KEY = 'collabDraftL2Synced';
 const RELOADED_KEY = 'collabDraftL2Reloaded';
+const DRAFT_SLUG = /^(team|user)-[a-z0-9_.-]{1,64}$/;
 const L2_STATUS = new Set(['A', 'M', 'R']);
 const IMPORT_DEPTH = 3;
 const CONTROLLER_WAIT_MS = 10_000;
@@ -68,6 +69,33 @@ export interface ForgetStaleDeps {
 interface L2File {
   folder: string;
   shortName: string;
+}
+
+/** Compiled l2 sent to the service worker. `path` is `_project_folder/name.js`, with no `-d<slug>` cache. */
+export interface DraftCompiledJs {
+  path: string;
+  version: string;
+  content: string;
+}
+
+/** Same body as `mls.stor.cache.addIfNeed` (`mls.js` `addIfNeed`), plus the draft slug. */
+export interface DraftWorkerAdd {
+  action: 'add';
+  path: string;
+  version: string;
+  content: string;
+  contentType: 'application/javascript';
+  draft: string;
+}
+
+export interface PublishDraftL2Deps {
+  draftDiff(project: number, slug: string): Promise<{ head: string; files: DraftDiffName[] }>;
+  readDraftText(project: number, path: string): Promise<string>;
+  apply(project: number, path: string, text: string): Promise<void>;
+  /** `saveCache` is false. `null` when the compile produced nothing to send. */
+  compile(project: number, path: string): Promise<DraftCompiledJs | null>;
+  postAdd(message: DraftWorkerAdd): Promise<unknown>;
+  hasLocalEdit(project: number, path: string): boolean;
 }
 
 export interface L2ImportFile {
@@ -280,6 +308,67 @@ async function compileDraft(project: number, path: string): Promise<string | nul
   return draftCacheUrl(model);
 }
 
+function workerPath(project: number, loc: L2File): string {
+  return `_${project}_${loc.folder ? `${loc.folder}/` : ''}${loc.shortName}.js`;
+}
+
+/** Compiles one l2 source and keeps the bytes. `saveCache` stays false: the worker stores the draft copy. */
+export async function compileDraftForWorker(project: number, path: string): Promise<DraftCompiledJs | null> {
+  const loc = parseL2Ts(path);
+  if (!loc) throw new Error(`not an l2 source: ${path}`);
+  const model = mls.editor.getModels(project, loc.shortName, loc.folder, 2)?.ts;
+  if (!model) throw new Error(`model missing: ${path}`);
+  await loadImportModels(model, IMPORT_DEPTH, new Set());
+  if (model.compilerResults) model.compilerResults.modelNeedCompile = true;
+  const ok = await mls.l2.typescript.compileAndPostProcess(model, true, false);
+  if (!ok) return null;
+  const version = model.compilerResults?.cacheVersion;
+  const content = model.compilerResults?.prodJS;
+  if (!version || !content) {
+    console.error(`[studioDraftL2] ${path}: compile produced no version or prodJS`);
+    return null;
+  }
+  return { path: workerPath(project, loc), version, content };
+}
+
+/** `addIfNeed` posts `{action:'add', path, version, content, contentType}` on `registration.active`. This adds `draft`. */
+async function postDraftAdd(message: DraftWorkerAdd): Promise<unknown> {
+  const sw = globalThis.navigator?.serviceWorker;
+  if (!sw || typeof MessageChannel === 'undefined') {
+    throw new Error('service workers are not supported in this browser');
+  }
+  const registration = await sw.ready;
+  const worker = registration.active;
+  if (!worker) throw new Error('no active service worker to receive the message');
+  const channel = new MessageChannel();
+  const nodePort = channel.port1 as MessagePort & { unref?: () => void };
+  nodePort.unref?.();
+  (channel.port2 as MessagePort & { unref?: () => void }).unref?.();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      channel.port1.close();
+      reject(new Error('service worker add timed out'));
+    }, 3000);
+    channel.port1.onmessage = (event: MessageEvent) => {
+      clearTimeout(timer);
+      channel.port1.close();
+      const data: unknown = event.data;
+      if (typeof data === 'string' && data.startsWith('Error')) {
+        reject(new Error(data));
+        return;
+      }
+      resolve(data);
+    };
+    try {
+      worker.postMessage(message, [channel.port2]);
+    } catch (err) {
+      clearTimeout(timer);
+      channel.port1.close();
+      reject(err instanceof Error ? err : new Error(errorText(err)));
+    }
+  });
+}
+
 /** True when `url` is stored in a cache whose name ends with `-d<slug>` (the server's draft suffix). */
 async function defaultInDraftCache(slug: string, url: string): Promise<boolean> {
   const storage = globalThis.caches;
@@ -399,6 +488,65 @@ async function deleteStaleCompiled(
     }
   }
   return count;
+}
+
+const defaultPublishDeps: PublishDraftL2Deps = {
+  draftDiff: requestDraftDiff,
+  readDraftText: requestDraftText,
+  apply: applyDraft,
+  compile: compileDraftForWorker,
+  postAdd: postDraftAdd,
+  hasLocalEdit: defaultHasLocalEdit,
+};
+
+/**
+ * Each l2 the draft changed against production: compile with `saveCache` false and
+ * `{action:'add', draft:slug}` to the service worker. Does not reload and does not touch a `-d<slug>` cache.
+ */
+export async function publishDraftL2(
+  project: number,
+  slug: string,
+  deps: PublishDraftL2Deps = defaultPublishDeps,
+): Promise<{ sent: number }> {
+  if (!DRAFT_SLUG.test(slug)) {
+    console.error(`[studioDraftL2] ${slug}: draft slug is invalid; versions were not sent`);
+    return { sent: 0 };
+  }
+  let diff: { head: string; files: DraftDiffName[] };
+  try {
+    diff = await deps.draftDiff(project, slug);
+  } catch (err) {
+    console.error(`[studioDraftL2] draftDiff: ${errorText(err)}`);
+    return { sent: 0 };
+  }
+  let sent = 0;
+  for (const path of draftL2Targets(diff.files)) {
+    if (deps.hasLocalEdit(project, path)) {
+      console.info(`[studioDraftL2] ${path}: local edit kept`);
+      continue;
+    }
+    try {
+      const text = await deps.readDraftText(project, path);
+      await deps.apply(project, path, text);
+      const compiled = await deps.compile(project, path);
+      if (!compiled) {
+        console.error(`[studioDraftL2] ${path}: compile failed`);
+        continue;
+      }
+      await deps.postAdd({
+        action: 'add',
+        path: compiled.path,
+        version: compiled.version,
+        content: compiled.content,
+        contentType: 'application/javascript',
+        draft: slug,
+      });
+      sent += 1;
+    } catch (err) {
+      console.error(`[studioDraftL2] ${path}: ${errorText(err)}`);
+    }
+  }
+  return { sent };
 }
 
 function defaultHasLocalEdit(project: number, path: string): boolean {

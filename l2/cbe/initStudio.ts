@@ -9,9 +9,9 @@
 // LoadMonaco listener that calls initStudio() on demand.
 
 import type { StudioMls } from './global.js';
-import { ensureDefaultDraftCookie } from '/_102033_/l2/cbe/studioDraft.js';
+import { activeDraft } from '/_102033_/l2/cbe/studioDraft.js';
 import { applyDraftFiles } from '/_102033_/l2/cbe/studioDraftFiles.js';
-import { clearDraftReloadMark, draftReloadDecision, reloadDraftCompiled, syncDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js'; 
+import { publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
 
 const MONACO_SCRIPT_ID = 'cbe-monaco-loader';
 
@@ -231,6 +231,28 @@ const SKIP_PROJECTS = [100529, 100131];
 
 let definitionsLoaded = false;
 
+export interface StudioDraftEntryDeps {
+  applyFiles(project: number, slug: string): Promise<unknown>;
+  publishL2(project: number, slug: string): Promise<unknown>;
+}
+
+/**
+ * On studio entry: the draft list, then each l2 that differs from production compiled into the
+ * service worker. Does not reload and does not write a `-d<slug>` cache.
+ */
+export async function enterStudioDraft(
+  project: number,
+  slug: string | undefined,
+  deps: StudioDraftEntryDeps,
+): Promise<void> {
+  if (!slug) {
+    console.warn('[initStudio] no active draft; draft versions were not sent');
+    return;
+  }
+  await deps.applyFiles(project, slug);
+  await deps.publishL2(project, slug);
+}
+
 /**
  * Registers the TypeScript definition model of a project and of every project it depends on, so
  * Monaco resolves imports across the workspace (`/_102027_/l2/...` and friends) instead of
@@ -244,49 +266,20 @@ let definitionsLoaded = false;
  * the editing experience, it must never break the studio bootstrap.
  */
 export async function loadProjectDefinitions(project: number): Promise<void> {
-  if (definitionsLoaded || !project) return;
+  if (!project) return;
   // Creating the models reads project SOURCES on a cache miss — without the drivers that read
   // has nothing registered in the project's slot and throws `Driver _<project>_<name> not found`.
   await registerDrivers();
   // Called from the studio switch, which can happen before the Monaco download finishes — the
   // editor API below, and the draft compile, only exist after it. cbeMiniCfe sets this promise at boot.
   if (window.monacoReady) await window.monacoReady.catch(() => undefined);
-  // getDefaultDriver throws until the slot exists; this call swallows its own errors.
-  const draft = await ensureDefaultDraftCookie(project);
-  if (draft.slug) {
-    // The production worker still controls this document. Reload before compiling so the next
-    // boot requests the draft worker; do not mark the reload or sync on this pass.
-    if (draft.changed) {
-      // The marker attested a cache this reload replaces. Drop it and keep the cache:
-      // the worker about to take control is the new draft's.
-      sessionStorage.removeItem('collabDraftL2Synced');
-      sessionStorage.removeItem('collabDraftL2Reloaded');
-      try {
-        clearDraftReloadMark(localStorage);
-      } catch (err) {
-        console.warn('[studioDraftL2] reload mark not cleared:', err);
-      }
-      sessionStorage.setItem('collabStudioReenter', '1');
-      location.reload();
-      return;
-    }
-    // List and source on every entry, marker or not. Compiled bytes decide the reload, not the head.
-    await applyDraftFiles(project, draft.slug);
-    const sync = await syncDraftL2(project, draft.slug);
-    // No head (draftDiff failed): do not reload. compiled counts JS whose body differs from the draft cache.
-    // The mark lives in localStorage, so a new tab shares it.
-    let reloadStore: { getItem(key: string): string | null; setItem(key: string, value: string): void } | undefined;
-    try {
-      reloadStore = localStorage;
-    } catch (err) {
-      console.warn('[studioDraftL2] reload mark storage unavailable:', err);
-    }
-    const decision = draftReloadDecision(draft.slug, sync);
-    if (sync.head !== null && reloadDraftCompiled(decision.changed, decision.mark, reloadStore, () => {
-      sessionStorage.setItem('collabStudioReenter', '1');
-      location.reload();
-    })) return;
-  }
+  // `draftEnter` and `setMode('studio')` already ran; `activeDraft()` is that slug.
+  // Re-entry in the same page (no reload) publishes again. Definition models stay once.
+  await enterStudioDraft(project, activeDraft(), {
+    applyFiles: (prj, slug) => applyDraftFiles(prj, slug),
+    publishL2: (prj, slug) => publishDraftL2(prj, slug),
+  });
+  if (definitionsLoaded) return;
   const mls = (window as unknown as { mls?: MlsDefinitionApi }).mls;
   const editor = mls?.editor;
   if (!editor?.getModels || !editor.createModelProjectDefinition || !mls?.stor?.localDB?.readPrjInfo) return;
