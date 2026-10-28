@@ -166,6 +166,8 @@ export type ServiceWorkerSetModeMessage =
   | { action: 'setMode'; mode: 'production' }
   | { action: 'setMode'; mode: 'studio'; project: number; draft: string };
 
+export type ServiceWorkerModeMessage = ServiceWorkerSetModeMessage | { action: 'getMode' };
+
 export interface ServiceWorkerModeDeps {
   controller?: { postMessage: (message: unknown, transfer: Transferable[]) => void };
   MessageChannel: new () => MessageChannel;
@@ -275,7 +277,7 @@ function browserServiceWorkerModeDeps(): ServiceWorkerModeDeps {
 
 /** One round-trip on `ports[0]` (MessageChannel). Reply is the mode state, or `"Error: <cause>"`. */
 export function sendServiceWorkerMode(
-  message: ServiceWorkerSetModeMessage,
+  message: ServiceWorkerModeMessage,
   deps: ServiceWorkerModeDeps = browserServiceWorkerModeDeps(),
 ): Promise<unknown> {
   const controller = deps.controller;
@@ -291,7 +293,7 @@ export function sendServiceWorkerMode(
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       channel.port1.close();
-      reject(new Error('service worker setMode timed out'));
+      reject(new Error(`service worker ${message.action} timed out`));
     }, timeoutMs);
     channel.port1.onmessage = (event: MessageEvent) => {
       clearTimeout(timer);
@@ -309,8 +311,92 @@ export function sendServiceWorkerMode(
   });
 }
 
-function isModeReply(reply: unknown, mode: CollabRunMode): boolean {
-  return isRecord(reply) && reply.mode === mode;
+/** What the service worker last told this tab. Memory only: not storage, not a cookie. */
+export interface CollabModeState {
+  mode: CollabRunMode;
+  project?: number;
+  draft?: string;
+}
+
+let modeMirror: CollabModeState = { mode: 'production' };
+
+export function modeState(): CollabModeState {
+  const state: CollabModeState = { mode: modeMirror.mode };
+  if (modeMirror.project !== undefined) state.project = modeMirror.project;
+  if (modeMirror.draft !== undefined) state.draft = modeMirror.draft;
+  return state;
+}
+
+/** Draft slug while the tab is in studio. Production has none. */
+export function activeDraft(): string | undefined {
+  if (modeMirror.mode !== 'studio') return undefined;
+  return modeMirror.draft;
+}
+
+/** Replaces the mirror. A production state keeps no draft slug. */
+export function rememberCollabMode(state: CollabModeState): void {
+  const next: CollabModeState = { mode: state.mode === 'studio' ? 'studio' : 'production' };
+  if (typeof state.project === 'number') next.project = state.project;
+  if (next.mode === 'studio' && typeof state.draft === 'string' && state.draft.length > 0) next.draft = state.draft;
+  modeMirror = next;
+}
+
+function collabModeStateFromReply(reply: unknown): CollabModeState | null {
+  if (!isRecord(reply)) return null;
+  if (reply.mode !== 'studio' && reply.mode !== 'production') return null;
+  const state: CollabModeState = { mode: reply.mode };
+  if (typeof reply.project === 'number') state.project = reply.project;
+  if (typeof reply.draft === 'string') state.draft = reply.draft;
+  return state;
+}
+
+/**
+ * One service-worker reply applied to the mirror.
+ * A failure (`Error`, `"Error: …"`, or an unreadable body) is logged and the tab stays in production.
+ */
+export function applyRecordedModeReply(reply: unknown, reportError: (message: string) => void): CollabModeState {
+  if (reply instanceof Error) {
+    reportError(`[studioDraft] getMode: ${reply.message}`);
+    rememberCollabMode({ mode: 'production' });
+    return modeState();
+  }
+  if (typeof reply === 'string') {
+    reportError(reply);
+    rememberCollabMode({ mode: 'production' });
+    return modeState();
+  }
+  const parsed = collabModeStateFromReply(reply);
+  if (!parsed) {
+    reportError('[studioDraft] getMode: unexpected service worker reply');
+    rememberCollabMode({ mode: 'production' });
+    return modeState();
+  }
+  rememberCollabMode(parsed);
+  return modeState();
+}
+
+export interface LoadRecordedModeDeps {
+  send: (message: { action: 'getMode' }) => Promise<unknown>;
+  reportError: (message: string) => void;
+  /** When this is false after the reply, a newer mode already won and the mirror is put back. */
+  stillCurrent?: () => boolean;
+}
+
+/** Boot query `{action:'getMode'}` so the tab is born in the mode the service worker stored. */
+export async function loadRecordedMode(deps: LoadRecordedModeDeps): Promise<CollabModeState> {
+  let reply: unknown;
+  try {
+    reply = await deps.send({ action: 'getMode' });
+  } catch (err) {
+    reply = err instanceof Error ? err : new Error(errorText(err));
+  }
+  const previous = modeState();
+  const state = applyRecordedModeReply(reply, deps.reportError);
+  if (deps.stillCurrent && !deps.stillCurrent()) {
+    rememberCollabMode(previous);
+    return modeState();
+  }
+  return state;
 }
 
 /**
@@ -360,10 +446,12 @@ export async function requestModeChange(
     deps.reportError(reply);
     return { mode: current };
   }
-  if (!isModeReply(reply, next)) {
+  const parsed = collabModeStateFromReply(reply);
+  if (!parsed || parsed.mode !== next) {
     deps.reportError('[shell] setMode: unexpected service worker reply');
     return { mode: current };
   }
+  rememberCollabMode(parsed);
   return { mode: next };
 }
 
@@ -383,5 +471,6 @@ export function readCollabModeNotice(data: unknown): { mode: CollabRunMode; proj
 export function applyCollabModeNotice(current: CollabRunMode, data: unknown): CollabRunMode {
   const notice = readCollabModeNotice(data);
   if (!notice) return current;
+  rememberCollabMode(notice);
   return notice.mode;
 }

@@ -49,6 +49,7 @@ import {
   draftNotice,
   draftNoticeText,
   enterDraft,
+  loadRecordedMode,
   postDraftEnter,
   requestModeChange,
   resolveDefaultDraftFromMls,
@@ -173,6 +174,10 @@ export class CollabAuraShell extends LitElement {
   // Bumped when a service-worker broadcast arrives, so an in-flight setMode does not
   // apply a stale reply over the mode the other tabs already published.
   private modeEpoch = 0;
+  // Set once this tab asks for a mode, so the boot `getMode` does not paint over it.
+  private modeChosenLocally = false;
+  // The mode that arrived before the structure was upgraded; applied right after it.
+  private pendingStudioOn: boolean | undefined;
   private modeChain: Promise<void> = Promise.resolve();
   private structureRetriesLeft = 67;
   // Phone: the same structure shows one nav3 at a time (mobilePane.ts). The header's ☰ — the aside
@@ -259,6 +264,7 @@ export class CollabAuraShell extends LitElement {
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('popstate', this.handlePopState);
     navigator.serviceWorker?.addEventListener('message', this.handleServiceWorkerMode);
+    void this.adoptRecordedMode();
     this.unsubscribeInteraction = subscribeToInteractionState((state) => {
       this.interactionState = state;
       this.requestUpdate();
@@ -656,6 +662,12 @@ export class CollabAuraShell extends LitElement {
 
   /** Monaco and the studio services. Callers decide the mode; this only paints it. */
   private async applyStudioInterface(studioOn: boolean): Promise<void> {
+    // The studio level lives in the upgraded structure. A mode that arrives earlier (the boot
+    // `getMode`, a broadcast) waits for it, as the boot re-entry always did.
+    if (!this.structureUpgraded) {
+      this.pendingStudioOn = studioOn;
+      return;
+    }
     if (this.studioModeOn === studioOn) return;
     this.studioModeOn = studioOn;
     this.requestUpdate();
@@ -702,6 +714,7 @@ export class CollabAuraShell extends LitElement {
       console.error('[shell] setMode: mode must be studio or production:', mode);
       return;
     }
+    this.modeChosenLocally = true;
     const epoch = this.modeEpoch;
     const outcome = await requestModeChange(this.getMode(), mode, {
       project: siteProjectFromBoot(this.bootConfig),
@@ -716,6 +729,29 @@ export class CollabAuraShell extends LitElement {
     void this.applyStudioInterface(wantOn);
   }
 
+  /**
+   * `{action:'getMode'}` once, so this tab is born in the mode the service worker stored.
+   * Does not call `setMode` back (that would echo) and does not reload.
+   */
+  private async adoptRecordedMode(): Promise<void> {
+    const epoch = this.modeEpoch;
+    const stillCurrent = () => epoch === this.modeEpoch && !this.modeChosenLocally && this.isConnected;
+    let state: { mode: CollabRunMode };
+    try {
+      state = await loadRecordedMode({
+        send: (message) => sendServiceWorkerMode(message),
+        reportError: (message) => console.error(message),
+        stillCurrent,
+      });
+    } catch (err) {
+      console.error('[shell] getMode failed:', err);
+      return;
+    }
+    if (!stillCurrent()) return;
+    if (state.mode === this.getMode()) return;
+    void this.applyStudioInterface(state.mode === 'studio');
+  }
+
   /** `{type:'collab-mode'}` from the service worker. Does not call `setMode` back and does not reload. */
   private readonly handleServiceWorkerMode = (event: MessageEvent): void => {
     const next = applyCollabModeNotice(this.getMode(), event.data);
@@ -723,6 +759,13 @@ export class CollabAuraShell extends LitElement {
     this.modeEpoch += 1;
     void this.applyStudioInterface(next === 'studio');
   };
+
+  private applyPendingStudioMode(): void {
+    const wanted = this.pendingStudioOn;
+    this.pendingStudioOn = undefined;
+    if (wanted === undefined) return;
+    void this.applyStudioInterface(wanted);
+  }
 
   /** Spent before entering, so the reload that follows a draft sync cannot re-enter a second time. */
   private reenterStudioAfterDraftSync(): void {
@@ -1339,6 +1382,7 @@ export class CollabAuraShell extends LitElement {
         if (await this.verifyStudioStructureRendered(host)) {
           this.structureUpgraded = true;
           this.reenterStudioAfterDraftSync();
+          this.applyPendingStudioMode();
           this.requestUpdate();
           // collab-page measured its own size via getBoundingClientRect()
           // while .studio-structure-host was still display:none (the CSS

@@ -2,13 +2,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  activeDraft,
   applyCollabModeNotice,
+  applyRecordedModeReply,
   buildDraftCookie,
   defaultDraftFor,
   draftNotice,
   enterDraft,
   ensureDefaultDraftCookie,
   isVmDriver,
+  loadRecordedMode,
+  modeState,
   readDraftCookie,
   requestModeChange,
   resolveDefaultDraft,
@@ -17,6 +21,8 @@ import {
 } from '/_102033_/l2/cbe/studioDraft.js';
 
 const PROJECT = 102056;
+const draftBeforeAnyReply = activeDraft();
+const stateBeforeAnyReply = modeState();
 
 type FetchCall = { url: string; init?: RequestInit };
 
@@ -358,6 +364,73 @@ test('resolveDefaultDraft reads studio.defaultDraft and falls back to the team s
   );
 });
 
+test('activeDraft is empty before any reply and in production', () => {
+  assert.equal(draftBeforeAnyReply, undefined);
+  assert.deepEqual(stateBeforeAnyReply, { mode: 'production' });
+  applyRecordedModeReply({ mode: 'production', project: PROJECT, draft: 'team-102056' }, () => {});
+  assert.equal(activeDraft(), undefined);
+  assert.equal(modeState().mode, 'production');
+  assert.equal(modeState().draft, undefined);
+});
+
+test('a studio reply exposes the slug and collab-mode clears it', () => {
+  const state = applyRecordedModeReply(
+    { mode: 'studio', project: PROJECT, draft: 'team-102056' },
+    () => { throw new Error('studio reply is not an error'); },
+  );
+  assert.deepEqual(state, { mode: 'studio', project: PROJECT, draft: 'team-102056' });
+  assert.equal(activeDraft(), 'team-102056');
+
+  assert.equal(
+    applyCollabModeNotice('production', { type: 'collab-mode', mode: 'studio', project: PROJECT, draft: 'user-ada' }),
+    'studio',
+  );
+  assert.equal(activeDraft(), 'user-ada');
+  assert.deepEqual(modeState(), { mode: 'studio', project: PROJECT, draft: 'user-ada' });
+
+  assert.equal(applyCollabModeNotice('studio', { type: 'collab-mode', mode: 'production' }), 'production');
+  assert.equal(activeDraft(), undefined);
+  assert.deepEqual(modeState(), { mode: 'production' });
+});
+
+test('boot getMode error leaves production and is logged', () => {
+  applyRecordedModeReply({ mode: 'studio', project: PROJECT, draft: 'user-ada' }, () => {});
+  const errors: string[] = [];
+  const state = applyRecordedModeReply('Error: draft cache', (message) => { errors.push(message); });
+  assert.deepEqual(state, { mode: 'production' });
+  assert.equal(activeDraft(), undefined);
+  assert.equal(modeState().draft, undefined);
+  assert.deepEqual(errors, ['Error: draft cache']);
+
+  applyRecordedModeReply({ mode: 'studio', project: PROJECT, draft: 'user-ada' }, () => {});
+  const failed = applyRecordedModeReply(new Error('down'), (message) => { errors.push(message); });
+  assert.deepEqual(failed, { mode: 'production' });
+  assert.equal(activeDraft(), undefined);
+  assert.deepEqual(errors, ['Error: draft cache', '[studioDraft] getMode: down']);
+});
+
+test('boot getMode posts the action and returns the recorded slug', async () => {
+  const errors: string[] = [];
+  let sent: unknown;
+  const studio = await loadRecordedMode({
+    send: async (message) => {
+      sent = message;
+      return { mode: 'studio', project: PROJECT, draft: 'team-102056' };
+    },
+    reportError: (message) => { errors.push(message); },
+  });
+  assert.deepEqual(sent, { action: 'getMode' });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(studio, { mode: 'studio', project: PROJECT, draft: 'team-102056' });
+
+  const failed = await loadRecordedMode({
+    send: async () => 'Error: draft cache',
+    reportError: (message) => { errors.push(message); },
+  });
+  assert.deepEqual(failed, { mode: 'production' });
+  assert.deepEqual(errors, ['Error: draft cache']);
+});
+
 test('sendServiceWorkerMode posts setMode through a MessageChannel port', async () => {
   let posted: unknown;
   const result = await sendServiceWorkerMode(
@@ -375,6 +448,25 @@ test('sendServiceWorkerMode posts setMode through a MessageChannel port', async 
   );
   assert.deepEqual(posted, { action: 'setMode', mode: 'studio', project: 102056, draft: 'team-102056' });
   assert.deepEqual(result, { mode: 'studio', project: 102056, draft: 'team-102056' });
+});
+
+test('sendServiceWorkerMode posts getMode through a MessageChannel port', async () => {
+  let posted: unknown;
+  const result = await sendServiceWorkerMode(
+    { action: 'getMode' },
+    {
+      controller: {
+        postMessage(message, transfer) {
+          posted = message;
+          const port = transfer[0] as MessagePort;
+          port.postMessage({ mode: 'production' });
+        },
+      },
+      MessageChannel,
+    },
+  );
+  assert.deepEqual(posted, { action: 'getMode' });
+  assert.deepEqual(result, { mode: 'production' });
 });
 
 test('sendServiceWorkerMode rejects when the service worker does not answer', async () => {
