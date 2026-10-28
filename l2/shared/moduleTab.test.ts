@@ -9,6 +9,7 @@ import {
 } from '/_102033_/l2/shared/interactionRuntime.js';
 import {
   findModuleTabForPath,
+  isModuleRegistered,
   moduleTabPinLabel,
   navigateModuleTab,
   openModuleTab,
@@ -435,6 +436,109 @@ test('missing localStorage does not break opening a module tab', async () => {
     assert.equal(errors.length > 0, true);
   } finally {
     console.error = previousError;
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('r1: a link that is not a registered module is a full page load, never a tab with an error', async () => {
+  const opened: string[] = [];
+  const pushed: string[] = [];
+  const location = { pathname: '/home', search: '', hash: '', href: '' };
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  globalThis.document = { createElement } as unknown as Document;
+  globalThis.window = {
+    collabRouteChunkCache: new Set<string>(),
+    collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+    collabBoot: { basePath: '/home' },
+    location,
+    history: { pushState(_s: unknown, _t: string, url: string) { pushed.push(url); }, replaceState() {} },
+    collabRuntimeNav3: {
+      openTab(tab: { id: string }) { opened.push(tab.id); },
+      activateTab() {},
+      closeTab() {},
+      listTabs: () => [],
+    },
+    addEventListener() {},
+    dispatchEvent() { return true; },
+  } as unknown as Window & typeof globalThis;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const basePath = new URL(String(input), 'http://collab.local').searchParams.get('basePath') ?? '';
+    if (basePath === '/r1broken') return new Response('boom', { status: 500 });
+    if (basePath === '/r1known') return new Response(JSON.stringify(boot('/r1known', 'r1known', '/r1known', 'r1-page')), { status: 200 });
+    return new Response(JSON.stringify({ statusCode: 404, msg: 'Not found' }), { status: 404 });
+  }) as typeof fetch;
+  const flush = async () => {
+    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  try {
+    assert.equal(await isModuleRegistered('/r1known'), true);
+    assert.equal(await isModuleRegistered('/r1missing'), false);
+    await assert.rejects(isModuleRegistered('/r1broken'), /Module boot failed for \/r1broken: 500/);
+
+    assert.equal(auraNavigate('/', { basePath: '/home' }), true);
+    await flush();
+    assert.equal(location.href, '/');
+    assert.equal(opened.length, 0);
+    assert.equal(pushed.length, 0);
+
+    location.href = '';
+    assert.equal(auraNavigate('/r1missing/page', { basePath: '/home' }), true);
+    await flush();
+    assert.equal(location.href, '/r1missing/page');
+    assert.equal(opened.length, 0);
+    assert.equal(pushed.length, 0);
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('r1: restoring pins skips the module the boot already opened and keeps its pin stored', async () => {
+  const stored = JSON.stringify({
+    pinned: [
+      { basePath: '/skip-a', route: '/skip-a' },
+      { basePath: '/skip-home', route: '/skip-home/x' },
+      { basePath: '/skip-b', route: '/skip-b' },
+    ],
+  });
+  const store = new Map<string, string>([['collabTabs', stored]]);
+  const opened: string[] = [];
+  const tabs: string[] = [];
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  globalThis.document = { createElement } as unknown as Document;
+  globalThis.window = {
+    collabRouteChunkCache: new Set<string>(['/skip-a/page.js', '/skip-b/page.js', '/skip-home/page.js']),
+    collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+    collabBoot: { basePath: '/skip-home' },
+    location: { pathname: '/skip-home/x', search: '', hash: '' },
+    history: { replaceState() {} },
+    localStorage: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+    },
+    collabRuntimeNav3: {
+      openTab(tab: { id: string }) { opened.push(tab.id); if (!tabs.includes(tab.id)) tabs.push(tab.id); },
+      activateTab() {},
+      closeTab() {},
+      listTabs: () => tabs,
+    },
+  } as unknown as Window & typeof globalThis;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const basePath = new URL(String(input), 'http://collab.local').searchParams.get('basePath') ?? '';
+    return new Response(JSON.stringify(boot(basePath, basePath, basePath, 'skip-page')), { status: 200 });
+  }) as typeof fetch;
+  try {
+    await restorePinnedModuleTabs(async () => ({}));
+    assert.deepEqual(opened, ['mod-/skip-a', 'mod-/skip-b']);
+    assert.equal(store.get('collabTabs'), stored);
+  } finally {
     globalThis.window = previousWindow;
     globalThis.document = previousDocument;
     globalThis.fetch = previousFetch;

@@ -62,6 +62,13 @@ function showTabError(div: HTMLElement, error: unknown): void {
   div.textContent = message;
 }
 
+class ModuleNotRegisteredError extends Error {
+  constructor(basePath: string) {
+    super(`Module is not registered: ${basePath}`);
+    this.name = 'ModuleNotRegisteredError';
+  }
+}
+
 async function loadBoot(basePath: string): Promise<MasterFrontendBootConfig> {
   const cached = bootCache.get(basePath);
   if (cached) return cached;
@@ -69,6 +76,9 @@ async function loadBoot(basePath: string): Promise<MasterFrontendBootConfig> {
     cache: 'no-store',
     credentials: 'same-origin',
   });
+  if (response.status === 404) {
+    throw new ModuleNotRegisteredError(basePath);
+  }
   if (!response.ok) {
     throw new Error(`Module boot failed for ${basePath}: ${response.status}`);
   }
@@ -185,7 +195,10 @@ export async function restorePinnedModuleTabs(importer?: RouteImporter): Promise
   if (bootOwns(href)) rememberShellRoute(href);
   restoringPins = true;
   try {
+    const bootBasePath = window.collabBoot?.basePath ?? '';
     for (const item of stored.pinned) {
+      // The boot module already lives in the `app` tab; its pin stays stored for when the F5 lands elsewhere.
+      if (bootBasePath && item.basePath === bootBasePath) continue;
       await openModuleTab(item.basePath, item.route, importer);
     }
   } finally {
@@ -193,6 +206,17 @@ export async function restorePinnedModuleTabs(importer?: RouteImporter): Promise
   }
   const owner = bootOwns(href) ? undefined : findModuleTabForPath(href);
   window.collabRuntimeNav3?.activateTab(owner ? tabId(owner.basePath) : 'app');
+}
+
+/** True when `/_moduleBoot` knows `basePath`. Only a 404 is "no"; any other failure is thrown, never hidden. */
+export async function isModuleRegistered(basePath: string): Promise<boolean> {
+  try {
+    await loadBoot(basePath);
+    return true;
+  } catch (error) {
+    if (error instanceof ModuleNotRegisteredError) return false;
+    throw error;
+  }
 }
 
 function tabIsOpen(basePath: string): ModuleTabHost | undefined {

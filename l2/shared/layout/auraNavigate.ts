@@ -9,6 +9,7 @@ import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.
 import { beginExpectedNavigationLoad, runBlockingUiAction } from '/_102033_/l2/shared/interactionRuntime.js';
 import {
   findModuleTabForPath,
+  isModuleRegistered,
   openModuleTab,
   rememberShellRoute,
   navigateModuleTab,
@@ -110,10 +111,19 @@ export function auraNavigate(href: string, options: AuraNavigateOptions = {}): b
   if (!ownedByBoot) {
     const basePath = openTab?.basePath ?? basePathForNewTab(href, hinted, bootBase);
     traceLazy('auraNavigate.moduleTab', { href, basePath, alreadyOpen: Boolean(openTab) });
-    const retry = () => pushModuleTab(href, basePath, Boolean(openTab));
+    // Not a registered module (e.g. "/"): a plain link, a full page load as before — never a tab with an error.
+    const go = async (signal?: AbortSignal): Promise<void> => {
+      if (!openTab && !(await isModuleRegistered(basePath))) {
+        traceLazy('auraNavigate.notModule', { href, basePath });
+        window.location.href = href;
+        return;
+      }
+      await pushModuleTab(href, basePath, Boolean(openTab), signal);
+    };
+    const retry = () => go();
     void runBlockingUiAction(
       async (signal) => {
-        await pushModuleTab(href, basePath, Boolean(openTab), signal);
+        await go(signal);
       },
       {
         mode: 'silent',
