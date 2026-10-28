@@ -9,10 +9,14 @@ import {
 } from '/_102033_/l2/shared/interactionRuntime.js';
 import {
   findModuleTabForPath,
+  moduleTabPinLabel,
+  navigateModuleTab,
   openModuleTab,
   readShellRoute,
+  restorePinnedModuleTabs,
   revealModuleTabForLocation,
   syncHistoryForContentTab,
+  toggleModuleTabPin,
 } from '/_102033_/l2/shared/moduleTab.js';
 
 interface FakeElement {
@@ -297,6 +301,140 @@ test('navigation stays in the module tab, back returns there, and activating a t
     syncHistoryForContentTab('app');
     assert.equal(location.pathname, '/home');
   } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('pin writes one localStorage variable, unpin removes, and a reload restores only pinned tabs', async () => {
+  const store = new Map<string, string>();
+  const opened: string[] = [];
+  const activated: string[] = [];
+  const tabs: string[] = [];
+  const location = { pathname: '/home', search: '', hash: '' };
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+
+  const installWindow = () => {
+    opened.length = 0;
+    activated.length = 0;
+    tabs.length = 0;
+    globalThis.window = {
+      collabRouteChunkCache: new Set<string>(['/pin-a/page.js', '/pin-b/page.js', '/pin-b/item.js', '/pin-c/page.js']),
+      collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+      collabBoot: { basePath: '/home' },
+      location,
+      history: { replaceState() {} },
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => { store.set(key, value); },
+      },
+      collabRuntimeNav3: {
+        openTab(tab: { id: string }) {
+          opened.push(tab.id);
+          if (!tabs.includes(tab.id)) tabs.push(tab.id);
+        },
+        activateTab(id: string) { activated.push(id); },
+        closeTab() {},
+        listTabs: () => tabs,
+      },
+    } as unknown as Window & typeof globalThis;
+  };
+
+  globalThis.document = { createElement } as unknown as Document;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const basePath = new URL(String(input), 'http://collab.local').searchParams.get('basePath') ?? '';
+    const body = basePath === '/pin-b'
+      ? {
+        ...boot(basePath, basePath, basePath, 'pin-page'),
+        routes: [
+          { path: '/pin-b', entrypoint: '/pin-b/page.js', tag: 'pin-page', title: 'pin-b' },
+          { path: '/pin-b/item', entrypoint: '/pin-b/item.js', tag: 'pin-item', title: 'item' },
+        ],
+      }
+      : boot(basePath, basePath, basePath, 'pin-page');
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    installWindow();
+    await openModuleTab('/pin-a', '/pin-a', async () => ({}));
+    await openModuleTab('/pin-b', '/pin-b/item', async () => ({}));
+    await openModuleTab('/pin-c', '/pin-c', async () => ({}));
+    assert.equal(moduleTabPinLabel('/pin-a', 'en'), 'Pin');
+    assert.equal(moduleTabPinLabel('/pin-a', 'pt-BR'), 'Fixar');
+    toggleModuleTabPin('/pin-a');
+    toggleModuleTabPin('/pin-b');
+    assert.equal(moduleTabPinLabel('/pin-a', ''), 'Unpin');
+    const saved = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ basePath: string; route: string }> };
+    assert.deepEqual(saved.pinned, [
+      { basePath: '/pin-a', route: '/pin-a' },
+      { basePath: '/pin-b', route: '/pin-b/item' },
+    ]);
+    await navigateModuleTab('/pin-b', '/pin-b', async () => ({}));
+    const moved = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ route: string }> };
+    assert.equal(moved.pinned[1].route, '/pin-b');
+    toggleModuleTabPin('/pin-a');
+    toggleModuleTabPin('/pin-a');
+    const repinned = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ basePath: string }> };
+    assert.deepEqual(repinned.pinned.map((item) => item.basePath), ['/pin-b', '/pin-a']);
+    toggleModuleTabPin('/pin-a');
+
+    location.pathname = '/pin-b';
+    installWindow();
+    await restorePinnedModuleTabs(async () => ({}));
+    assert.deepEqual(opened, ['mod-/pin-b']);
+    assert.equal(activated.at(-1), 'mod-/pin-b');
+
+    location.pathname = '/home';
+    installWindow();
+    await restorePinnedModuleTabs(async () => ({}));
+    assert.deepEqual(opened, ['mod-/pin-b']);
+    assert.equal(activated.at(-1), 'app');
+    assert.equal(opened.includes('mod-/pin-c'), false);
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('missing localStorage does not break opening a module tab', async () => {
+  const errors: unknown[] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args); };
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  globalThis.document = { createElement } as unknown as Document;
+  globalThis.window = {
+    collabRouteChunkCache: new Set<string>(),
+    collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+    location: { pathname: '/solo', search: '', hash: '' },
+    history: { replaceState() {} },
+    localStorage: {
+      getItem() { throw new Error('blocked'); },
+      setItem() { throw new Error('blocked'); },
+    },
+    collabRuntimeNav3: {
+      openTab() {},
+      activateTab() {},
+      closeTab() {},
+      listTabs: () => ['mod-/solo'],
+    },
+  } as unknown as Window & typeof globalThis;
+  globalThis.fetch = (async () => new Response(JSON.stringify(
+    boot('/solo', 'solo', '/solo', 'solo-page'),
+  ), { status: 200 })) as typeof fetch;
+  try {
+    await openModuleTab('/solo', '/solo', async () => ({}));
+    toggleModuleTabPin('/solo');
+    await restorePinnedModuleTabs(async () => ({}));
+    assert.equal(errors.length > 0, true);
+  } finally {
+    console.error = previousError;
     globalThis.window = previousWindow;
     globalThis.document = previousDocument;
     globalThis.fetch = previousFetch;

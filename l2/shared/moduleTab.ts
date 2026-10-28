@@ -11,9 +11,22 @@ interface ModuleTabHost {
   title: string;
 }
 
+const COLLAB_TABS_KEY = 'collabTabs';
+
+interface PinnedModuleTab {
+  basePath: string;
+  route: string;
+}
+
 const bootCache = new Map<string, MasterFrontendBootConfig>();
 const hosts = new Map<string, ModuleTabHost>();
 let shellRoute = '';
+let restoringPins = false;
+
+const pinLabels: Record<string, { pin: string; unpin: string }> = {
+  en: { pin: 'Pin', unpin: 'Unpin' },
+  pt: { pin: 'Fixar', unpin: 'Desafixar' },
+};
 
 function tabId(basePath: string): string {
   return `mod-${basePath}`;
@@ -100,6 +113,88 @@ function bootOwns(path: string): boolean {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
+function readPinnedTabs(): { ok: true; pinned: PinnedModuleTab[] } | { ok: false } {
+  try {
+    const storage = window.localStorage;
+    if (!storage) return { ok: true, pinned: [] };
+    const raw = storage.getItem(COLLAB_TABS_KEY);
+    if (!raw) return { ok: true, pinned: [] };
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { pinned?: unknown }).pinned)) {
+      return { ok: false };
+    }
+    const pinned = (parsed as { pinned: unknown[] }).pinned.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const basePath = (item as { basePath?: unknown }).basePath;
+      const route = (item as { route?: unknown }).route;
+      if (typeof basePath !== 'string' || typeof route !== 'string') return [];
+      return [{ basePath, route }];
+    });
+    return { ok: true, pinned };
+  } catch (error) {
+    console.error('[moduleTab] collabTabs', errorText(error));
+    return { ok: false };
+  }
+}
+
+function writePinnedTabs(pinned: PinnedModuleTab[]): void {
+  try {
+    window.localStorage?.setItem(COLLAB_TABS_KEY, JSON.stringify({ pinned }));
+  } catch (error) {
+    console.error('[moduleTab] collabTabs', errorText(error));
+  }
+}
+
+function rememberPinnedRoute(basePath: string, route: string): void {
+  const stored = readPinnedTabs();
+  if (!stored.ok) return;
+  const item = stored.pinned.find((entry) => entry.basePath === basePath);
+  if (!item || item.route === route) return;
+  item.route = route;
+  writePinnedTabs(stored.pinned);
+}
+
+export function moduleTabPinLabel(basePath: string, language: string): string {
+  const code = language.toLowerCase().startsWith('pt') ? 'pt' : 'en';
+  const stored = readPinnedTabs();
+  const pinned = stored.ok && stored.pinned.some((entry) => entry.basePath === basePath);
+  return pinned ? pinLabels[code].unpin : pinLabels[code].pin;
+}
+
+/** `openContentTab` keeps the current tab while pinned tabs are restored. */
+export function moduleTabOpenActivates(): boolean {
+  return !restoringPins;
+}
+
+export function toggleModuleTabPin(basePath: string): void {
+  const stored = readPinnedTabs();
+  if (!stored.ok) return;
+  const existing = stored.pinned.find((entry) => entry.basePath === basePath);
+  if (existing) {
+    writePinnedTabs(stored.pinned.filter((entry) => entry.basePath !== basePath));
+    return;
+  }
+  const route = hosts.get(basePath)?.route || basePath;
+  writePinnedTabs([...stored.pinned, { basePath, route }]);
+}
+
+export async function restorePinnedModuleTabs(importer?: RouteImporter): Promise<void> {
+  const stored = readPinnedTabs();
+  if (!stored.ok) return;
+  const href = currentHref();
+  if (bootOwns(href)) rememberShellRoute(href);
+  restoringPins = true;
+  try {
+    for (const item of stored.pinned) {
+      await openModuleTab(item.basePath, item.route, importer);
+    }
+  } finally {
+    restoringPins = false;
+  }
+  const owner = bootOwns(href) ? undefined : findModuleTabForPath(href);
+  window.collabRuntimeNav3?.activateTab(owner ? tabId(owner.basePath) : 'app');
+}
+
 function tabIsOpen(basePath: string): ModuleTabHost | undefined {
   const host = hosts.get(basePath);
   const nav = window.collabRuntimeNav3;
@@ -168,8 +263,10 @@ export async function navigateModuleTab(
   try {
     host.title = await renderRoute(basePath, route, host.div, importer);
     host.route = route;
+    rememberPinnedRoute(basePath, route);
   } catch (error) {
     host.route = route;
+    rememberPinnedRoute(basePath, route);
     showTabError(host.div, error);
   }
 }
@@ -201,5 +298,5 @@ export async function openModuleTab(
     showTabError(div, error);
   }
   nav.openTab({ id: tabId(basePath), title: host.title, element: div });
-  syncHistoryForContentTab(tabId(basePath));
+  if (moduleTabOpenActivates()) syncHistoryForContentTab(tabId(basePath));
 }

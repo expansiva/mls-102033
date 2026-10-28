@@ -40,9 +40,13 @@ import { getCollabRouteChunkCache, loadAuraRouteChunk, matchAuraRoute } from '/_
 import { isInternalModuleHref } from '/_102033_/l2/shared/layout/auraNavigate.js';
 import {
   findModuleTabForPath,
+  moduleTabOpenActivates,
+  moduleTabPinLabel,
   rememberShellRoute,
+  restorePinnedModuleTabs,
   revealModuleTabForLocation,
   syncHistoryForContentTab,
+  toggleModuleTabPin,
 } from '/_102033_/l2/shared/moduleTab.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 import { MOBILE_BREAKPOINT_PX } from '/_102033_/l2/shared/breakpoints.js';
@@ -311,6 +315,7 @@ export class CollabAuraShell extends LitElement {
         this.importRegion('aside'),
       ]);
       await this.loadActiveRoute();
+      await restorePinnedModuleTabs();
       this.regionsMounted = true;
       this.requestUpdate();
     } catch (error) {
@@ -1277,8 +1282,19 @@ export class CollabAuraShell extends LitElement {
         closable: tab.closable !== false,
       }];
     }
-    this.activeContentTabId = tab.id;
+    if (moduleTabOpenActivates()) this.activeContentTabId = tab.id;
     this.requestUpdate();
+  };
+
+  private readonly toggleContentTabPin = (id: string): void => {
+    if (!id.startsWith('mod-')) return;
+    toggleModuleTabPin(id.slice(4));
+    this.requestUpdate();
+  };
+
+  private contentTabPinLabel(id: string): string {
+    const language = getRuntimeLanguage(this.listLanguages(), document.documentElement?.lang ?? 'en') ?? 'en';
+    return moduleTabPinLabel(id.slice(4), language);
   };
 
   private readonly closeContentTab = (id: string): void => {
@@ -2225,6 +2241,9 @@ export class CollabAuraShell extends LitElement {
                     ${this.contentTabs.map((tab) => html`
                       <button class="nav3-tab" role="tab" data-active=${String(this.activeContentTabId === tab.id)} @click=${() => this.activateContentTab(tab.id)}>
                         ${tab.title}
+                        ${tab.id.startsWith('mod-')
+            ? html`<span class="nav3-tab-pin" title=${this.contentTabPinLabel(tab.id)} @click=${(event: Event) => { event.stopPropagation(); this.toggleContentTabPin(tab.id); }}>${this.contentTabPinLabel(tab.id)}</span>`
+            : null}
                         ${tab.closable
             ? html`<span class="nav3-tab-close" title="Fechar" @click=${(event: Event) => { event.stopPropagation(); this.closeContentTab(tab.id); }}>×</span>`
             : null}
