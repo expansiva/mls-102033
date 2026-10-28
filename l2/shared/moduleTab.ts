@@ -222,7 +222,9 @@ export async function isModuleRegistered(basePath: string): Promise<boolean> {
 function tabIsOpen(basePath: string): ModuleTabHost | undefined {
   const host = hosts.get(basePath);
   const nav = window.collabRuntimeNav3;
-  if (!host || !nav || !host.div.isConnected) return undefined;
+  // `listTabs` is the truth: the shell updates it synchronously in `openTab` and `closeTab`. The div is NOT
+  // required to be connected yet, because right after `openTab` Lit has not rendered it (first open).
+  if (!host || !nav) return undefined;
   if (!nav.listTabs().includes(tabId(basePath))) return undefined;
   return host;
 }

@@ -544,4 +544,54 @@ test('r1: restoring pins skips the module the boot already opened and keeps its 
     globalThis.fetch = previousFetch;
   }
 });
+
+test('r2: the first open of a module tab already points the URL at it, even before Lit connects the div', async () => {
+  const location = { pathname: '/home', search: '', hash: '' };
+  const tabs: string[] = [];
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  const apply = (url: string) => {
+    const parsed = new URL(url, 'http://collab.local');
+    location.pathname = parsed.pathname;
+    location.search = parsed.search;
+    location.hash = parsed.hash;
+  };
+  // The real shell renders the new tab asynchronously: right after openTab the div is not in the document.
+  globalThis.document = {
+    createElement(tag: string) {
+      const element = createElement(tag);
+      element.isConnected = false;
+      return element;
+    },
+  } as unknown as Document;
+  globalThis.window = {
+    collabRouteChunkCache: new Set<string>(['/r2tab/page.js']),
+    collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+    collabBoot: { basePath: '/home' },
+    location,
+    history: { replaceState(_state: unknown, _title: string, url: string) { apply(url); } },
+    collabRuntimeNav3: {
+      openTab(tab: { id: string }) { if (!tabs.includes(tab.id)) tabs.push(tab.id); },
+      activateTab() {},
+      closeTab() {},
+      listTabs: () => ['app', ...tabs],
+    },
+  } as unknown as Window & typeof globalThis;
+  globalThis.fetch = (async () => new Response(JSON.stringify(
+    boot('/r2tab', 'r2tab', '/r2tab', 'r2-page'),
+  ), { status: 200 })) as typeof fetch;
+  try {
+    await openModuleTab('/r2tab', '/r2tab', async () => ({}));
+    assert.equal(location.pathname, '/r2tab');
+    assert.equal(readShellRoute(), '/home');
+    assert.deepEqual(findModuleTabForPath('/r2tab'), { basePath: '/r2tab', route: '/r2tab' });
+    tabs.length = 0;
+    assert.equal(findModuleTabForPath('/r2tab'), undefined);
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.fetch = previousFetch;
+  }
+});
 });
