@@ -1,7 +1,6 @@
 /// <mls fileReference="_102033_/l2/cbe/studioExitReload.ts" enhancement="_blank" />
 
 import { readRelease as pingRelease } from '/_102033_/l2/cbe/releaseInfo.js';
-import { readDraftCookie } from '/_102033_/l2/cbe/studioDraft.js';
 
 export interface IStudioReleaseId {
   id: string;
@@ -34,39 +33,8 @@ export function rememberRelease(read: () => Promise<IStudioReleaseId | null>): P
   return captured;
 }
 
-/** `/desenv/sair?to=<path>` when a draft cookie is set; null when the page is already on production. */
-export function leaveDraftUrl(cookieString: string, path: string): string | null {
-  if (readDraftCookie(cookieString) === undefined) return null;
-  return '/desenv/sair?to=' + encodeURIComponent(path);
-}
-
-/** Fresh ping against the entry id. Reload only when they differ; a failed ping warns and does not reload.
- *  With a draft cookie, forget that draft's l2 marker and cache, then navigate to `/desenv/sair`.
- *  A failing forget warns and still navigates. That response already loads the current release. */
-export async function onStudioExit(
-  reload: () => void,
-  leave?: {
-    cookie: string;
-    path: string;
-    navigate: (url: string) => void;
-    forget?: (slug: string) => Promise<void>;
-  },
-): Promise<void> {
-  if (leave !== undefined) {
-    const url = leaveDraftUrl(leave.cookie, leave.path);
-    if (url !== null) {
-      const slug = readDraftCookie(leave.cookie);
-      if (slug !== undefined) {
-        try {
-          await leave.forget?.(slug);
-        } catch (error: unknown) {
-          console.warn('studio: failed to forget the draft l2', error);
-        }
-      }
-      leave.navigate(url);
-      return;
-    }
-  }
+/** Fresh ping against the entry id. Reload only when they differ; a failed ping warns and does not reload. */
+export async function onStudioExit(reload: () => void): Promise<void> {
   const read = readRelease;
   const beforePromise = captured;
   if (read === null || beforePromise === null) {

@@ -43,11 +43,8 @@ import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPage
 import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
 import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
 import { onStudioExit, readCollabReleaseId, rememberRelease } from '/_102033_/l2/cbe/studioExitReload.js';
-import { forgetDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
 import {
   applyCollabModeNotice,
-  draftNotice,
-  draftNoticeText,
   enterDraft,
   loadRecordedMode,
   postDraftEnter,
@@ -223,6 +220,8 @@ export class CollabAuraShell extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    // Drop the retired draft cookie once on boot. No /desenv/sair and no reload.
+    document.cookie = 'collab-draft=; Max-Age=0; Path=/';
     if (!isAuraBootConfig(window.collabBoot)) {
       this.statusMessage = 'Invalid or missing window.collabBoot.';
       return;
@@ -810,15 +809,10 @@ export class CollabAuraShell extends LitElement {
       if (this.structureUpgraded) {
         const leaving = this.studioModeOn;
         void this.toggleStudioMode().then(() => {
-          // The reload on the way out stays here until s2. `applyStudioInterface` already
-          // put the client services and the client split back; this only reloads.
+          // `applyStudioInterface` already put the client services and the client split back.
+          // Reload only when the published release id changed.
           if (leaving && !this.studioModeOn) {
-            void onStudioExit(() => location.reload(), {
-              cookie: document.cookie,
-              path: location.pathname + location.search,
-              navigate: (url) => location.assign(url),
-              forget: forgetDraftL2,
-            });
+            void onStudioExit(() => location.reload());
           }
         }).catch((error: unknown) => {
           console.error('[shell] setMode failed:', error);
@@ -2126,43 +2120,14 @@ export class CollabAuraShell extends LitElement {
         color: #102a43;
       }
 
-      /* Draft still on after a reload outside Studio. Footer, under the client banner (z-index 50). */
-      collab-aura-shell .draft-notice {
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 40;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
-        min-height: 28px;
-        padding: 4px 12px;
-        background: #102a43;
-        color: #fff;
-        font-size: 13px;
-        line-height: 1.3;
-      }
-
-      collab-aura-shell .draft-notice a {
-        color: #fff;
-        font-weight: 600;
-      }
     </style>`;
 
-    const draft = draftNotice(document.cookie, this.studioModeOn, location.pathname + location.search);
-    const draftText = draft ? draftNoticeText(draft.slug) : null;
-    const draftBar = draft && draftText
-      ? html`<div class="draft-notice" role="status"><span>${draftText.seeing}</span><a href=${draft.href}>${draftText.viewProduction}</a></div>`
-      : null;
-
     if (!this.bootConfig) {
-      return html`${styles}<div class="error">${this.statusMessage ?? 'Shell bootstrap was not provided.'}</div>${draftBar}`;
+      return html`${styles}<div class="error">${this.statusMessage ?? 'Shell bootstrap was not provided.'}</div>`;
     }
 
     if (this.statusMessage) {
-      return html`${styles}<div class="error">${this.statusMessage}</div>${draftBar}`;
+      return html`${styles}<div class="error">${this.statusMessage}</div>`;
     }
 
     const headerVisible = this.getRegionVisibility('header');
@@ -2261,7 +2226,6 @@ export class CollabAuraShell extends LitElement {
             </main>
           </div>
         </div>
-        ${draftBar}
       </div>
     `;
   }
