@@ -301,3 +301,59 @@ test('published CRC is the history blob, including a model born later', async ()
     }
   }
 });
+
+test('a rejecting getValueInfo stays resolved and logs the file', async () => {
+  const project = 102047;
+  const changed = { project, level: 2, folder: '', shortName: 'inicio', extension: '.ts' };
+  const key = fileKey(changed);
+  const stored: {
+    [key: string]: {
+      versionRef: string;
+      getHistoryContent?: (ref: string) => Promise<string | null>;
+      getContent?: () => Promise<string>;
+      getValueInfo?: () => Promise<{ content: string | null; originalCRC?: string } | undefined>;
+    };
+  } = {
+    [key]: {
+      versionRef: 'old',
+      getHistoryContent: async (ref) => (ref === 'main1' ? 'published-body' : null),
+      getContent: async () => 'draft-body',
+      getValueInfo: async () => {
+        throw new Error('published crc unavailable');
+      },
+    },
+  };
+  const host = globalThis as { mls?: { editor?: unknown; common?: unknown } };
+  const previousEditor = host.mls?.editor;
+  const previousCommon = host.mls?.common;
+  if (!host.mls) host.mls = {};
+  host.mls.common = { crc: { crc32: () => 7 } };
+  host.mls.editor = { getKeyModel: () => 'k', models: {} };
+  const errors: string[] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map((item) => (item instanceof Error ? item.message : String(item))).join(' '));
+  };
+  try {
+    await applyDraftFiles(project, 'team-102047', {
+      draftDiff: async () => ({
+        head: 'abc',
+        main: 'main1',
+        files: [{ status: 'M', path: 'l2/inicio.ts', sha: 'shaM' }],
+      }),
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async (info) => ({ versionRef: info.versionRef }),
+      fileKey,
+      files: () => stored,
+    });
+    const info = await stored[key].getValueInfo?.();
+    assert.equal(info, undefined);
+    assert.equal(errors.some((line) => line.includes('l2/inicio.ts') && line.includes('published crc unavailable')), true);
+  } finally {
+    console.error = previousError;
+    if (host.mls) {
+      host.mls.editor = previousEditor;
+      host.mls.common = previousCommon;
+    }
+  }
+});

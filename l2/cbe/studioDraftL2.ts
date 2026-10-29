@@ -245,12 +245,14 @@ async function loadImportModels(model: mls.editor.IModelTS, depth: number, visit
   }
 }
 
-async function applyDraft(project: number, path: string, text: string): Promise<void> {
+export async function applyDraft(project: number, path: string, text: string): Promise<void> {
   const loc = parseL2Ts(path);
   if (!loc) throw new Error(`not an l2 source: ${path}`);
   const existing = mls.editor.getModels(project, loc.shortName, loc.folder, 2)?.ts;
   const model = existing ?? await mls.editor.createModelTS(storFileFor(project, loc), text);
   model.model.setValue(text);
+  const { setModelEventAny } = await import('/_102027_/l2/libModel.js');
+  await setModelEventAny(model, model.storFile);
 }
 
 function workerPath(project: number, loc: L2File): string {

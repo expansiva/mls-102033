@@ -353,7 +353,13 @@ function installPublishedCrc(row: DraftStoredRow, crc: string, path: string): vo
   const base = known !== undefined ? known ?? undefined : current?.bind(row);
   const readContent = row.getContent?.bind(row);
   const pinned: ValueInfoFn = async () => {
-    const info = base ? await base() : undefined;
+    let info: mls.stor.IFileInfoValue | null | undefined;
+    try {
+      info = base ? await base() : undefined;
+    } catch (err) {
+      console.error(`[studioDraftFiles] ${path}: ${errorText(err)}`);
+      return undefined;
+    }
     if (info?.content) return { ...info, originalCRC: crc };
     let loaded: string | Blob | null = null;
     try {

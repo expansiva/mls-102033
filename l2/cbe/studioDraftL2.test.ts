@@ -1,7 +1,7 @@
 /// <mls fileReference="_102033_/l2/cbe/studioDraftL2.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compileDraftForWorker, draftL2Targets, forgetStaleDraftL2, importToL2File, publishDraftL2, type DraftWorkerAdd, type PublishDraftL2Deps } from '/_102033_/l2/cbe/studioDraftL2.js';
+import { applyDraft, compileDraftForWorker, draftL2Targets, forgetStaleDraftL2, importToL2File, publishDraftL2, type DraftWorkerAdd, type PublishDraftL2Deps } from '/_102033_/l2/cbe/studioDraftL2.js';
 
 const S1_FILES = [
   { status: 'M', path: 'l2/a.ts' },
@@ -115,6 +115,102 @@ test('publishDraftL2 sends add with the draft slug and does not reload', async (
     assert.equal(adds.every((message) => message.action === 'add' && message.draft === 'team-102047'), true);
   } finally {
     (globalThis as { location?: { reload?: () => void } }).location = previous;
+  }
+});
+
+test('applyDraft binds one listener and one edit fires that listener once', async () => {
+  const listeners: Array<(event: { changes: Array<{ range: { startLineNumber: number; endLineNumber: number; endColumn: number } }> }) => void> = [];
+  let value = '';
+  const actions: string[] = [];
+  const host = globalThis as typeof globalThis & {
+    mls: {
+      events?: { addEventListener?: (...args: unknown[]) => void; fireFileAction?: (action: string) => void };
+      stor?: {
+        files?: Record<string, unknown>;
+        getKeyToFile?: (file: unknown) => string;
+        localStor?: { setContent: () => Promise<void> };
+      };
+      common?: { crc: { crc32: (value: string) => number } };
+      editor?: {
+        editors?: Record<string, unknown>;
+        models?: Record<string, unknown>;
+        getModels?: () => undefined;
+        getKeyModel?: () => string;
+        createModelTS?: (storFile: mls.stor.IFileInfo, content: string) => Promise<mls.editor.IModelTS>;
+      };
+      l2?: { typescript: { compileAndPostProcess: (model: mls.editor.IModelTS) => Promise<boolean> } };
+    };
+    window?: typeof globalThis;
+    monaco?: { editor: { setModelMarkers: () => void } };
+  };
+  const previous = {
+    events: host.mls.events,
+    stor: host.mls.stor,
+    common: host.mls.common,
+    editor: host.mls.editor,
+    l2: host.mls.l2,
+    window: host.window,
+    monaco: host.monaco,
+  };
+  host.mls.events = {
+    addEventListener: () => { },
+    fireFileAction: (action: string) => { actions.push(action); },
+  };
+  host.mls.stor = {
+    files: {},
+    getKeyToFile: () => 'missing',
+    localStor: { setContent: async () => { } },
+  };
+  host.mls.common = { crc: { crc32: () => 1 } };
+  host.mls.editor = {
+    editors: {},
+    models: {},
+    getModels: () => undefined,
+    getKeyModel: () => 'missing',
+    createModelTS: async (storFile) => ({
+      model: {
+        id: 'inicio',
+        isDisposed: () => false,
+        getValue: () => value,
+        setValue: (next: string) => { value = next; },
+        getLineCount: () => 1,
+        getLineContent: () => value,
+        onDidChangeContent: (listener: (event: { changes: Array<{ range: { startLineNumber: number; endLineNumber: number; endColumn: number } }> }) => void) => {
+          listeners.push(listener);
+          return { dispose() { } };
+        },
+      },
+      storFile,
+      codeLens: {},
+    }) as unknown as mls.editor.IModelTS,
+  };
+  host.mls.l2 = {
+    typescript: {
+      compileAndPostProcess: async (model) => {
+        model.compilerResults = { errors: [] } as mls.editor.IModelTS['compilerResults'];
+        return true;
+      },
+    },
+  };
+  host.window = globalThis;
+  host.monaco = { editor: { setModelMarkers: () => { } } };
+  try {
+    await applyDraft(102047, 'l2/inicio.ts', 'export const n = 1;\n');
+    assert.equal(listeners.length, 1);
+    value = 'export const n = 2;\n';
+    listeners[0]({
+      changes: [{ range: { startLineNumber: 1, endLineNumber: 2, endColumn: 8 } }],
+    });
+    await new Promise((resolve) => { setTimeout(resolve, 450); });
+    assert.deepEqual(actions, ['editorEvents', 'statusOrErrorChanged']);
+  } finally {
+    host.mls.events = previous.events;
+    host.mls.stor = previous.stor;
+    host.mls.common = previous.common;
+    host.mls.editor = previous.editor;
+    host.mls.l2 = previous.l2;
+    host.window = previous.window;
+    host.monaco = previous.monaco;
   }
 });
 
