@@ -1302,6 +1302,8 @@ export class CollabAuraShell extends LitElement {
     this.contentTabs = this.contentTabs.filter((entry) => entry.id !== id);
     if (this.activeContentTabId === id) {
       this.activeContentTabId = this.contentTabs.length > 0 ? this.contentTabs[this.contentTabs.length - 1].id : 'app';
+      // The URL follows the active tab on EVERY change: open, activate and close.
+      syncHistoryForContentTab(this.activeContentTabId);
     }
   };
 

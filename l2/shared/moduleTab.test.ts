@@ -1,5 +1,6 @@
 /// <mls fileReference="_102033_/l2/shared/moduleTab.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
 import { auraNavigate } from '/_102033_/l2/shared/layout/auraNavigate.js';
@@ -593,5 +594,93 @@ test('r2: the first open of a module tab already points the URL at it, even befo
     globalThis.document = previousDocument;
     globalThis.fetch = previousFetch;
   }
+});
+
+test('r3: the URL follows the active tab in every transition — open, activate and close', async () => {
+  const location = { pathname: '/home', search: '', hash: '' };
+  const tabs: string[] = [];
+  let active = 'app';
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  const apply = (url: string) => {
+    const parsed = new URL(url, 'http://collab.local');
+    location.pathname = parsed.pathname;
+    location.search = parsed.search;
+    location.hash = parsed.hash;
+  };
+  globalThis.document = {
+    createElement(tag: string) {
+      const element = createElement(tag);
+      element.isConnected = false;
+      return element;
+    },
+  } as unknown as Document;
+  // Same contract as the shell handlers: openTab activates (openModuleTab syncs), activateTab and closeTab sync.
+  globalThis.window = {
+    collabRouteChunkCache: new Set<string>(['/r3a/page.js', '/r3b/page.js']),
+    collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+    collabBoot: { basePath: '/home' },
+    location,
+    history: { replaceState(_state: unknown, _title: string, url: string) { apply(url); } },
+    collabRuntimeNav3: {
+      openTab(tab: { id: string }) {
+        if (!tabs.includes(tab.id)) tabs.push(tab.id);
+        active = tab.id;
+      },
+      activateTab(id: string) {
+        syncHistoryForContentTab(id);
+        active = id;
+      },
+      closeTab(id: string) {
+        const index = tabs.indexOf(id);
+        if (index >= 0) tabs.splice(index, 1);
+        if (active === id) {
+          active = tabs.length > 0 ? tabs[tabs.length - 1] : 'app';
+          syncHistoryForContentTab(active);
+        }
+      },
+      listTabs: () => ['app', ...tabs],
+    },
+  } as unknown as Window & typeof globalThis;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const basePath = new URL(String(input), 'http://collab.local').searchParams.get('basePath') ?? '';
+    return new Response(JSON.stringify(boot(basePath, basePath.slice(1), basePath, 'r3-page')), { status: 200 });
+  }) as typeof fetch;
+  try {
+    await openModuleTab('/r3a', '/r3a', async () => ({}));
+    assert.equal(location.pathname, '/r3a', 'open A');
+    await openModuleTab('/r3b', '/r3b', async () => ({}));
+    assert.equal(location.pathname, '/r3b', 'open B');
+
+    window.collabRuntimeNav3!.activateTab('mod-/r3a');
+    assert.equal(location.pathname, '/r3a', 'activate A');
+    window.collabRuntimeNav3!.activateTab('app');
+    assert.equal(location.pathname, '/home', 'activate app');
+    window.collabRuntimeNav3!.activateTab('mod-/r3b');
+    assert.equal(location.pathname, '/r3b', 'activate B');
+
+    window.collabRuntimeNav3!.closeTab('mod-/r3a');
+    assert.equal(location.pathname, '/r3b', 'closing a tab that is not active keeps the URL');
+    window.collabRuntimeNav3!.closeTab('mod-/r3b');
+    assert.equal(location.pathname, '/home', 'closing the active tab goes to the tab that stays (app)');
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('r3: the shell handlers for the three transitions all sync the URL (class guard on the source)', () => {
+  const shell = readFileSync(new URL('./shell.ts', import.meta.url), 'utf8');
+  const handler = (name: string): string => {
+    const start = shell.indexOf(`private readonly ${name} = `);
+    assert.ok(start >= 0, `${name} not found in shell.ts`);
+    return shell.slice(start, shell.indexOf('\n  };', start));
+  };
+  assert.match(handler('activateContentTab'), /syncHistoryForContentTab\(id\)/u);
+  assert.match(handler('closeContentTab'), /syncHistoryForContentTab\(this\.activeContentTabId\)/u);
+  // Opening: the shell only activates; the URL is pointed at the tab by openModuleTab itself.
+  assert.match(handler('openContentTab'), /moduleTabOpenActivates\(\)/u);
 });
 });
