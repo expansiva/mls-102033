@@ -45,6 +45,7 @@ import {
   rememberShellRoute,
   restorePinnedModuleTabs,
   revealModuleTabForLocation,
+  settleClosedContentTab,
   syncHistoryForContentTab,
   toggleModuleTabPin,
 } from '/_102033_/l2/shared/moduleTab.js';
@@ -133,6 +134,7 @@ export class CollabAuraShell extends LitElement {
     activeRoute: { attribute: false },
     contentTabs: { state: true },
     activeContentTabId: { state: true },
+    appTabOpen: { state: true },
   };
 
   declare bootConfig?: MasterFrontendBootConfig;
@@ -161,15 +163,13 @@ export class CollabAuraShell extends LitElement {
   // header profile declares the same value, switching profiles (e.g. client app
   // header <-> studio nav1/nav2/nav3, Ctrl+Alt+S) causes zero layout shift.
   private activeHeaderHeightPx?: number;
-  // ── Unified nav3 (option C): the content region hosts N tabs. Tab 'app' is the
-  // client app (the normal route rendering) and is always present; extra tabs host
-  // arbitrary elements (task Detail, studio services, another app route — the
-  // "3 telas" workflow). The tab bar only renders when extra tabs exist, so the
-  // production app pays nothing until a tab opens. Hosted elements get the studio
-  // nav3 contract: an `msize` attribute ("width,height,top,left") plus layout()
-  // calls on resize — what serviceBase/monaco-based services rely on.
+  // ── Unified nav3: the content region hosts N tabs. Tab 'app' is the client app.
+  // The outer shell always shows the bar (one tab is enough). An embedded shell
+  // stays content-only. `appTabOpen` hides the app tab until a route of this
+  // module opens it again, or until it was the last tab and comes back at basePath.
   declare contentTabs: Array<{ id: string; title: string; element: HTMLElement; closable: boolean }>;
   declare activeContentTabId: string;
+  appTabOpen = true;
   // ── Progressive upgrade to the on.collab.codes structure (option C final):
   // after first paint, the shell mounts collab-page>nav1+spliter[nav2+nav3 × 2]
   // in background and the runtime services adopt the aside/content panels.
@@ -244,6 +244,7 @@ export class CollabAuraShell extends LitElement {
     this.isAsideOpen = this.getDefaultAsideOpen(this.resolvedDevice);
     this.contentTabs = [];
     this.activeContentTabId = 'app';
+    this.appTabOpen = true;
     this.initializeDynamicRegions();
     window.collabMasterFrontendShellControls = {
       toggleAside: this.handleToggleAside,
@@ -261,7 +262,10 @@ export class CollabAuraShell extends LitElement {
       openTab: (tab) => this.openContentTab(tab as { id: string; title: string; element: HTMLElement; closable?: boolean }),
       closeTab: this.closeContentTab,
       activateTab: this.activateContentTab,
-      listTabs: () => ['app', ...this.contentTabs.map((tab) => tab.id)],
+      listTabs: () => [
+        ...(this.appTabOpen ? ['app'] : []),
+        ...this.contentTabs.map((tab) => tab.id),
+      ],
     };
     this.registerSitesControls();
     setTimeout(() => this.maybeUpgradeStructure(), 1200);
@@ -868,7 +872,7 @@ export class CollabAuraShell extends LitElement {
     } else {
       if (ownedByBoot) {
         rememberShellRoute(href);
-        if (this.activeContentTabId.startsWith('mod-')) this.activateContentTab('app');
+        if (!this.appTabOpen || this.activeContentTabId.startsWith('mod-')) this.activateContentTab('app');
       }
       bindExpectedNavigationLoad(pendingLoad, this.loadActiveRoute());
     }
@@ -1298,17 +1302,40 @@ export class CollabAuraShell extends LitElement {
   };
 
   private readonly closeContentTab = (id: string): void => {
-    if (id === 'app') return;
-    this.contentTabs = this.contentTabs.filter((entry) => entry.id !== id);
-    if (this.activeContentTabId === id) {
-      this.activeContentTabId = this.contentTabs.length > 0 ? this.contentTabs[this.contentTabs.length - 1].id : 'app';
-      // The URL follows the active tab on EVERY change: open, activate and close.
-      syncHistoryForContentTab(this.activeContentTabId);
+    const settled = settleClosedContentTab({
+      closedId: id,
+      appOpen: this.appTabOpen,
+      activeId: this.activeContentTabId,
+      tabIds: this.contentTabs.map((tab) => tab.id),
+    });
+    if (!settled) return;
+    this.appTabOpen = settled.appOpen;
+    this.contentTabs = this.contentTabs.filter((entry) => settled.tabIds.includes(entry.id));
+    this.activeContentTabId = settled.activeId;
+    if (settled.reopenInitial) {
+      this.reopenAppAtBootRoute();
+      return;
     }
+    // The URL follows the active tab on EVERY change: open, activate and close.
+    if (settled.syncUrl) syncHistoryForContentTab(this.activeContentTabId);
   };
 
+  /** Last tab closed: the app tab comes back on the module root and the URL follows. */
+  private reopenAppAtBootRoute(): void {
+    this.appTabOpen = true;
+    this.activeContentTabId = 'app';
+    const initial = this.bootConfig?.basePath || '/';
+    rememberShellRoute(initial);
+    syncHistoryForContentTab('app');
+    void this.loadActiveRoute();
+  }
+
   private readonly activateContentTab = (id: string): void => {
-    if (id !== 'app' && !this.contentTabs.some((entry) => entry.id === id)) return;
+    if (id === 'app') {
+      this.appTabOpen = true;
+    } else if (!this.contentTabs.some((entry) => entry.id === id)) {
+      return;
+    }
     syncHistoryForContentTab(id);
     this.activeContentTabId = id;
   };
@@ -1974,9 +2001,7 @@ export class CollabAuraShell extends LitElement {
           linear-gradient(180deg, #f7f4ea 0%, #fffdfa 100%);
       }
 
-      /* Unified nav3: the content region is a tab host. With no extra tabs the
-         bar is absent and the app panel keeps the classic 24px padding — the
-         production app renders exactly as before. */
+      /* Unified nav3: the outer shell is always a tab host, including one tab. */
       collab-aura-shell .region.content[data-has-tabs="true"] {
         display: flex;
         flex-direction: column;
@@ -2012,12 +2037,14 @@ export class CollabAuraShell extends LitElement {
         background: var(--collab-nav-bg-3, #fffdfa);
         color: var(--collab-nav-color-active, #102a43);
         font-weight: 600;
+        cursor: default;
       }
 
       collab-aura-shell .nav3-tab-close {
         font-size: 1rem;
         line-height: 1;
         opacity: 0.6;
+        cursor: pointer;
       }
 
       collab-aura-shell .nav3-tab-close:hover {
@@ -2233,13 +2260,18 @@ export class CollabAuraShell extends LitElement {
             <aside class="region aside" data-region="aside" data-visible=${String(asideVisible)}>
               <div data-region-host="aside"></div>
             </aside>
-            <main class="region content" data-region="content" data-visible=${String(contentVisible)} data-has-tabs=${String(this.contentTabs.length > 0)}>
-              ${this.contentTabs.length > 0
-        ? html`
+            <main class="region content" data-region="content" data-visible=${String(contentVisible)} data-has-tabs=${String(!this.isEmbedded)}>
+              ${this.isEmbedded
+        ? null
+        : html`
                   <div class="nav3-tabs" role="tablist">
+                    ${this.appTabOpen
+            ? html`
                     <button class="nav3-tab" role="tab" data-active=${String(this.activeContentTabId === 'app')} @click=${() => this.activateContentTab('app')}>
                       ${this.bootConfig?.pageTitle ?? 'App'}
-                    </button>
+                      <span class="nav3-tab-close" title="Fechar" @click=${(event: Event) => { event.stopPropagation(); this.closeContentTab('app'); }}>×</span>
+                    </button>`
+            : null}
                     ${this.contentTabs.map((tab) => html`
                       <button class="nav3-tab" role="tab" data-active=${String(this.activeContentTabId === tab.id)} @click=${() => this.activateContentTab(tab.id)}>
                         ${tab.title}
@@ -2252,8 +2284,7 @@ export class CollabAuraShell extends LitElement {
                       </button>
                     `)}
                   </div>
-                `
-        : null}
+                `}
               <div class="nav3-panels">
                 <div class="nav3-panel nav3-panel-app" data-tab="app" data-active=${String(this.activeContentTabId === 'app')}>
                   ${blockingError ? this.renderBlockingError(blockingError) : null}

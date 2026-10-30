@@ -171,6 +171,47 @@ export function moduleTabPinLabel(basePath: string, language: string): string {
   return pinned ? pinLabels[code].unpin : pinLabels[code].pin;
 }
 
+/** Result of closing one nav3 tab. `reopenInitial` means nothing was left, so the app tab returns at the boot route. */
+export interface ClosedContentTab {
+  appOpen: boolean;
+  activeId: string;
+  tabIds: string[];
+  reopenInitial: boolean;
+  syncUrl: boolean;
+}
+
+/** Hide the app tab or drop a module tab. The active tab moves only when the closed one was active. */
+export function settleClosedContentTab(input: {
+  closedId: string;
+  appOpen: boolean;
+  activeId: string;
+  tabIds: string[];
+}): ClosedContentTab | undefined {
+  const { closedId, activeId, tabIds } = input;
+  let appOpen = input.appOpen;
+  if (closedId === 'app') {
+    if (!appOpen) return undefined;
+    appOpen = false;
+  } else if (!tabIds.includes(closedId)) {
+    return undefined;
+  }
+  const nextIds = closedId === 'app' ? tabIds : tabIds.filter((id) => id !== closedId);
+  if (nextIds.length === 0 && !appOpen) {
+    return { appOpen: true, activeId: 'app', tabIds: nextIds, reopenInitial: true, syncUrl: false };
+  }
+  const closedWasActive = activeId === closedId;
+  const nextActive = closedWasActive
+    ? (nextIds.length > 0 ? nextIds[nextIds.length - 1] : 'app')
+    : activeId;
+  return {
+    appOpen,
+    activeId: nextActive,
+    tabIds: nextIds,
+    reopenInitial: false,
+    syncUrl: closedWasActive,
+  };
+}
+
 /** `openContentTab` keeps the current tab while pinned tabs are restored. */
 export function moduleTabOpenActivates(): boolean {
   return !restoringPins;

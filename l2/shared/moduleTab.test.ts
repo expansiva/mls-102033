@@ -17,6 +17,7 @@ import {
   readShellRoute,
   restorePinnedModuleTabs,
   revealModuleTabForLocation,
+  settleClosedContentTab,
   syncHistoryForContentTab,
   toggleModuleTabPin,
 } from '/_102033_/l2/shared/moduleTab.js';
@@ -683,4 +684,60 @@ test('r3: the shell handlers for the three transitions all sync the URL (class g
   // Opening: the shell only activates; the URL is pointed at the tab by openModuleTab itself.
   assert.match(handler('openContentTab'), /moduleTabOpenActivates\(\)/u);
 });
+});
+
+describe('rt154 s1: one tab is enough, the app tab closes, the active cursor is default', () => {
+  test('the bar is on with a single app tab, the app tab has the same close, the active cursor is default', () => {
+    const shell = readFileSync(new URL('./shell.ts', import.meta.url), 'utf8');
+    assert.match(shell, /data-has-tabs=\$\{String\(!this\.isEmbedded\)\}/u);
+    assert.match(shell, /closeContentTab\('app'\)/u);
+    assert.match(shell, /\.nav3-tab\[data-active="true"\] \{[^}]*cursor:\s*default;/u);
+    assert.match(shell, /\.nav3-tab-close \{[^}]*cursor:\s*pointer;/u);
+    assert.match(shell, /if \(!this\.appTabOpen \|\| this\.activeContentTabId\.startsWith\('mod-'\)\) this\.activateContentTab\('app'\)/u);
+    const reopen = shell.slice(shell.indexOf('reopenAppAtBootRoute'), shell.indexOf('private readonly activateContentTab'));
+    assert.match(reopen, /this\.bootConfig\?\.basePath/u);
+    assert.match(reopen, /syncHistoryForContentTab\('app'\)/u);
+    assert.match(reopen, /this\.loadActiveRoute\(\)/u);
+  });
+
+  test('closing the app tab activates the neighbor; closing the last tab reopens the app', () => {
+    const withNeighbor = settleClosedContentTab({
+      closedId: 'app',
+      appOpen: true,
+      activeId: 'app',
+      tabIds: ['mod-/tarefas'],
+    });
+    assert.deepEqual(withNeighbor, {
+      appOpen: false,
+      activeId: 'mod-/tarefas',
+      tabIds: ['mod-/tarefas'],
+      reopenInitial: false,
+      syncUrl: true,
+    });
+    const onlyApp = settleClosedContentTab({
+      closedId: 'app',
+      appOpen: true,
+      activeId: 'app',
+      tabIds: [],
+    });
+    assert.equal(onlyApp?.reopenInitial, true);
+    assert.equal(onlyApp?.activeId, 'app');
+    assert.equal(onlyApp?.appOpen, true);
+    const lastModule = settleClosedContentTab({
+      closedId: 'mod-/tarefas',
+      appOpen: false,
+      activeId: 'mod-/tarefas',
+      tabIds: ['mod-/tarefas'],
+    });
+    assert.equal(lastModule?.reopenInitial, true);
+    const inactive = settleClosedContentTab({
+      closedId: 'mod-/a',
+      appOpen: true,
+      activeId: 'mod-/b',
+      tabIds: ['mod-/a', 'mod-/b'],
+    });
+    assert.equal(inactive?.syncUrl, false);
+    assert.equal(inactive?.activeId, 'mod-/b');
+    assert.deepEqual(inactive?.tabIds, ['mod-/b']);
+  });
 });
