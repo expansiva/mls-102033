@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  designSystemProjectId,
   getNextRuntimeDesignSystem,
   getRuntimeDesignSystem,
   listRuntimeDesignSystems,
@@ -76,6 +77,46 @@ test('replaces the existing ds-tokens style without a browser refresh', async ()
   assert.equal(runtime.styles[0].dataset.designSystem, 'Natal');
   assert.equal(runtime.styles[0].textContent, ':root { --active-ds: "Natal"; }');
   assert.equal(loadedPath, '/_102045_/l2/designSystem.js');
+});
+
+test('loads the app design system when the boot names the module owner and the client', async () => {
+  const runtime = runtimeDocument();
+  let loadedPath = '';
+  const projectId = designSystemProjectId({ projectId: '102034', clientProjectId: '102056' }) ?? '';
+
+  await setRuntimeDesignSystem(
+    'Default',
+    ['Default'],
+    projectId,
+    runtime.document,
+    async (_name, path) => {
+      loadedPath = path;
+      return ':root { --from: app; }';
+    },
+  );
+
+  assert.equal(projectId, '102056');
+  assert.equal(loadedPath, '/_102056_/l2/designSystem.js');
+});
+
+test('loads the boot project design system when clientProjectId is absent', async () => {
+  const runtime = runtimeDocument();
+  let loadedPath = '';
+  const projectId = designSystemProjectId({ projectId: '102034' }) ?? '';
+
+  await setRuntimeDesignSystem(
+    'Default',
+    ['Default'],
+    projectId,
+    runtime.document,
+    async (_name, path) => {
+      loadedPath = path;
+      return ':root { --from: owner; }';
+    },
+  );
+
+  assert.equal(projectId, '102034');
+  assert.equal(loadedPath, '/_102034_/l2/designSystem.js');
 });
 
 test('rejects a design system that is not configured', async () => {

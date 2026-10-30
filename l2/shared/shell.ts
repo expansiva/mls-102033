@@ -31,6 +31,7 @@ import {
   setRuntimeLanguage,
 } from '/_102033_/l2/shared/languageRuntime.js';
 import {
+  designSystemProjectId,
   getNextRuntimeDesignSystem,
   getRuntimeDesignSystem,
   listRuntimeDesignSystems,
@@ -1133,7 +1134,7 @@ export class CollabAuraShell extends LitElement {
   }
 
   private async setDS(designSystem: string): Promise<void> {
-    const projectId = this.bootConfig?.projectId;
+    const projectId = designSystemProjectId(this.bootConfig);
     if (!projectId) {
       throw new Error('mls.sites.setDS: runtime project is not available.');
     }

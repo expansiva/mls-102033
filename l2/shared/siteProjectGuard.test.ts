@@ -9,8 +9,7 @@ const l2Root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Exact boot `projectId` reads that belong to the served page owner, not the site. */
 const allowedCount: Record<string, { count: number; why: string }> = {
-  'shared/shell.ts': { count: 1, why: 'setDS: design system of the page owner' },
-  'shared/layout/aura-header-base.ts': { count: 2, why: 'action-event detail and renderDesignSystemSwitcher: page owner' },
+  'shared/layout/aura-header-base.ts': { count: 1, why: 'action-event detail: page owner' },
   'shared/layout/aura-header.ts': { count: 1, why: 'header label: page owner' },
 };
 

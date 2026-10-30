@@ -25,6 +25,16 @@ function normalizeDesignSystem(name: string): string {
   return name.trim().toLowerCase();
 }
 
+/** Project whose designSystem.js supplies the theme: the app, not the module owner. */
+export function designSystemProjectId(boot: {
+  projectId?: string | number;
+  clientProjectId?: string | number;
+} | null | undefined): string | undefined {
+  const project = boot?.clientProjectId ?? boot?.projectId;
+  if (project === undefined || project === null || project === '') return undefined;
+  return String(project);
+}
+
 export function listRuntimeDesignSystems(designSystems: readonly string[] | undefined): string[] {
   const names: string[] = [];
   const seen = new Set<string>();

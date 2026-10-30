@@ -18,6 +18,7 @@ import { getTokens, getTokensCss } from '/_102029_/l2/designSystemBase.js';
 import { BFF_UNAUTHENTICATED_EVENT } from '/_102029_/l2/bffClient.js';
 import { startCollabLogin } from '/_102033_/l2/cbe/cbeAuth.js';
 import {
+  designSystemProjectId,
   listRuntimeDesignSystems,
   resolveRuntimeDesignSystem,
   setRuntimeDesignSystem,
@@ -33,8 +34,8 @@ import {
 async function injectDesignSystemTokens(): Promise<void> {
   try {
     const boot = window.collabBoot;
-    const project = boot?.projectId;
-    if (!project) return;
+    const project = designSystemProjectId(boot);
+    if (!boot || !project) return;
     const designSystems = listRuntimeDesignSystems(boot.designSystems);
     const requestedDesignSystem = resolveRuntimeDesignSystem(
       designSystems,

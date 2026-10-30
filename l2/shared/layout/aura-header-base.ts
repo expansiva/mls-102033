@@ -43,6 +43,7 @@ import {
 import { getSessionUser, userInitials, userLabel, type SessionUser } from '/_102033_/l2/shared/sessionUser.js';
 import { visibleNavigation } from '/_102033_/l2/shared/navigationVisibility.js';
 import {
+  designSystemProjectId,
   getRuntimeDesignSystem,
   listRuntimeDesignSystems,
   setRuntimeDesignSystem,
@@ -525,7 +526,7 @@ export abstract class AuraHeaderBase extends LitElement {
 
   protected renderDesignSystemSwitcher() {
     const designSystems = listRuntimeDesignSystems(this.bootConfig?.designSystems);
-    const projectId = this.bootConfig?.projectId;
+    const projectId = designSystemProjectId(this.bootConfig);
     if (designSystems.length <= 1 || !projectId) {
       return nothing;
     }
