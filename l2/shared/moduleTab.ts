@@ -24,8 +24,8 @@ let shellRoute = '';
 let restoringPins = false;
 
 const pinLabels: Record<string, { pin: string; unpin: string }> = {
-  en: { pin: 'Pin', unpin: 'Unpin' },
-  pt: { pin: 'Fixar', unpin: 'Desafixar' },
+  en: { pin: 'Pin tab', unpin: 'Unpin tab' },
+  pt: { pin: 'Fixar aba', unpin: 'Desafixar aba' },
 };
 
 function tabId(basePath: string): string {
@@ -164,11 +164,22 @@ function rememberPinnedRoute(basePath: string, route: string): void {
   writePinnedTabs(stored.pinned);
 }
 
+/** `app` is the boot module; `mod-*` is that module's basePath. */
+export function pinBasePathForTab(tabIdValue: string, bootBasePath: string): string {
+  if (tabIdValue === 'app') return bootBasePath;
+  if (tabIdValue.startsWith('mod-')) return tabIdValue.slice(4);
+  return '';
+}
+
+export function isModuleTabPinned(basePath: string): boolean {
+  if (!basePath) return false;
+  const stored = readPinnedTabs();
+  return stored.ok && stored.pinned.some((entry) => entry.basePath === basePath);
+}
+
 export function moduleTabPinLabel(basePath: string, language: string): string {
   const code = language.toLowerCase().startsWith('pt') ? 'pt' : 'en';
-  const stored = readPinnedTabs();
-  const pinned = stored.ok && stored.pinned.some((entry) => entry.basePath === basePath);
-  return pinned ? pinLabels[code].unpin : pinLabels[code].pin;
+  return isModuleTabPinned(basePath) ? pinLabels[code].unpin : pinLabels[code].pin;
 }
 
 /** Result of closing one nav3 tab. `reopenInitial` means nothing was left, so the app tab returns at the boot route. */
@@ -217,21 +228,35 @@ export function moduleTabOpenActivates(): boolean {
   return !restoringPins;
 }
 
-export function toggleModuleTabPin(basePath: string): void {
+export function toggleModuleTabPin(basePath: string, route?: string): void {
   const stored = readPinnedTabs();
-  if (!stored.ok) return;
+  if (!stored.ok || !basePath) return;
   const existing = stored.pinned.find((entry) => entry.basePath === basePath);
   if (existing) {
     writePinnedTabs(stored.pinned.filter((entry) => entry.basePath !== basePath));
     return;
   }
-  const route = hosts.get(basePath)?.route || basePath;
-  writePinnedTabs([...stored.pinned, { basePath, route }]);
+  const pinnedRoute = route || hosts.get(basePath)?.route || currentHref() || basePath;
+  writePinnedTabs([...stored.pinned, { basePath, route: pinnedRoute }]);
+}
+
+/** At the boot module root, the stored pin replaces the URL. A deeper boot route stays. */
+function restorePinnedBootRoute(pinned: PinnedModuleTab[]): void {
+  const bootBasePath = window.collabBoot?.basePath ?? '';
+  if (!bootBasePath) return;
+  const pathname = pathnameOf(currentHref());
+  const atRoot = pathname === bootBasePath || pathname === `${bootBasePath}/`;
+  if (!atRoot) return;
+  const item = pinned.find((entry) => entry.basePath === bootBasePath);
+  if (!item?.route || pathnameOf(item.route) === bootBasePath) return;
+  if (typeof window.history?.replaceState !== 'function') return;
+  window.history.replaceState({}, '', item.route);
 }
 
 export async function restorePinnedModuleTabs(importer?: RouteImporter): Promise<void> {
   const stored = readPinnedTabs();
   if (!stored.ok) return;
+  restorePinnedBootRoute(stored.pinned);
   const href = currentHref();
   if (bootOwns(href)) rememberShellRoute(href);
   restoringPins = true;

@@ -11,7 +11,9 @@ import {
 import {
   findModuleTabForPath,
   isModuleRegistered,
+  isModuleTabPinned,
   moduleTabPinLabel,
+  pinBasePathForTab,
   navigateModuleTab,
   openModuleTab,
   readShellRoute,
@@ -366,11 +368,11 @@ test('pin writes one localStorage variable, unpin removes, and a reload restores
     await openModuleTab('/pin-a', '/pin-a', async () => ({}));
     await openModuleTab('/pin-b', '/pin-b/item', async () => ({}));
     await openModuleTab('/pin-c', '/pin-c', async () => ({}));
-    assert.equal(moduleTabPinLabel('/pin-a', 'en'), 'Pin');
-    assert.equal(moduleTabPinLabel('/pin-a', 'pt-BR'), 'Fixar');
+    assert.equal(moduleTabPinLabel('/pin-a', 'en'), 'Pin tab');
+    assert.equal(moduleTabPinLabel('/pin-a', 'pt-BR'), 'Fixar aba');
     toggleModuleTabPin('/pin-a');
     toggleModuleTabPin('/pin-b');
-    assert.equal(moduleTabPinLabel('/pin-a', ''), 'Unpin');
+    assert.equal(moduleTabPinLabel('/pin-a', ''), 'Unpin tab');
     const saved = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ basePath: string; route: string }> };
     assert.deepEqual(saved.pinned, [
       { basePath: '/pin-a', route: '/pin-a' },
@@ -739,5 +741,107 @@ describe('rt154 s1: one tab is enough, the app tab closes, the active cursor is 
     assert.equal(inactive?.syncUrl, false);
     assert.equal(inactive?.activeId, 'mod-/b');
     assert.deepEqual(inactive?.tabIds, ['mod-/b']);
+  });
+});
+
+describe('rt154 s2: pin lives on the nav3 menu, including the app tab', () => {
+  test('the tab text no longer pins, and the service menu toggles the active tab', () => {
+    const shell = readFileSync(new URL('./shell.ts', import.meta.url), 'utf8');
+    const service = readFileSync(new URL('../cbe/serviceClientApp.ts', import.meta.url), 'utf8');
+    assert.equal(shell.includes('nav3-tab-pin'), false);
+    assert.match(shell, /activeTab: \(\) => this\.activeContentTabId/u);
+    assert.match(shell, /togglePin: this\.toggleContentTabPin/u);
+    assert.match(shell, /isPinned:/u);
+    assert.match(service, /pinMenuText\(\)/u);
+    assert.match(service, /nav\.togglePin\(nav\.activeTab\(\)\)/u);
+    assert.match(service, /this\.menu\.refresh\?\.\(\)/u);
+    const mount = shell.slice(shell.indexOf('async mountModuleRoot'), shell.indexOf('private readonly handleViewportChange'));
+    const restoreAt = mount.indexOf('restorePinnedModuleTabs');
+    const loadAt = mount.indexOf('loadActiveRoute');
+    assert.ok(restoreAt >= 0 && loadAt > restoreAt);
+  });
+
+  test('pinning the app tab and a module tab follows the active tab and survives reload at the root', async () => {
+    const store = new Map<string, string>();
+    const location = { pathname: '/home/now', search: '', hash: '' };
+    const opened: string[] = [];
+    const replaced: string[] = [];
+    const tabs = ['app'];
+    let active = 'app';
+    const previousWindow = globalThis.window;
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    const apply = (url: string) => {
+      const parsed = new URL(url, 'http://collab.local');
+      location.pathname = parsed.pathname;
+      location.search = parsed.search;
+      location.hash = parsed.hash;
+    };
+    globalThis.document = { createElement } as unknown as Document;
+    globalThis.window = {
+      collabRouteChunkCache: new Set<string>(['/tasks/page.js']),
+      collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+      collabBoot: { basePath: '/home' },
+      location,
+      history: { replaceState(_s: unknown, _t: string, url: string) { replaced.push(url); apply(url); } },
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => { store.set(key, value); },
+      },
+      collabRuntimeNav3: {
+        openTab(tab: { id: string }) {
+          if (!tabs.includes(tab.id)) tabs.push(tab.id);
+          opened.push(tab.id);
+        },
+        activateTab(id: string) { active = id; },
+        closeTab() {},
+        listTabs: () => tabs,
+        activeTab: () => active,
+        togglePin(id: string) {
+          const basePath = pinBasePathForTab(id, '/home');
+          const route = id === 'app' ? `${location.pathname}${location.search}${location.hash}` : undefined;
+          toggleModuleTabPin(basePath, route);
+        },
+        isPinned: (id: string) => isModuleTabPinned(pinBasePathForTab(id, '/home')),
+      },
+    } as unknown as Window & typeof globalThis;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const basePath = new URL(String(input), 'http://collab.local').searchParams.get('basePath') ?? '';
+      return new Response(JSON.stringify(boot(basePath, basePath, basePath, 'pin-page')), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const nav = window.collabRuntimeNav3!;
+      assert.equal(moduleTabPinLabel(pinBasePathForTab(nav.activeTab(), '/home'), 'pt'), 'Fixar aba');
+      nav.togglePin('app');
+      assert.equal(nav.isPinned('app'), true);
+      assert.equal(moduleTabPinLabel('/home', 'en'), 'Unpin tab');
+      const saved = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ basePath: string; route: string }> };
+      assert.deepEqual(saved.pinned, [{ basePath: '/home', route: '/home/now' }]);
+
+      await openModuleTab('/tasks', '/tasks', async () => ({}));
+      active = 'mod-/tasks';
+      assert.equal(moduleTabPinLabel(pinBasePathForTab(nav.activeTab(), '/home'), 'pt-BR'), 'Fixar aba');
+      nav.togglePin('mod-/tasks');
+      assert.equal(nav.isPinned('mod-/tasks'), true);
+      assert.equal(moduleTabPinLabel('/tasks', 'en'), 'Unpin tab');
+      nav.togglePin('mod-/tasks');
+      assert.equal(nav.isPinned('mod-/tasks'), false);
+
+      location.pathname = '/home';
+      opened.length = 0;
+      await restorePinnedModuleTabs(async () => ({}));
+      assert.equal(location.pathname, '/home/now');
+      assert.equal(replaced.at(-1), '/home/now');
+      assert.equal(opened.includes('mod-/home'), false);
+      assert.equal(readShellRoute(), '/home/now');
+
+      location.pathname = '/home/stay';
+      await restorePinnedModuleTabs(async () => ({}));
+      assert.equal(location.pathname, '/home/stay');
+    } finally {
+      globalThis.window = previousWindow;
+      globalThis.document = previousDocument;
+      globalThis.fetch = previousFetch;
+    }
   });
 });

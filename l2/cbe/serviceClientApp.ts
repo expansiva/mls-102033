@@ -8,12 +8,20 @@
 // state; nothing re-renders. ServiceBase provides the msize/visible contract
 // (height cascades from collab-page exactly like on the studio).
 
+import '/_102029_/l2/contracts/bootstrap.js';
 import { html } from 'lit';
 import { ServiceBase, type IService, type IServiceMenu, type IToolbarContent } from '/_102027_/l2/serviceBase.js';
 import { moveConnectedRegion } from '/_102033_/l2/shared/connectedRegionMove.js';
 import { parseMsizeHeight } from '/_102033_/l2/shared/regionMsize.js';
 import { publishEditHost } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { loadStudioTools } from '/_102033_/l2/cbe/studioServices.js';
+import { moduleTabPinLabel, pinBasePathForTab } from '/_102033_/l2/shared/moduleTab.js';
+
+function pinMenuText(): string {
+  const id = window.collabRuntimeNav3?.activeTab?.() ?? 'app';
+  const basePath = pinBasePathForTab(id, window.collabBoot?.basePath ?? '');
+  return moduleTabPinLabel(basePath, document.documentElement?.lang || 'en');
+}
 
 /**
  * The nav1 level that means "editing the page".
@@ -49,10 +57,20 @@ export class ServiceClientApp extends ServiceBase {
 
   public menu: IServiceMenu = {
     title: '',
-    main: {},
+    main: {
+      pin: {
+        get text() { return pinMenuText(); },
+      },
+    },
     tabs: undefined,
     tools: {},
-    onClickMain: () => { /* no menu actions yet */ },
+    onClickMain: (value: string) => {
+      if (value !== 'pin') return;
+      const nav = window.collabRuntimeNav3;
+      if (!nav?.togglePin || !nav.activeTab) return;
+      nav.togglePin(nav.activeTab());
+      this.menu.refresh?.();
+    },
   };
 
   public onServiceClick(visible: boolean, _reinit: boolean, _el: IToolbarContent | null): void {
