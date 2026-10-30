@@ -8,6 +8,7 @@ import {
   isSafeLogoSvg,
   AURA_MOBILE_BREAKPOINT_PX,
   buildHeaderBandCss,
+  buildHeaderMenu,
   isSupportedLogoUrl,
   resolveBandHeightPx,
   resolveHeaderActions,
@@ -255,9 +256,10 @@ test('the profile selects which routes the band links', () => {
   assert.deepEqual(resolveHeaderNavHrefs({ navLinks: ['/a', '/b'] }), ['/a', '/b']);
   assert.deepEqual(resolveHeaderNavHrefs({ navLinks: ['/a', '', 3] as unknown as string[] }), ['/a'],
     'only usable hrefs survive');
-  assert.deepEqual(resolveHeaderNavHrefs(undefined), [], 'no selection recorded');
-  assert.deepEqual(resolveHeaderNavHrefs({ navLinks: true as unknown as string[] }), [],
+  assert.equal(resolveHeaderNavHrefs(undefined), undefined, 'no selection recorded');
+  assert.equal(resolveHeaderNavHrefs({ navLinks: true as unknown as string[] }), undefined,
     'the legacy flag is not a selection');
+  assert.deepEqual(resolveHeaderNavHrefs({ navLinks: [] }), [], 'an explicit empty selection is kept');
 });
 
 test('the selected links resolve against the module AND the cross-module lists', () => {
@@ -276,6 +278,27 @@ test('the selected links resolve against the module AND the cross-module lists',
   );
   assert.deepEqual(selectNavEntries(navigation, moduleLinks, ['/gone']), [],
     'a selection that no longer exists links nothing');
-  assert.deepEqual(selectNavEntries(navigation, moduleLinks, []), navigation,
-    'no selection = the module navigation, as before the field existed');
+  assert.deepEqual(selectNavEntries(navigation, moduleLinks, undefined), navigation,
+    'no selection recorded = the module navigation, as before the field existed');
+  assert.deepEqual(selectNavEntries(navigation, moduleLinks, []), [],
+    'an explicit empty selection links nothing');
+});
+
+test('the mobile menu: modules with the current one open, else only the links, else nothing', () => {
+  const links = [{ href: '/t/a', label: 'A' }, { href: '/t/b', label: 'B' }];
+  const moduleLinks = [{ href: '/o', label: 'Other' }];
+  const current = { label: 'Tarefas', href: '/t' };
+
+  assert.deepEqual(buildHeaderMenu({ modules: true, current, moduleLinks, links }), [
+    { label: 'Tarefas', href: '/t', current: true, links },
+    { label: 'Other', href: '/o', current: false, links: [] },
+  ]);
+  assert.deepEqual(buildHeaderMenu({ modules: false, current, moduleLinks, links }), [{ current: true, links }],
+    'no modules action: only the links');
+  assert.deepEqual(buildHeaderMenu({ modules: true, current, moduleLinks: [], links }), [{ current: true, links }],
+    'a single-module app has nowhere to switch to');
+  assert.deepEqual(buildHeaderMenu({ modules: false, current, moduleLinks, links: [] }), [],
+    'nothing to show: no toggle');
+  assert.equal(buildHeaderMenu({ modules: true, current, moduleLinks, links: [] }).length, 2,
+    'modules alone are enough for a menu');
 });

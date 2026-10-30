@@ -8,20 +8,22 @@
 //   * the `<header>` band filling `--aura-header-height` (height:100% + box-sizing) at the shared
 //     AURA_HEADER_HEIGHT_PX, so switching profiles (Ctrl+Alt+S / mls.sites.setHeader) shifts nothing;
 //   * `bootConfig` + `regionProps` as reactive properties (the shell assigns both);
-//   * the mobile aside toggle — the only way to reach the menu when the aside is a drawer;
+//   * the ☰ of a narrow screen — the header's own menu (modules + links) when the band hides them;
 //   * SPA navigation through auraNavigate, never a raw href.
 //
 // A subclass implements `renderBand()` and, optionally, `bandCss()` / `renderBrand()`. It must not
 // override `createRenderRoot`, declare a height on the host, or use shadow DOM.
 
-import { LitElement, html, nothing } from 'lit';
+import { LitElement, html, nothing, render } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 import type { ProjectNavigationEntry } from '/_102029_/l2/runtimeConfigTypes.js';
-import { toggleAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js';
+import { closeAuraAside, toggleAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js';
 import { auraNavigate, auraNavigateFromEvent, isRegionLinkActive } from '/_102033_/l2/shared/layout/auraNavigate.js';
 import {
   buildHeaderBandCss,
+  buildHeaderMenu,
+  buildHeaderMenuCss,
   buildUserMenuCss,
   resolveBandHeightPx,
   resolveHeaderActions,
@@ -39,6 +41,7 @@ import {
   setRuntimeLanguage,
 } from '/_102033_/l2/shared/languageRuntime.js';
 import { getSessionUser, userInitials, userLabel, type SessionUser } from '/_102033_/l2/shared/sessionUser.js';
+import { visibleNavigation } from '/_102033_/l2/shared/navigationVisibility.js';
 import {
   getRuntimeDesignSystem,
   listRuntimeDesignSystems,
@@ -60,9 +63,15 @@ export abstract class AuraHeaderBase extends LitElement {
     regionProps: { attribute: false },
     currentPath: { state: true },
     sessionUser: { state: true },
+    previewAuthorities: { attribute: false },
   };
 
   declare bootConfig?: MasterFrontendBootConfig;
+  /**
+   * STUDIO PREVIEW ONLY: authorities to filter the links by instead of the session's ("view as role").
+   * The app never sets it; undefined = the logged user's.
+   */
+  declare previewAuthorities?: string[];
   /** Profile props handed over by the shell (`brand`, `heightPx`, `props.actions`, `profileName`). */
   declare regionProps?: Record<string, unknown>;
   declare currentPath: string;
@@ -71,6 +80,8 @@ export abstract class AuraHeaderBase extends LitElement {
   /** Guards the probe (once per element) and the broken-photo fallback. */
   private sessionRequested = false;
   private pictureBroken = false;
+  /** Set by the first avatar of a render pass — see renderUserAvatar. */
+  private avatarRendered = false;
   private userMenu?: HTMLElement;
 
   /** Light DOM — the shell's region CSS and the :root DS tokens depend on it. Do NOT override. */
@@ -91,8 +102,9 @@ export abstract class AuraHeaderBase extends LitElement {
 
   disconnectedCallback() {
     window.removeEventListener('popstate', this.handleLocationChange);
-    // The panel lives in the body, so it would outlive a header swapped out by a profile switch.
+    // The panels live in the body, so they would outlive a header swapped out by a profile switch.
     this.closeUserMenu();
+    this.closeHeaderMenu();
     super.disconnectedCallback();
   }
 
@@ -209,33 +221,175 @@ export abstract class AuraHeaderBase extends LitElement {
 
   // ── Building blocks ────────────────────────────────────────────────────────
 
+  /**
+   * The ☰ of a narrow screen. It opens the HEADER's own menu (`openHeaderMenu`): the modules with the
+   * links of the current one, or only the links — what the band hides on a narrow screen.
+   *
+   * Shown (CSS, narrow only) when that menu has something. With nothing in it, the ☰ keeps its old
+   * job where the shell still needs one — the Messages/App panes of a phone, or an aside drawer — so
+   * no layout loses its only way to the menu; otherwise it is not shown at all.
+   */
   protected renderAsideToggle() {
+    const hasMenu = this.headerMenuSections.length > 0;
+    const shellNeedsIt = this.usesMobilePanes() || this.showMobileAsideToggle();
     return html`
       <button
-        class="aura-header-toggle ${this.showMobileAsideToggle() ? 'enabled' : ''}"
+        class="aura-header-toggle ${hasMenu || shellNeedsIt ? 'enabled' : ''}"
         type="button"
-        aria-label="${this.resolveAsideToggleLabel()}"
-        @click=${() => toggleAuraAside()}
+        aria-label="Open menu"
+        aria-haspopup=${hasMenu ? 'menu' : 'false'}
+        @click=${(event: Event) => {
+          if (hasMenu) this.toggleHeaderMenu(event.currentTarget as HTMLElement);
+          else toggleAuraAside();
+        }}
       >
         &#9776;
       </button>
     `;
   }
 
-  /**
-   * On a phone, once the unified structure is up (client mode), this button alternates Messages/App
-   * instead of opening a drawer — the label says what tapping it does next. Read off the shell's
-   * attributes (shell.ts `updated()`, `usesMobilePanes`), never duplicated here; the original
-   * wording stays the fallback.
-   */
-  private resolveAsideToggleLabel(): string {
+  /** Phone + unified structure (client mode): the shell alternates Messages/App panes. Read off its attributes. */
+  private usesMobilePanes(): boolean {
     const shell = this.closest('collab-aura-shell');
-    const usesMobilePanes = shell?.getAttribute('data-device') === 'mobile'
+    return shell?.getAttribute('data-device') === 'mobile'
       && shell.getAttribute('data-structure') === 'upgraded'
       && shell.getAttribute('data-studio-mode') !== 'true';
-    if (!usesMobilePanes) return 'Open navigation';
-    return shell.getAttribute('data-mobile-pane') === 'app' ? 'Show messages' : 'Show app';
   }
+
+  /** The label of the pane switch inside the menu — what tapping it does next. */
+  private paneSwitchLabel(): string {
+    const shell = this.closest('collab-aura-shell');
+    return shell?.getAttribute('data-mobile-pane') === 'app' ? this.headerMenuLabels.messages : this.headerMenuLabels.app;
+  }
+
+  /** Copy of the ☰ menu. A subclass with an i18n block overrides this. */
+  protected get headerMenuLabels(): { messages: string; app: string; fullMenu: string } {
+    return this.localized({
+      en: { messages: 'Messages', app: 'Back to the app', fullMenu: 'Full menu' },
+      pt: { messages: 'Mensagens', app: 'Voltar ao app', fullMenu: 'Menu completo' },
+      es: { messages: 'Mensajes', app: 'Volver a la app', fullMenu: 'Menú completo' },
+    });
+  }
+
+  /**
+   * What the ☰ menu holds (see buildHeaderMenu). Links only when this header SELECTED links: with no
+   * selection recorded the band shows none, so the menu must not suddenly list the whole module.
+   */
+  protected get headerMenuSections() {
+    const links = resolveHeaderNavHrefs(this.regionProps) ? this.navEntries : [];
+    return buildHeaderMenu({
+      modules: this.hasAction('modules'),
+      current: { label: this.bootConfig?.pageTitle ?? this.bootConfig?.moduleId ?? this.basePath, href: this.basePath || '/' },
+      moduleLinks: this.bootConfig?.moduleLinks ?? [],
+      links,
+    });
+  }
+
+  // ── ☰ menu ─────────────────────────────────────────────────────────────────
+
+  private headerMenu?: HTMLElement;
+
+  /**
+   * Opens the ☰ menu under the band. Attached to `document.body` for the same reason as the user
+   * menu (the band clips and is a containing block for fixed children), rendered with lit's `render`.
+   */
+  private toggleHeaderMenu(anchor: HTMLElement | null): void {
+    if (this.headerMenu) {
+      this.closeHeaderMenu();
+      return;
+    }
+    if (!anchor) return;
+    if (!document.getElementById('aura-header-menu-css')) {
+      const style = document.createElement('style');
+      style.id = 'aura-header-menu-css';
+      style.textContent = buildHeaderMenuCss();
+      document.head.appendChild(style);
+    }
+
+    const menu = document.createElement('nav');
+    menu.className = 'aura-header-menu';
+    menu.setAttribute('role', 'menu');
+    document.body.appendChild(menu);
+    render(this.renderHeaderMenu(), menu);
+
+    const bandBottom = (this.querySelector('.aura-header-band') ?? anchor).getBoundingClientRect().bottom;
+    menu.style.top = `${Math.round(bandBottom + 6)}px`;
+    menu.style.maxHeight = `calc(100vh - ${Math.round(bandBottom + 18)}px)`;
+    (menu.querySelector('a, button') as HTMLElement | null)?.focus();
+
+    this.headerMenu = menu;
+    window.addEventListener('keydown', this.handleHeaderMenuKeydown, true);
+    window.addEventListener('pointerdown', this.handleHeaderMenuOutside, true);
+    window.addEventListener('resize', this.closeHeaderMenu);
+  }
+
+  private renderHeaderMenu() {
+    // Choosing anything leaves the menu — and, on phone panes, shows the app where it navigates.
+    const go = (event: Event) => {
+      this.closeHeaderMenu();
+      if (this.usesMobilePanes()) closeAuraAside();
+      this.handleNavigate(event);
+    };
+    const renderLinks = (links: ProjectNavigationEntry[]) => html`
+      <ul class="aura-header-menu-links">
+        ${links.map((entry) => html`
+          <li>
+            <a
+              class="aura-header-menu-link"
+              role="menuitem"
+              href=${entry.href}
+              data-active=${String(isRegionLinkActive(entry.href, this.currentPath, this.basePath))}
+              @click=${go}
+            >${entry.label}</a>
+          </li>
+        `)}
+      </ul>
+    `;
+    return html`
+      ${this.headerMenuSections.map((section) => html`
+        <div class="aura-header-menu-section">
+          ${section.label ? html`
+            <a
+              class="aura-header-menu-module"
+              role="menuitem"
+              href=${section.href ?? '/'}
+              data-current=${String(section.current)}
+              @click=${go}
+            >${section.label}</a>
+          ` : nothing}
+          ${section.links.length ? renderLinks(section.links) : nothing}
+        </div>
+      `)}
+      ${this.usesMobilePanes() || this.showMobileAsideToggle() ? html`
+        <!-- The ☰ used to open the shell's menu (panes / aside drawer); that way in stays, as the last item. -->
+        <button
+          type="button"
+          class="aura-header-menu-action"
+          role="menuitem"
+          @click=${() => { this.closeHeaderMenu(); toggleAuraAside(); }}
+        >${this.usesMobilePanes() ? this.paneSwitchLabel() : this.headerMenuLabels.fullMenu}</button>
+      ` : nothing}
+    `;
+  }
+
+  private readonly closeHeaderMenu = (): void => {
+    if (!this.headerMenu) return;
+    this.headerMenu.remove();
+    this.headerMenu = undefined;
+    window.removeEventListener('keydown', this.handleHeaderMenuKeydown, true);
+    window.removeEventListener('pointerdown', this.handleHeaderMenuOutside, true);
+    window.removeEventListener('resize', this.closeHeaderMenu);
+  };
+
+  private readonly handleHeaderMenuKeydown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') this.closeHeaderMenu();
+  };
+
+  private readonly handleHeaderMenuOutside = (event: Event): void => {
+    const target = event.target as Node | null;
+    if (!target || this.headerMenu?.contains(target) || this.contains(target)) return;
+    this.closeHeaderMenu();
+  };
 
   /**
    * The mark: inlined markup when the brand carries one (it inherits `currentColor`, so it follows
@@ -277,11 +431,22 @@ export abstract class AuraHeaderBase extends LitElement {
    * was asked for links, and headers generated before the field existed have no list to read.
    */
   protected get navEntries(): ProjectNavigationEntry[] {
-    return selectNavEntries(
+    const selected = selectNavEntries(
       this.bootConfig?.navigation ?? [],
       this.bootConfig?.moduleLinks ?? [],
       resolveHeaderNavHrefs(this.regionProps),
     );
+    // Who sees a link is the MENU's rule (each page's `actors`), applied here the same way the aside
+    // applies it — one rule, so the header never offers a page the menu hides from that role. With no
+    // authorities known nothing is filtered (see visibleNavigation).
+    return visibleNavigation(selected, this.linkAuthorities, this.bootConfig?.moduleId ?? '');
+  }
+
+  /** The authorities the links are filtered by: the studio's "view as" role, else the session's. */
+  private get linkAuthorities(): string[] {
+    if (this.previewAuthorities) return this.previewAuthorities;
+    this.ensureSessionUser();
+    return this.sessionUser?.authorities ?? [];
   }
 
   protected renderNavLinks(entries: ProjectNavigationEntry[] = this.navEntries) {
@@ -304,8 +469,39 @@ export abstract class AuraHeaderBase extends LitElement {
     `;
   }
 
+  /**
+   * The `modules` action: a dropdown to jump to another module of the app, the current one selected.
+   *
+   * It used to render the modules as a row of links next to the page links, which read as one list
+   * (and grew with every module). A switcher is what the action means. Leaving the module is a full
+   * load — `navigateTo` decides that by the base path.
+   */
   protected renderModuleLinks() {
-    return this.renderNavLinks(this.bootConfig?.moduleLinks ?? []);
+    const others = this.bootConfig?.moduleLinks ?? [];
+    if (others.length === 0) {
+      return nothing;
+    }
+    const currentHref = this.basePath || '/';
+    const currentLabel = this.bootConfig?.pageTitle ?? this.bootConfig?.moduleId ?? currentHref;
+    const options = [{ href: currentHref, label: currentLabel }, ...others];
+
+    return html`
+      <select
+        class="aura-header-select"
+        aria-label="Module"
+        .value=${currentHref}
+        @change=${(event: Event) => {
+          const select = event.target as HTMLSelectElement;
+          const href = select.value;
+          // Back to the current module until the load happens: a cancelled or failed jump must not
+          // leave the switcher naming a module the user is not in.
+          select.value = currentHref;
+          if (href !== currentHref) this.navigateTo(href);
+        }}
+      >
+        ${options.map((option) => html`<option value=${option.href} ?selected=${option.href === currentHref}>${option.label}</option>`)}
+      </select>
+    `;
   }
 
   protected renderLanguageSwitcher() {
@@ -370,6 +566,11 @@ export abstract class AuraHeaderBase extends LitElement {
   }
 
   protected renderUserAvatar() {
+    // Once per render pass, whoever asks first. A generated band that calls renderActions() AND
+    // renderUserAvatar() — the contract forbids it, but a model does it now and then — would
+    // otherwise show two avatars, and headers already written cannot be fixed by the validator.
+    if (this.avatarRendered) return nothing;
+    this.avatarRendered = true;
     this.ensureSessionUser();
     const user = this.sessionUser;
     const label = userLabel(user ?? { authenticated: false });
@@ -549,6 +750,7 @@ export abstract class AuraHeaderBase extends LitElement {
   protected abstract renderBand(): unknown;
 
   render() {
+    this.avatarRendered = false;
     return html`<header class="aura-header-band">${this.renderBand()}</header>`;
   }
 }

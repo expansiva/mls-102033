@@ -31,6 +31,11 @@ export interface SessionUser {
   company?: { mdmId: string };
   /** Present only when the server enabled onboarding and the payload is well formed. */
   onboarding?: SessionOnboarding;
+  /**
+   * `allAuthorities` of the session (`<module>:<actor>`), what the menu filters by. Empty until the
+   * token issuer emits them — and absent means "filter nothing" (see visibleNavigation).
+   */
+  authorities?: string[];
 }
 
 const ANONYMOUS: SessionUser = { authenticated: false };
@@ -118,6 +123,10 @@ export function parseSessionUser(payload: unknown): SessionUser {
   if (company) user.company = company;
   const onboarding = readOnboarding(authenticated, info.onboarding);
   if (onboarding) user.onboarding = onboarding;
+  const authorities = authenticated && Array.isArray(info.allAuthorities)
+    ? info.allAuthorities.filter((value): value is string => typeof value === 'string' && value.length > 0)
+    : [];
+  if (authorities.length) user.authorities = authorities;
   return user;
 }
 

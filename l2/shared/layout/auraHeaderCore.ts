@@ -170,15 +170,15 @@ export function resolveHeaderLocales(
  * module would make a legitimate cross-module link silently disappear.
  *
  * Order comes from the runtime lists, not from the selection: the header must not reorder the
- * project's own navigation. No selection = every entry of `navigation` (what headers did before the
- * field existed).
+ * project's own navigation. No selection recorded (`undefined`) = every entry of `navigation` (what
+ * headers did before the field existed); an EMPTY selection = no links.
  */
 export function selectNavEntries<T extends { href: string }>(
   navigation: readonly T[],
   moduleLinks: readonly T[],
-  wanted: readonly string[],
+  wanted: readonly string[] | undefined,
 ): T[] {
-  if (!wanted.length) return [...navigation];
+  if (!wanted) return [...navigation];
   const selected = new Set(wanted);
   const entries: T[] = [];
   const seen = new Set<string>();
@@ -190,15 +190,51 @@ export function selectNavEntries<T extends { href: string }>(
   return entries;
 }
 
+/** One block of the mobile header menu: a module (with its links when it is the open one) or, with no modules, just the links. */
+export interface HeaderMenuSection<T extends { href: string; label: string }> {
+  /** Module name; absent when the menu is only links. */
+  label?: string;
+  /** Where the module opens; absent when the menu is only links. */
+  href?: string;
+  current: boolean;
+  links: T[];
+}
+
+/**
+ * What the ☰ opens on a narrow screen, where the band keeps only the toggle, the title and the user.
+ *
+ * - With the `modules` action and other modules to go to: every module, the current one first and
+ *   open with ITS links. The others carry no links: at runtime a module only knows its own
+ *   navigation (`bootConfig.navigation`), the rest is a base path (`moduleLinks`).
+ * - Without modules: only the links.
+ * - Neither: empty — and the toggle is not shown at all.
+ */
+export function buildHeaderMenu<T extends { href: string; label: string }>(input: {
+  modules: boolean;
+  current: { label: string; href: string };
+  moduleLinks: readonly T[];
+  links: readonly T[];
+}): Array<HeaderMenuSection<T>> {
+  if (input.modules && input.moduleLinks.length > 0) {
+    return [
+      { label: input.current.label, href: input.current.href, current: true, links: [...input.links] },
+      ...input.moduleLinks.map((module) => ({ label: module.label, href: module.href, current: false, links: [] as T[] })),
+    ];
+  }
+  return input.links.length > 0 ? [{ current: true, links: [...input.links] }] : [];
+}
+
 /**
  * Routes this header links, from `props.navLinks`: the hrefs picked for the band.
  *
- * Absent/empty means "no selection recorded", NOT "no links": the caller keeps every route the
- * module declares, which is what headers generated before this field did.
+ * ABSENT (`undefined`) means "no selection recorded", NOT "no links": the caller keeps every route
+ * the module declares, which is what headers generated before this field did. An EMPTY list is an
+ * explicit "no links" — the header editor writes it when the links are cleared without regenerating
+ * a band that still calls renderNavLinks().
  */
-export function resolveHeaderNavHrefs(regionProps?: Record<string, unknown>): string[] {
+export function resolveHeaderNavHrefs(regionProps?: Record<string, unknown>): string[] | undefined {
   const raw = regionProps?.navLinks;
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) return undefined;
   return raw.filter((href): href is string => typeof href === 'string' && href.length > 0);
 }
 
@@ -284,6 +320,94 @@ export function buildUserMenuCss(): string {
 .aura-user-menu-action:focus-visible {
   background: var(--nav-active-bg, #f1f5f9);
   color: var(--nav-active-text, #102a43);
+}
+`.trim();
+}
+
+/**
+ * CSS of the ☰ menu — same palette and the same body-attached panel as the user menu (the band
+ * clips, see buildUserMenuCss), opening under the band on the left, full height if it needs it.
+ */
+export function buildHeaderMenuCss(): string {
+  return `
+.aura-header-menu {
+  position: fixed;
+  z-index: 200;
+  left: 8px;
+  width: min(320px, calc(100vw - 16px));
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--nav-bg-focus, #d9e2ec);
+  border-radius: var(--radius-large, 14px);
+  background: var(--nav-bg, #fff);
+  color: var(--nav-text, #102a43);
+  box-shadow: var(--shadow-medium, 0 18px 40px rgba(15, 23, 42, 0.16));
+  font-family: inherit;
+}
+
+.aura-header-menu-module {
+  display: block;
+  padding: 10px 12px;
+  border-radius: var(--radius-medium, 10px);
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.aura-header-menu-module[data-current="true"] {
+  background: var(--nav-active-bg, #f1f5f9);
+  color: var(--nav-active-text, #102a43);
+}
+
+.aura-header-menu-links {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.aura-header-menu-section + .aura-header-menu-section {
+  margin-top: 2px;
+}
+
+.aura-header-menu-module + .aura-header-menu-links {
+  padding-left: 12px;
+}
+
+.aura-header-menu-link,
+.aura-header-menu-action {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: none;
+  border-radius: var(--radius-medium, 10px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.aura-header-menu-link:hover,
+.aura-header-menu-action:hover,
+.aura-header-menu-module:hover {
+  background: var(--nav-bg-hover, #eef2f6);
+  color: var(--nav-text-hover, #102a43);
+}
+
+.aura-header-menu-link[data-active="true"] {
+  font-weight: 600;
+  background: var(--nav-active-bg, #e8e4da);
+  color: var(--nav-active-text, #102a43);
+}
+
+.aura-header-menu-action {
+  margin-top: 6px;
+  border-top: 1px solid var(--nav-bg-focus, #eef2f6);
+  border-radius: 0;
 }
 `.trim();
 }
@@ -476,17 +600,29 @@ ${tag} .aura-header-select {
   cursor: pointer;
 }
 
+/* Narrow screen: the band keeps the ☰ (only when its menu has something), the title and the user.
+   Everything else — links, the language / theme / module selects, the subtitle, and any part a
+   generated header marked \`aura-header-wide\` — moves into the ☰ menu or goes away. */
 @media (max-width: ${AURA_MOBILE_BREAKPOINT_PX}px) {
+  ${tag} .aura-header-band {
+    padding: 0 12px;
+    gap: 10px;
+  }
+
   ${tag} .aura-header-toggle.enabled {
     display: inline-flex;
   }
 
-  ${tag} .aura-header-subtitle {
+  ${tag} .aura-header-subtitle,
+  ${tag} .aura-header-nav,
+  ${tag} .aura-header-select,
+  ${tag} .aura-header-wide {
     display: none;
   }
 
-  ${tag} .aura-header-nav {
-    display: none;
+  ${tag} .aura-header-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 `.trim();

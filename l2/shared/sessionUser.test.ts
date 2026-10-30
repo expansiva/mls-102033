@@ -20,6 +20,13 @@ test('the session payload is read defensively', () => {
   });
 
   assert.deepEqual(parseSessionUser(null), { authenticated: false }, 'a bad payload is simply anonymous');
+  // The menu filters by these; the header now too.
+  assert.deepEqual(
+    parseSessionUser({ authenticated: true, allAuthorities: ['tarefas:gestor', '', 3] }).authorities,
+    ['tarefas:gestor'],
+  );
+  assert.equal(parseSessionUser({ authenticated: false, allAuthorities: ['tarefas:gestor'] }).authorities, undefined,
+    'an anonymous session has no authorities');
   assert.equal(parseSessionUser({ authenticated: 'yes' }).authenticated, false, 'only a real boolean counts');
   assert.equal(parseSessionUser({ authenticated: true, name: '   ' }).name, undefined);
 });
