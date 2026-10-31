@@ -36,7 +36,8 @@
 // without `InvalidStateError`; and Lit's `finalize()` writes own statics on the stand-in that shadow
 // every future impl unless they are removed on each relink (see `stripForeignStatics`).
 //
-// STUDIO ONLY. Without the flag this module installs nothing and the app keeps the native `define`.
+// STUDIO ONLY. An anonymous visitor keeps the native `define`. A logged-in person, or a browser that
+// already remembers the flag, installs the stand-in at import.
 
 /** The subset of `CustomElementRegistry` used here — narrow so a Node test can pass a fake. */
 export interface IElementRegistry {
@@ -50,13 +51,13 @@ interface ILitLikeConstructor extends CustomElementConstructor {
 }
 
 /**
- * localStorage key that arms the swap on the NEXT boot.
+ * localStorage key that arms the swap on the next boot.
  *
- * It has to be a stored flag and not a live call: the stand-in only exists if it is installed BEFORE
- * the first `define` of a tag, which happens while the app boots — long before anyone can press
- * Ctrl+Alt+S. So entering studio mode writes the flag (see `rememberElementSwapForNextBoot`, called
- * from shell.ts) and the boot after that arms. The accepted, visible consequence: the first time,
- * one reload to arm.
+ * The stand-in only exists if it is installed BEFORE the first `define` of a tag, which happens
+ * while the app boots — long before anyone can press Ctrl+Alt+S. Entering studio mode writes this
+ * flag (`rememberElementSwapForNextBoot`, called from shell.ts) so the boot after that arms.
+ * A person already logged in (`loginUser` cookie, not `anonymous`) arms on this same boot, read
+ * here at import. An anonymous visitor keeps the native `define`.
  */
 export const STUDIO_ELEMENT_SWAP_FLAG = 'collabStudioElementSwap';
 
@@ -302,6 +303,32 @@ export function isElementSwapRemembered(): boolean {
 }
 
 /**
+ * Same rule as `getLoginUser` in cbeAuth: a `loginUser` cookie other than `anonymous`.
+ * Read here, not imported — this module is evaluated before cbeAuth and must not pull a `define`
+ * ahead of the stand-in (bootstrap.ts).
+ */
+function loggedInOnThisBoot(): boolean {
+  if (typeof document === 'undefined') return false;
+  let raw = '';
+  try {
+    raw = typeof document.cookie === 'string' ? document.cookie : '';
+  } catch (error) {
+    console.error('elementSwapRegistry: could not read the loginUser cookie', error);
+    return false;
+  }
+  const match = /(?:^|;\s*)loginUser=([^;]*)/u.exec(raw);
+  if (!match) return false;
+  let value = '';
+  try {
+    value = decodeURIComponent(match[1]);
+  } catch (error) {
+    console.error('elementSwapRegistry: loginUser cookie is not valid percent-encoding', error);
+    return false;
+  }
+  return value !== '' && value !== 'anonymous';
+}
+
+/**
  * Nodes minted by the live-update remount. A WeakSet so the mark dies with the node and never
  * becomes an attribute that `carryOver` would copy onto the next replacement.
  *
@@ -321,8 +348,9 @@ export function wasRebuiltByStudio(el: Element): boolean {
   return rebuiltByStudio.has(el);
 }
 
-// Arm at import time, and only for someone who has been in studio mode on this browser. A client
-// session that never opened the studio keeps the native `define` and pays nothing.
-if (typeof customElements !== 'undefined' && isElementSwapRemembered()) {
+// Arm at import, before any tag is defined. A logged-in person arms on this boot (the login cookie
+// is already there). The remembered flag arms the boot after studio was entered. An anonymous
+// visitor, with neither, keeps the native `define`.
+if (typeof customElements !== 'undefined' && (isElementSwapRemembered() || loggedInOnThisBoot())) {
   armElementSwap();
 }

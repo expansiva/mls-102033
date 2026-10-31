@@ -1,14 +1,38 @@
 /// <mls fileReference="_102033_/l2/shared/elementSwapRegistry.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-// The stand-in is `class extends HTMLElement`, and the module arms itself at import time when the
-// studio flag is on. Both globals have to exist BEFORE the import — same trick
-// studioLiveUpdateHotSwap.test.ts uses. No `localStorage` here on purpose: the module must NOT arm
-// itself in a test, so every test arms explicitly against a fake registry.
+// T18–T20 spawn elementSwapRegistryArmProbe.test.ts so the import-time arm sees the cookie and the
+// flag. This process leaves `customElements` unset: the module must not arm itself, and every test
+// arms explicitly against a fake registry.
+const armProbeFile = path.join(path.dirname(fileURLToPath(import.meta.url)), 'elementSwapRegistryArmProbe.test.ts');
+const mlsBase = path.resolve(path.dirname(armProbeFile), '../../..');
+
+function armOnImport(env: { ARM_COOKIE: string; ARM_FLAG: string }): string {
+  const result = spawnSync(path.join(mlsBase, 'node_modules', '.bin', 'tsx'), [
+    '--import', path.join(mlsBase, 'test/register-hooks.mjs'),
+    '--import', path.join(mlsBase, 'test/setup-l2.ts'),
+    armProbeFile,
+  ], {
+    cwd: mlsBase,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      TSX_TSCONFIG_PATH: path.join(mlsBase, 'test/tsconfig.runtime.json'),
+      ARM_PROBE: '1',
+      ...env,
+    },
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const line = (result.stdout ?? '').trim().split('\n').pop() ?? '';
+  return line.trim();
+}
+
+// The stand-in is `class extends HTMLElement`. The global has to exist BEFORE the import.
 class FakeHTMLElement {
   public readonly builtBy: string[] = [];
 }
@@ -332,6 +356,22 @@ test('T17: wasRebuiltByStudio is true for a node marked as a studio rebuild', as
   const element = {} as Element;
   mod.markRebuiltByStudio(element);
   assert.equal(mod.wasRebuiltByStudio(element), true);
+});
+
+// T18 — a logged-in person arms on this boot, at import, without the remembered flag.
+test('T18: import arms when loginUser is an email', () => {
+  assert.equal(armOnImport({ ARM_COOKIE: 'loginUser=ada@example.com', ARM_FLAG: '0' }), 'ARMED');
+});
+
+// T19 — anonymous, and no cookie at all, keep the native define.
+test('T19: import stays native for anonymous or no login cookie', () => {
+  assert.equal(armOnImport({ ARM_COOKIE: 'loginUser=anonymous', ARM_FLAG: '0' }), 'NATIVE');
+  assert.equal(armOnImport({ ARM_COOKIE: '', ARM_FLAG: '0' }), 'NATIVE');
+});
+
+// T20 — the flag written for the next boot still arms, with no logged-in cookie.
+test('T20: import still arms when the remembered flag is set', () => {
+  assert.equal(armOnImport({ ARM_COOKIE: '', ARM_FLAG: '1' }), 'ARMED');
 });
 
 // T13 — the flag is what gates everything, and the shell is what writes it.
