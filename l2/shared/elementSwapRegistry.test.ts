@@ -319,6 +319,21 @@ test('T15: a missing connectedMoveCallback leaves the stand-in callback inert', 
   assert.deepEqual(log, [], 'dropping the handler in the next version is a no-op again');
 });
 
+// T16 — a node that was just constructed (boot, navigation) is not a studio rebuild.
+test('T16: wasRebuiltByStudio is false for a node nobody marked', async () => {
+  const mod = await armed();
+  const element = {} as Element;
+  assert.equal(mod.wasRebuiltByStudio(element), false);
+});
+
+// T17 — the mark is what the remount sets on the fresh node before insert.
+test('T17: wasRebuiltByStudio is true for a node marked as a studio rebuild', async () => {
+  const mod = await armed();
+  const element = {} as Element;
+  mod.markRebuiltByStudio(element);
+  assert.equal(mod.wasRebuiltByStudio(element), true);
+});
+
 // T13 — the flag is what gates everything, and the shell is what writes it.
 test('T13: the shell arms the next boot when studio mode turns on', () => {
   const shell = readFileSync(

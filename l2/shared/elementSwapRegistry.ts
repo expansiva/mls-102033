@@ -301,6 +301,26 @@ export function isElementSwapRemembered(): boolean {
   }
 }
 
+/**
+ * Nodes minted by the live-update remount. A WeakSet so the mark dies with the node and never
+ * becomes an attribute that `carryOver` would copy onto the next replacement.
+ *
+ * The mark has to be set BEFORE `replaceWith`: `connectedCallback` of the new node runs on insert,
+ * and that is the moment a page asks whether this construction is a studio rebuild (so it can keep
+ * the state a full reload would have wiped).
+ */
+const rebuiltByStudio = new WeakSet<Element>();
+
+/** Called from `carryOver` on the fresh node, before it is inserted. */
+export function markRebuiltByStudio(el: Element): void {
+  rebuiltByStudio.add(el);
+}
+
+/** True only for a node created by the live-update remount. Outside Studio nobody marks, so this is always false. */
+export function wasRebuiltByStudio(el: Element): boolean {
+  return rebuiltByStudio.has(el);
+}
+
 // Arm at import time, and only for someone who has been in studio mode on this browser. A client
 // session that never opened the studio keeps the native `define` and pays nothing.
 if (typeof customElements !== 'undefined' && isElementSwapRemembered()) {
