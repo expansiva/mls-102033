@@ -21,13 +21,15 @@ const draftBeforeAnyReply = activeDraft();
 const stateBeforeAnyReply = modeState();
 
 
-test('defaultDraftFor keeps a valid slug and falls back otherwise', () => {
+test('defaultDraftFor keeps a valid slug and falls back to user', () => {
+  assert.equal(defaultDraftFor(PROJECT, undefined), 'user');
+  assert.equal(defaultDraftFor(PROJECT, 'user'), 'user');
+  assert.equal(defaultDraftFor(102047, 'team-102047'), 'team-102047');
   assert.equal(defaultDraftFor(PROJECT, 'user-ana_1'), 'user-ana_1');
   assert.equal(defaultDraftFor(PROJECT, 'team-' + 'a'.repeat(64)), 'team-' + 'a'.repeat(64));
-  assert.equal(defaultDraftFor(PROJECT, undefined), `team-${PROJECT}`);
-  assert.equal(defaultDraftFor(PROJECT, 'Team-Ana'), `team-${PROJECT}`);
-  assert.equal(defaultDraftFor(PROJECT, 'team-' + 'a'.repeat(65)), `team-${PROJECT}`);
-  assert.equal(defaultDraftFor(PROJECT, 'other-ana'), `team-${PROJECT}`);
+  assert.equal(defaultDraftFor(PROJECT, 'Team-Ana'), 'user');
+  assert.equal(defaultDraftFor(PROJECT, 'team-' + 'a'.repeat(65)), 'user');
+  assert.equal(defaultDraftFor(PROJECT, 'other-ana'), 'user');
 });
 
 test('isVmDriver accepts only a 1.0.0-vm driverVersion prefix', () => {
@@ -81,6 +83,27 @@ test('studio mode calls draftEnter and then the service worker setMode', async (
   assert.deepEqual(deps.errors, []);
 });
 
+test('studio mode stores the slug returned by draftEnter', async () => {
+  const returned = 'user-aaaaaaaaaaaaaaaa';
+  const deps = modeDeps({
+    resolveDraft: async () => {
+      deps.calls.push('resolveDraft');
+      return 'user';
+    },
+    enterDraft: async (_project, slug) => {
+      deps.calls.push('draftEnter');
+      assert.equal(slug, 'user');
+      return { statusCode: 200, ok: true, slug: returned };
+    },
+  });
+  const result = await requestModeChange('production', 'studio', deps);
+  assert.deepEqual(result, { mode: 'studio' });
+  assert.deepEqual(deps.calls, ['resolveDraft', 'draftEnter', 'setMode:studio']);
+  assert.deepEqual(deps.errors, []);
+  assert.equal(activeDraft(), returned);
+  assert.equal(modeState().draft, returned);
+});
+
 test('production mode calls only the service worker setMode', async () => {
   const deps = modeDeps({
     resolveDraft: async () => { throw new Error('resolveDraft'); },
@@ -125,6 +148,23 @@ test('a failed draftEnter does not call the service worker', async () => {
   assert.deepEqual(deps.errors, ['[shell] draftEnter failed: 401']);
 });
 
+test('a session_required draftEnter shows the i18n message and stays out', async () => {
+  const deps = modeDeps({
+    resolveDraft: async () => {
+      deps.calls.push('resolveDraft');
+      return 'user';
+    },
+    enterDraft: async () => {
+      deps.calls.push('draftEnter');
+      return { statusCode: 401, ok: false, error: 'draft.session_required' };
+    },
+  });
+  const result = await requestModeChange('production', 'studio', deps);
+  assert.deepEqual(result, { mode: 'production' });
+  assert.deepEqual(deps.calls, ['resolveDraft', 'draftEnter']);
+  assert.deepEqual(deps.errors, ['Sign in to open your draft.']);
+});
+
 test('collab-mode gives the mode to show and ignores other messages', () => {
   assert.equal(applyCollabModeNotice('production', { type: 'collab-mode', mode: 'studio', project: 102056, draft: 'team-102056' }), 'studio');
   assert.equal(applyCollabModeNotice('studio', { type: 'collab-mode', mode: 'production' }), 'production');
@@ -152,16 +192,47 @@ test('enterDraft posts draftEnter and keeps a non-ok status', async () => {
     postExec: async () => ({ statusCode: 503, ok: false }),
   });
   assert.deepEqual(rejected, { statusCode: 503, ok: false });
+
+  const fromUser = await enterDraft(102056, 'user', {
+    postExec: async (body) => {
+      bodies.push(body);
+      return { statusCode: 200, ok: true, slug: 'user-aaaaaaaaaaaaaaaa' };
+    },
+  });
+  assert.deepEqual(bodies[1], { action: 'draftEnter', project: 102056, draft: 'user' });
+  assert.deepEqual(fromUser, { statusCode: 200, ok: true, slug: 'user-aaaaaaaaaaaaaaaa' });
+
+  const noReturnedSlug = await enterDraft(102056, 'user', {
+    postExec: async () => ({ statusCode: 200, ok: true }),
+  });
+  assert.deepEqual(noReturnedSlug, { statusCode: 200, ok: false });
+
+  const session = await enterDraft(102056, 'user', {
+    postExec: async () => ({ statusCode: 401, ok: false, msg: 'draft.session_required' }),
+  });
+  assert.deepEqual(session, { statusCode: 401, ok: false, error: 'draft.session_required' });
 });
 
-test('resolveDefaultDraft reads studio.defaultDraft and falls back to the team slug', async () => {
+test('resolveDefaultDraft reads studio.defaultDraft and falls back to user', async () => {
+  assert.equal(
+    await resolveDefaultDraft(102047, { getProjectConf: async () => ({ studio: { defaultDraft: 'team-102047' } }) }),
+    'team-102047',
+  );
+  assert.equal(
+    await resolveDefaultDraft(102056, { getProjectConf: async () => ({}) }),
+    'user',
+  );
+  assert.equal(
+    await resolveDefaultDraft(102056, { getProjectConf: async () => ({ studio: { defaultDraft: 'user' } }) }),
+    'user',
+  );
   assert.equal(
     await resolveDefaultDraft(102056, { getProjectConf: async () => ({ studio: { defaultDraft: 'user-ada' } }) }),
     'user-ada',
   );
   assert.equal(
     await resolveDefaultDraft(102056, { getProjectConf: async () => { throw new Error('missing'); } }),
-    'team-102056',
+    'user',
   );
 });
 

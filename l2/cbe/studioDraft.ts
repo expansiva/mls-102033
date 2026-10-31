@@ -1,6 +1,33 @@
 /// <mls fileReference="_102033_/l2/cbe/studioDraft.ts" enhancement="_blank" />
 
 const DRAFT_SLUG = /^(team|user)-[a-z0-9_.-]{1,64}$/;
+const USER_DRAFT_TOKEN = 'user';
+
+/// **collab_i18n_start**
+const message_en = {
+  sessionRequired: 'Sign in to open your draft.',
+};
+type MessageType = typeof message_en;
+const messages: Record<string, MessageType> = {
+  en: message_en,
+  pt: {
+    sessionRequired: 'Entre na sua conta para abrir o seu rascunho.',
+  },
+  es: {
+    sessionRequired: 'Inicie sesión para abrir su borrador.',
+  },
+};
+/// **collab_i18n_end**
+
+function draftText(key: keyof MessageType): string {
+  const requested = typeof document !== 'undefined' ? document.documentElement.lang || 'en' : 'en';
+  const primary = requested.trim().toLowerCase().split('-')[0];
+  return (messages[primary] ?? messages.en)[key];
+}
+
+function isDraftRequest(slug: string): boolean {
+  return slug === USER_DRAFT_TOKEN || DRAFT_SLUG.test(slug);
+}
 
 /** Local view of mls: `studio` lives in l5/config.json and is not on the lib type. */
 interface DraftMls {
@@ -11,7 +38,7 @@ interface DraftMls {
 
 export function defaultDraftFor(project: number, defaultDraft?: string): string {
   if (defaultDraft !== undefined && DRAFT_SLUG.test(defaultDraft)) return defaultDraft;
-  return `team-${project}`;
+  return USER_DRAFT_TOKEN;
 }
 
 export function isVmDriver(driver: { driverVersion?: string } | null | undefined): boolean {
@@ -26,6 +53,7 @@ export interface DraftEnterResponse {
   ok: boolean;
   slug?: string;
   head?: string;
+  error?: string;
 }
 
 export interface EnterDraftDeps {
@@ -60,7 +88,7 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Slug the shell sends with `draftEnter`: `studio.defaultDraft` when it is valid, otherwise `team-<project>`. */
+/** Token the shell sends with `draftEnter`: `studio.defaultDraft` when it is a slug, otherwise `user`. */
 export async function resolveDefaultDraft(
   project: number,
   deps: { getProjectConf: (project: number) => Promise<{ studio?: { defaultDraft?: string } } | null | undefined> },
@@ -70,7 +98,7 @@ export async function resolveDefaultDraft(
     const conf = await deps.getProjectConf(project);
     configured = conf?.studio?.defaultDraft;
   } catch (err) {
-    console.warn('[studioDraft] getProjectConf failed; using team draft:', err);
+    console.warn('[studioDraft] getProjectConf failed; using user draft:', err);
   }
   return defaultDraftFor(project, configured);
 }
@@ -111,7 +139,7 @@ export async function enterDraft(project: number, slug: string, deps: EnterDraft
     console.error('[studioDraft] draftEnter: invalid project:', project);
     return { statusCode: 400, ok: false };
   }
-  if (!DRAFT_SLUG.test(slug)) {
+  if (!isDraftRequest(slug)) {
     console.error('[studioDraft] draftEnter: invalid slug:', slug);
     return { statusCode: 400, ok: false };
   }
@@ -124,18 +152,37 @@ export async function enterDraft(project: number, slug: string, deps: EnterDraft
   }
   if (!isRecord(parsed) || parsed.ok !== true) {
     const statusCode = isRecord(parsed) && typeof parsed.statusCode === 'number' ? parsed.statusCode : 0;
-    console.error('[studioDraft] draftEnter rejected:', statusCode);
-    return { statusCode, ok: false };
+    const error = refusalError(parsed);
+    console.error('[studioDraft] draftEnter rejected:', statusCode, error ?? '');
+    const refused: DraftEnterResponse = { statusCode, ok: false };
+    if (error) refused.error = error;
+    return refused;
   }
   const statusCode = typeof parsed.statusCode === 'number' ? parsed.statusCode : 200;
   if (statusCode < 200 || statusCode >= 300) {
-    console.error('[studioDraft] draftEnter rejected:', statusCode);
+    const error = refusalError(parsed);
+    console.error('[studioDraft] draftEnter rejected:', statusCode, error ?? '');
+    const refused: DraftEnterResponse = { statusCode, ok: false };
+    if (error) refused.error = error;
+    return refused;
+  }
+  const returned = typeof parsed.slug === 'string' && DRAFT_SLUG.test(parsed.slug)
+    ? parsed.slug
+    : (DRAFT_SLUG.test(slug) ? slug : undefined);
+  if (!returned) {
+    console.error('[studioDraft] draftEnter: response slug missing');
     return { statusCode, ok: false };
   }
-  const returned = typeof parsed.slug === 'string' && DRAFT_SLUG.test(parsed.slug) ? parsed.slug : slug;
   const response: DraftEnterResponse = { statusCode, ok: true, slug: returned };
   if (typeof parsed.head === 'string') response.head = parsed.head;
   return response;
+}
+
+function refusalError(parsed: unknown): string | undefined {
+  if (!isRecord(parsed)) return undefined;
+  if (typeof parsed.msg === 'string' && parsed.msg.length > 0) return parsed.msg;
+  if (typeof parsed.error === 'string' && parsed.error.length > 0) return parsed.error;
+  return undefined;
 }
 
 function browserServiceWorkerModeDeps(): ServiceWorkerModeDeps {
@@ -304,13 +351,17 @@ export async function requestModeChange(
       deps.reportError(`[shell] setMode: draft slug failed: ${errorText(err)}`);
       return { mode: current };
     }
-    if (!DRAFT_SLUG.test(slug)) {
+    if (!isDraftRequest(slug)) {
       deps.reportError(`[shell] setMode: draft slug is invalid: ${slug}`);
       return { mode: current };
     }
     const entered = await deps.enterDraft(deps.project, slug);
     if (!entered.ok || !entered.slug) {
-      deps.reportError(`[shell] draftEnter failed: ${entered.statusCode}`);
+      if (entered.statusCode === 401 && entered.error === 'draft.session_required') {
+        deps.reportError(draftText('sessionRequired'));
+      } else {
+        deps.reportError(`[shell] draftEnter failed: ${entered.statusCode}`);
+      }
       return { mode: current };
     }
     message = { action: 'setMode', mode: 'studio', project: deps.project, draft: entered.slug };
