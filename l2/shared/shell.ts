@@ -10,7 +10,7 @@ import type {
   MasterFrontendRegionRendererConfig,
   MasterFrontendRouteDefinition,
 } from '/_102033_/l2/shared/contracts/bootstrap.js';
-import '/_102033_/l2/shared/layout/aura-aside.js';
+import { asideProjectId } from '/_102033_/l2/shared/layout/aura-aside.js';
 import '/_102033_/l2/shared/layout/aura-header.js';
 import {
   AURA_CLOSE_ASIDE_EVENT,
@@ -118,6 +118,81 @@ function traceLazy(event: string, details?: Record<string, unknown>) {
   console.log('[traceLazy][shell]', event, details ?? {});
 }
 
+export interface DraftSendFile {
+  project?: number;
+  level?: number;
+  shortName?: string;
+  folder?: string;
+  extension?: string;
+}
+
+export interface DraftSendResult {
+  project?: number;
+  result?: boolean;
+}
+
+type StorSetContents = (
+  files: readonly DraftSendFile[],
+  comments: string | null,
+) => Promise<readonly DraftSendResult[]>;
+
+type StudioAside = HTMLElement & {
+  syncStudioNavigation?: (studioOn: boolean) => Promise<void>;
+};
+
+function isSiteDraftConfig(file: DraftSendFile, project: number): boolean {
+  return file.project === project
+    && file.level === 5
+    && file.shortName === 'config'
+    && (file.folder ?? '') === ''
+    && file.extension === '.json';
+}
+
+/** True when this `setContents` wrote the site's `l5/config.json` and the driver accepted it. */
+export function draftConfigSendSucceeded(
+  files: readonly DraftSendFile[],
+  project: number,
+  results: readonly DraftSendResult[] | undefined,
+): boolean {
+  if (!files.some((file) => isSiteDraftConfig(file, project))) return false;
+  if (!results) {
+    console.error('[shell] setContents did not return a result list; aside was not reread');
+    return false;
+  }
+  const row = results.find((item) => item.project === project);
+  if (!row) {
+    console.error('[shell] setContents returned no result for the site project; aside was not reread');
+    return false;
+  }
+  return row.result === true;
+}
+
+/**
+ * The draft save (`mls.stor.setContents`) does not emit an event. Wrap it so a successful send of
+ * `l5/config.json` can reread the aside without a reload. The returned function restores the original.
+ */
+export function attachDraftConfigSendWatch(
+  stor: { setContents?: StorSetContents },
+  shouldRefresh: (files: readonly DraftSendFile[], results: readonly DraftSendResult[]) => boolean,
+  refresh: () => void,
+): () => void {
+  if (typeof stor.setContents !== 'function') {
+    console.error('[shell] mls.stor.setContents is missing; a draft send of l5/config.json will not refresh the aside');
+    return () => undefined;
+  }
+  const original = stor.setContents;
+  const bound = original.bind(stor);
+  const wrapped: StorSetContents = async (files, comments) => {
+    const results = await bound(files, comments);
+    if (shouldRefresh(files, results ?? [])) refresh();
+    return results;
+  };
+  stor.setContents = wrapped;
+  return () => {
+    if (stor.setContents === wrapped) stor.setContents = original;
+  };
+}
+
 function isAuraBootConfig(value: unknown): value is MasterFrontendBootConfig {
   if (!value || typeof value !== 'object') {
     return false;
@@ -222,6 +297,11 @@ export class CollabAuraShell extends LitElement {
   // The mode that arrived before the structure was upgraded; applied right after it.
   private pendingStudioOn: boolean | undefined;
   private modeChain: Promise<void> = Promise.resolve();
+  private stopConfigWatch: (() => void) | undefined;
+  /** Set when the aside should be told the current mode; cleared once the element accepts it. */
+  private asideNavPending = false;
+  private reportedMissingProject = false;
+  private reportedMissingStor = false;
   private structureRetriesLeft = 67;
   // Phone: the same structure shows one nav3 at a time (mobilePane.ts). The header's ☰ — the aside
   // toggle of the classic layout — switches between them; navigating shows the app.
@@ -310,6 +390,7 @@ export class CollabAuraShell extends LitElement {
       ),
     };
     this.registerSitesControls();
+    this.ensureConfigWatch();
     setTimeout(() => this.maybeUpgradeStructure(), 1200);
     this.mobileMediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`);
     this.mobileMediaQuery.addEventListener('change', this.handleViewportChange);
@@ -329,6 +410,8 @@ export class CollabAuraShell extends LitElement {
   }
 
   disconnectedCallback() {
+    this.stopConfigWatch?.();
+    this.stopConfigWatch = undefined;
     if (this.sitesRetryTimer) {
       clearTimeout(this.sitesRetryTimer);
       this.sitesRetryTimer = undefined;
@@ -729,6 +812,7 @@ export class CollabAuraShell extends LitElement {
     this.studioModeOn = studioOn;
     this.requestUpdate();
     if (!this.studioModeOn) {
+      this.refreshAsideNavigation('mode');
       this.showRuntimeServices();
       this.syncStructureSplit(false);
       return;
@@ -749,6 +833,9 @@ export class CollabAuraShell extends LitElement {
     // InitMonaco a remembered service runs is the one initStudio already finished.
     this.syncStructureSplit(true);
     void rememberRelease(readCollabReleaseId);
+    // After initStudio, so `l5/config.json` is already in `mls.stor`.
+    this.ensureConfigWatch();
+    this.refreshAsideNavigation('mode');
   }
 
   private getMode(): CollabRunMode {
@@ -1775,6 +1862,7 @@ export class CollabAuraShell extends LitElement {
         currentElement.bootConfig = this.bootConfig;
         currentElement.regionProps = this.getRegionProps(region);
       }
+      if (region === 'aside') this.flushAsideNavigation('mode');
       return;
     }
 
@@ -1786,6 +1874,62 @@ export class CollabAuraShell extends LitElement {
     element.bootConfig = this.bootConfig;
     element.regionProps = this.getRegionProps(region);
     host.replaceChildren(element);
+    if (region === 'aside') this.flushAsideNavigation('mode');
+  }
+
+  /** `l5/config.json` has no save event. Listen on `setContents` for the life of this shell. */
+  private ensureConfigWatch(): void {
+    if (this.isEmbedded || this.stopConfigWatch) return;
+    const stor = (globalThis as unknown as { mls?: { stor?: { setContents?: StorSetContents } } }).mls?.stor;
+    if (!stor || typeof stor.setContents !== 'function') {
+      if (this.studioModeOn && !this.reportedMissingStor) {
+        this.reportedMissingStor = true;
+        console.error('[shell] mls.stor.setContents is missing; a draft send of l5/config.json will not refresh the aside');
+      }
+      return;
+    }
+    this.stopConfigWatch = attachDraftConfigSendWatch(
+      stor,
+      (files, results) => this.draftSendShouldRefresh(files, results),
+      () => this.refreshAsideNavigation('send'),
+    );
+  }
+
+  private draftSendShouldRefresh(files: readonly DraftSendFile[], results: readonly DraftSendResult[]): boolean {
+    if (!this.studioModeOn) return false;
+    const project = asideProjectId((globalThis as { window?: { collabBoot?: { projectId?: string } }; collabBoot?: { projectId?: string } }).window?.collabBoot
+      ?? (globalThis as { collabBoot?: { projectId?: string } }).collabBoot
+      ?? this.bootConfig);
+    if (project === null) {
+      if (!this.reportedMissingProject && files.some((file) => file.level === 5 && file.shortName === 'config' && file.extension === '.json')) {
+        this.reportedMissingProject = true;
+        console.error('[shell] studio mode is on and collabBoot.projectId is missing; aside was not reread');
+      }
+      return false;
+    }
+    return draftConfigSendSucceeded(files, project, results);
+  }
+
+  private refreshAsideNavigation(reason: 'mode' | 'send'): void {
+    this.asideNavPending = true;
+    this.flushAsideNavigation(reason);
+  }
+
+  private flushAsideNavigation(reason: 'mode' | 'send'): void {
+    if (!this.asideNavPending) return;
+    const aside = (this.querySelector('collab-aura-aside')
+      ?? document.querySelector('collab-aura-aside')) as StudioAside | null;
+    if (!aside || typeof aside.syncStudioNavigation !== 'function') {
+      if (reason === 'send') {
+        console.error('[shell] collab-aura-aside is not mounted; the draft config send did not refresh the menu');
+      }
+      return;
+    }
+    this.asideNavPending = false;
+    const studioOn = this.studioModeOn;
+    void aside.syncStudioNavigation(studioOn).catch((err: unknown) => {
+      console.error('[shell] aside navigation refresh failed:', err);
+    });
   }
 
   updated() {

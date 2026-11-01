@@ -1,6 +1,7 @@
 /// <mls fileReference="_102033_/l2/shared/layout/aura-aside.ts" enhancement="_blank" />
 import { LitElement, html } from 'lit';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
+import { readDraftModules, type ConfigModule, type ConfigNavItem } from '/_102033_/l2/cbe/studioDraftConfig.js';
 import { beginExpectedNavigationLoad, runBlockingUiAction } from '/_102033_/l2/shared/interactionRuntime.js';
 import { closeAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js';
 import { visibleNavigation } from '/_102033_/l2/shared/navigationVisibility.js';
@@ -12,17 +13,85 @@ function traceLazy(event: string, details?: Record<string, unknown>) {
   console.log('[traceLazy][aura-aside]', event, details ?? {});
 }
 
+type AsideNavItem = NonNullable<MasterFrontendBootConfig['navigation']>[number];
+
+export interface AsideBoot {
+  projectId?: string | number;
+  moduleId?: string;
+  navigation?: AsideNavItem[];
+}
+
+export interface AsideNavigation {
+  source: 'draft' | 'release';
+  items: AsideNavItem[];
+}
+
+/** Site project of `collabBoot.projectId`. The same id `readDraftModules` reads in the apps menu. */
+export function asideProjectId(boot: { projectId?: string | number } | undefined): number | null {
+  const id = Number(boot?.projectId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return id;
+}
+
+function liveBoot(fallback?: AsideBoot): AsideBoot {
+  const host = globalThis as { window?: { collabBoot?: AsideBoot }; collabBoot?: AsideBoot };
+  return host.window?.collabBoot ?? host.collabBoot ?? fallback ?? {};
+}
+
+function navigationFromDraftModule(moduleConfig: ConfigModule): AsideNavItem[] {
+  const items: AsideNavItem[] = [];
+  for (const raw of moduleConfig.navigation ?? []) {
+    const href = raw.href;
+    if (typeof href !== 'string' || href.length === 0) continue;
+    const id = typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : href;
+    const label = typeof raw.label === 'string' && raw.label.length > 0 ? raw.label : id;
+    const entry: AsideNavItem = { id, label, href };
+    const extra = raw as ConfigNavItem & { description?: unknown; actors?: unknown };
+    if (typeof extra.description === 'string') entry.description = extra.description;
+    if (Array.isArray(extra.actors)) (entry as AsideNavItem & { actors: unknown[] }).actors = extra.actors;
+    items.push(entry);
+  }
+  return items;
+}
+
+/**
+ * Studio on: navigation of `boot.moduleId` inside the draft config.
+ * Studio off, or a draft that cannot be read: `boot.navigation` (the release menu).
+ */
+export async function readAsideNavigation(studioOn: boolean, boot: AsideBoot): Promise<AsideNavigation> {
+  const release = boot.navigation ?? [];
+  if (!studioOn) return { source: 'release', items: release };
+  const project = asideProjectId(boot);
+  if (project === null) {
+    console.error('[aura-aside] studio mode is on and collabBoot.projectId is missing; aside stays on the release');
+    return { source: 'release', items: release };
+  }
+  const modules = await readDraftModules(project);
+  if (!modules) return { source: 'release', items: release };
+  const moduleId = boot.moduleId ?? '';
+  const found = modules.find((item) => item.moduleId === moduleId);
+  if (!found) {
+    console.error(`[aura-aside] draft l5/config.json has no module ${moduleId || '(empty)'}`);
+    return { source: 'release', items: release };
+  }
+  return { source: 'draft', items: navigationFromDraftModule(found) };
+}
+
 export class AuraAside extends LitElement {
   static properties = {
     bootConfig: { attribute: false },
     currentPath: { state: true },
     authorities: { state: true },
+    draftNavigation: { state: true },
   };
 
   declare bootConfig?: MasterFrontendBootConfig;
   declare currentPath: string;
   /** The user's authorities, asked of the server once (the token is httpOnly; JS cannot read claims). */
   declare authorities: string[];
+  /** Draft menu while Studio is on. `null` means render `collabBoot.navigation`. */
+  declare draftNavigation: AsideNavItem[] | null;
+  private navEpoch = 0;
 
   createRenderRoot() {
     return this;
@@ -32,6 +101,7 @@ export class AuraAside extends LitElement {
     super.connectedCallback();
     this.currentPath = window.location.pathname;
     this.authorities = this.authorities ?? [];
+    this.draftNavigation = this.draftNavigation ?? null;
     void this.loadAuthorities();
     window.addEventListener('popstate', this.handleLocationChange);
   }
@@ -61,6 +131,15 @@ export class AuraAside extends LitElement {
   private readonly handleLocationChange = () => {
     this.currentPath = window.location.pathname;
   };
+
+  /** Studio on reads the draft module. Studio off drops it and the render returns to the release menu. */
+  async syncStudioNavigation(studioOn: boolean): Promise<void> {
+    const epoch = ++this.navEpoch;
+    const resolved = await readAsideNavigation(studioOn, liveBoot(this.bootConfig));
+    if (epoch !== this.navEpoch) return;
+    this.draftNavigation = resolved.source === 'draft' ? resolved.items : null;
+    this.requestUpdate();
+  }
 
   private isItemActive(href: string) {
     if (href === this.bootConfig?.basePath) {
@@ -123,7 +202,9 @@ export class AuraAside extends LitElement {
   }
 
   render() {
-    const navigation = visibleNavigation(this.bootConfig?.navigation ?? [], this.authorities, this.bootConfig?.moduleId ?? '');
+    const boot = liveBoot(this.bootConfig);
+    const release = boot.navigation ?? [];
+    const navigation = visibleNavigation(this.draftNavigation ?? release, this.authorities, boot.moduleId ?? '');
     const moduleLinks = this.bootConfig?.moduleLinks ?? [];
     return html`
       <style>
