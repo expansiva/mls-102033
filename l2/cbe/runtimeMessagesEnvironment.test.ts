@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { environment, setEnvironment } from '/_102036_/l2/environmentContract.js';
-import { applyRuntimeMessagesEnvironment } from '/_102033_/l2/cbe/runtimeMessagesEnvironment.js';
+import { applyRuntimeMessagesEnvironment, buildProgramMenu } from '/_102033_/l2/cbe/runtimeMessagesEnvironment.js';
 
 const source = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), 'runtimeMessagesEnvironment.ts'),
@@ -158,4 +158,128 @@ test('opening a program shows the app pane on a phone — tabs and iframes never
     const close = body.indexOf('closeAuraAside()');
     const firstBranch = body.indexOf('if (basePath && item.url.startsWith(basePath))');
     assert.ok(close > 0 && close < firstBranch, 'closeAuraAside must run before every branch');
+});
+
+const SITE = 102047;
+const MASTER = 102034;
+
+type AppEntry = {
+    projectId: number;
+    moduleId: string;
+    basePath: string;
+    navigation: Array<{ id: string; label: string; href: string }>;
+};
+
+const bffApps: AppEntry[] = [
+    {
+        projectId: MASTER,
+        moduleId: 'monitor',
+        basePath: '/monitor',
+        navigation: [{ id: 'mon', label: 'Monitor', href: '/monitor' }],
+    },
+    {
+        projectId: SITE,
+        moduleId: 'orders',
+        basePath: '/orders',
+        navigation: [{ id: 'old-page', label: 'Old', href: '/orders/old' }],
+    },
+];
+
+function draftConfig(pageId: string): string {
+    return JSON.stringify({
+        projects: {
+            [String(SITE)]: {
+                modules: [{
+                    moduleId: 'orders',
+                    basePath: '/orders',
+                    navigation: [{ id: pageId, label: pageId, href: `/orders/${pageId}` }],
+                }],
+            },
+        },
+    });
+}
+
+function installDraftMenu(mode: 'studio' | 'production', configBody: string): { errors: unknown[][]; restore: () => void } {
+    const host = globalThis as {
+        mls?: { stor?: unknown; sites?: { getMode?: () => 'studio' | 'production' } };
+        collabBoot?: { projectId?: string };
+        fetch?: typeof fetch;
+    };
+    const previous = { mls: host.mls, boot: host.collabBoot, fetch: host.fetch };
+    const errors: unknown[][] = [];
+    const origError = console.error;
+    console.error = (...args: unknown[]) => { errors.push(args); };
+    host.collabBoot = { projectId: String(SITE) };
+    host.mls = {
+        ...(previous.mls ?? {}),
+        sites: { getMode: () => mode },
+        stor: {
+            getKeyToFiles: (project: number, level: number, shortName: string, folder: string, extension: string) =>
+                `${project}|${level}|${shortName}|${folder}|${extension}`,
+            files: {
+                [`${SITE}|5|config||.json`]: {
+                    project: SITE,
+                    status: 'nochange',
+                    inLocalStorage: false,
+                    getContent: async () => configBody,
+                },
+            },
+        },
+    };
+    host.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as { routine?: string };
+        if (body.routine !== 'monitor.appsMenu.load') {
+            throw new Error(`unexpected routine ${String(body.routine)}`);
+        }
+        return new Response(JSON.stringify({ ok: true, data: { apps: bffApps } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        });
+    }) as typeof fetch;
+    return {
+        errors,
+        restore() {
+            console.error = origError;
+            host.mls = previous.mls;
+            host.collabBoot = previous.boot;
+            host.fetch = previous.fetch;
+        },
+    };
+}
+
+function menuUrls(menus: Array<{ project: number; menu: Array<{ url: string }> }>): string[] {
+    return menus.flatMap((menu) => menu.menu.map((item) => `${menu.project}:${item.url}`));
+}
+
+test('st39: Studio ligado mostra o item novo do rascunho e mantém o módulo mestre', async () => {
+    const env = installDraftMenu('studio', draftConfig('new-page'));
+    try {
+        const found = menuUrls(await buildProgramMenu());
+        assert.deepEqual(found, [`${MASTER}:/monitor`, `${SITE}:/orders/new-page`]);
+        assert.equal(env.errors.length, 0);
+    } finally {
+        env.restore();
+    }
+});
+
+test('st39: Studio desligado fica só com o menu do BFF', async () => {
+    const env = installDraftMenu('production', draftConfig('new-page'));
+    try {
+        const found = menuUrls(await buildProgramMenu());
+        assert.deepEqual(found, [`${MASTER}:/monitor`, `${SITE}:/orders/old`]);
+        assert.equal(env.errors.length, 0);
+    } finally {
+        env.restore();
+    }
+});
+
+test('st39: config inválido mantém o BFF e avisa no console', async () => {
+    const env = installDraftMenu('studio', '{');
+    try {
+        const found = menuUrls(await buildProgramMenu());
+        assert.deepEqual(found, [`${MASTER}:/monitor`, `${SITE}:/orders/old`]);
+        assert.equal(JSON.stringify(env.errors).includes('not valid JSON'), true);
+    } finally {
+        env.restore();
+    }
 });

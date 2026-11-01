@@ -15,9 +15,7 @@ import { openModuleTab } from '/_102033_/l2/shared/moduleTab.js';
 import { MOBILE_BREAKPOINT_PX } from '/_102033_/l2/shared/breakpoints.js';
 // brings the global Window.collabBoot declaration into every program that compiles this file
 import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
-
-interface ConfigNavItem { id?: string; label?: string; href?: string }
-interface ConfigModule { moduleId?: string; basePath?: string; navigation?: ConfigNavItem[] }
+import { readDraftModules, type ConfigModule, type ConfigNavItem } from '/_102033_/l2/cbe/studioDraftConfig.js';
 
 function moduleToMenu(moduleConfig: ConfigModule, project: number): CollabProgramMenu | null {
   if (!moduleConfig.moduleId) return null;
@@ -49,7 +47,41 @@ async function callBff<T>(routine: string): Promise<T | undefined> {
   }
 }
 
-export async function buildProgramMenu(): Promise<CollabProgramMenu[]> {
+function studioModeOn(): boolean {
+  const sites = (globalThis as { mls?: { sites?: { getMode?: () => string | undefined } } }).mls?.sites;
+  if (typeof sites?.getMode !== 'function') return false;
+  try {
+    return sites.getMode() === 'studio';
+  } catch (err) {
+    console.error('[runtimeMessagesEnvironment] failed to read studio mode:', err);
+    return false;
+  }
+}
+
+function siteProjectId(): number | null {
+  const id = Number((globalThis as { collabBoot?: { projectId?: string } }).collabBoot?.projectId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return id;
+}
+
+function replaceSiteMenus(menus: CollabProgramMenu[], project: number, draftMenus: CollabProgramMenu[]): CollabProgramMenu[] {
+  const next: CollabProgramMenu[] = [];
+  let placed = false;
+  for (const menu of menus) {
+    if (menu.project !== project) {
+      next.push(menu);
+      continue;
+    }
+    if (!placed) {
+      next.push(...draftMenus);
+      placed = true;
+    }
+  }
+  if (!placed) next.push(...draftMenus);
+  return next;
+}
+
+async function menusFromBff(): Promise<CollabProgramMenu[]> {
   // Preferred: monitor.appsMenu.load — every hosted app with its RESOLVED
   // navigation (includes the master modules monitor/audit/mdm, whose menu
   // lives in module.ts, not in the composed config.json).
@@ -74,6 +106,23 @@ export async function buildProgramMenu(): Promise<CollabProgramMenu[]> {
     if (menus.length > 0) return menus;
   }
   return [];
+}
+
+export async function buildProgramMenu(): Promise<CollabProgramMenu[]> {
+  const menus = await menusFromBff();
+  if (!studioModeOn()) return menus;
+  const project = siteProjectId();
+  if (project === null) {
+    console.error('[runtimeMessagesEnvironment] studio mode is on and collabBoot.projectId is missing; apps menu stays on the release');
+    return menus;
+  }
+  // Site project comes from the draft config. Master modules (other projects) stay on the BFF menu.
+  const modules = await readDraftModules(project);
+  if (!modules) return menus;
+  const draftMenus = modules
+    .map((moduleConfig) => moduleToMenu(moduleConfig, project))
+    .filter((menu): menu is CollabProgramMenu => menu !== null);
+  return replaceSiteMenus(menus, project, draftMenus);
 }
 
 // The app's tabs/panels live adopted inside serviceClientApp, on the right
