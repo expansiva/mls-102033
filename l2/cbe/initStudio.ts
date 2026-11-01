@@ -13,6 +13,7 @@ import { activeDraft, readCollabModeNotice } from '/_102033_/l2/cbe/studioDraft.
 import { applyDraftFiles, draftPublishedCommit } from '/_102033_/l2/cbe/studioDraftFiles.js';
 import { swapVisibleScreen } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { draftL2Targets, publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
+import { createGitSlotVmDriver, readSourcesFromGitHub } from '/_102033_/l2/cbe/studioSourcesOption.js';
 
 const MONACO_SCRIPT_ID = 'cbe-monaco-loader';
 
@@ -145,14 +146,8 @@ async function registerDriverInSlot(
 /**
  * Registers every storage driver this runtime can offer, each in ITS OWN slot:
  *   vm     -> DriverVm (this project)      — sources read from / written to the VM disk
- *   github -> DriverGitHub (mls-100554)    — the real git host
- *   gitlab -> DriverGitLab (mls-100554)
- *
- * WHICH ONE A PROJECT USES IS THE PROJECT'S CHOICE: l5/config.json's projectSettings.driver
- * reaches the browser through the login (cbeLogin.buildProjectSettings, which defaults to
- * 'vm' when a project declares nothing) and getDefaultDriver maps that name to a slot. A
- * project declaring "vm" is served from the VM disk; one declaring "GitHub" goes to the git
- * host — which is why the 'github' slot gets the REAL driver and not a stand-in.
+ *   github / gitlab -> DriverVm (read-only wrap) by default, or the real git host
+ *     when collabStudioSourcesFromGitHub is '1'
  *
  * Port of collabInit.setDrivers (mls-100554), which never runs on the VM runtime, plus the VM
  * driver, which only exists here. Dynamic imports on purpose — these classes extend
@@ -214,16 +209,21 @@ async function registerDriverSlots(): Promise<void> {
     return;
   }
   await registerVmDriver();
-  await registerDriverInSlot(others, 'github', async () => {
-    const url = '/_100554_/l2/driverGithub.js';
-    const { DriverGitHub } = await import(url);
-    return new DriverGitHub();
-  });
-  await registerDriverInSlot(others, 'gitlab', async () => {
-    const url = '/_100554_/l2/driverGitlab.js';
-    const { DriverGitLab } = await import(url);
-    return new DriverGitLab();
-  });
+  if (readSourcesFromGitHub()) {
+    await registerDriverInSlot(others, 'github', async () => {
+      const url = '/_100554_/l2/driverGithub.js';
+      const { DriverGitHub } = await import(url);
+      return new DriverGitHub();
+    });
+    await registerDriverInSlot(others, 'gitlab', async () => {
+      const url = '/_100554_/l2/driverGitlab.js';
+      const { DriverGitLab } = await import(url);
+      return new DriverGitLab();
+    });
+    return;
+  }
+  await registerDriverInSlot(others, 'github', createGitSlotVmDriver);
+  await registerDriverInSlot(others, 'gitlab', createGitSlotVmDriver);
 }
 
 // ─── Project definition models (.d.ts of the dependency chain) ───────────────
