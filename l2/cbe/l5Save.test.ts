@@ -145,3 +145,51 @@ test('T5: setContents throw bubbles and is not swallowed', async () => {
     host.restore();
   }
 });
+
+function listenDraftSaved(): { events: unknown[]; stop: () => void } {
+  const events: unknown[] = [];
+  const target = new EventTarget();
+  const previous = (globalThis as { window?: unknown }).window;
+  (globalThis as { window: unknown }).window = target;
+  target.addEventListener('collabDraftSaved', (event) => { events.push((event as CustomEvent).detail); });
+  return {
+    events,
+    stop() {
+      if (previous === undefined) delete (globalThis as { window?: unknown }).window;
+      else (globalThis as { window: unknown }).window = previous;
+    },
+  };
+}
+
+test('st39 s5: gravou o l5 → um collabDraftSaved com o caminho, depois de limpar o cache', async () => {
+  const host = installStor({});
+  const listen = listenDraftSaved();
+  try {
+    await saveL5File(102099, 'project', '{"a":1}', 'c');
+    assert.deepEqual(listen.events, [{ project: 102099, paths: ['l5/project.json'] }]);
+  } finally {
+    listen.stop();
+    host.restore();
+  }
+});
+
+test('st39 s5: gravação recusada (false) ou com erro → nenhum evento', async () => {
+  const listen = listenDraftSaved();
+  try {
+    const refused = installStor({ setContents: async () => false });
+    try {
+      assert.equal(await saveL5File(102099, 'project', '{}', 'c'), false);
+    } finally {
+      refused.restore();
+    }
+    const failed = installStor({ setContents: async () => { throw new Error('driver'); } });
+    try {
+      await assert.rejects(() => saveL5File(102099, 'project', '{}', 'c'));
+    } finally {
+      failed.restore();
+    }
+    assert.deepEqual(listen.events, []);
+  } finally {
+    listen.stop();
+  }
+});

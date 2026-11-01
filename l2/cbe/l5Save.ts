@@ -16,6 +16,21 @@ function setContentsSucceeded(result: unknown): boolean {
   return true;
 }
 
+/**
+ * Tells the Studio shell a draft file was written: the l5 config never goes through the panel's
+ * `saveToDraft`, and the lib emits no event. Same name and shape as the panel's `collabDraftSaved`
+ * (no import between the two: 102033 shell listens, 102020 panel dispatches).
+ */
+function dispatchDraftSaved(project: number, shortName: string): void {
+  const target = (globalThis as { window?: EventTarget }).window;
+  if (!target || typeof target.dispatchEvent !== 'function') return;
+  try {
+    target.dispatchEvent(new CustomEvent('collabDraftSaved', { detail: { project, paths: [`l5/${shortName}.json`] } }));
+  } catch (err) {
+    console.error('[l5Save] collabDraftSaved was not dispatched:', err);
+  }
+}
+
 export async function saveL5File(
   project: number, shortName: string, content: string, comment: string,
 ): Promise<boolean> {
@@ -30,5 +45,6 @@ export async function saveL5File(
   if (!setContentsSucceeded(saved)) return false;
 
   await mls.stor.cache.clearProjectsCache([project]);
+  dispatchDraftSaved(project, shortName);
   return true;
 }
