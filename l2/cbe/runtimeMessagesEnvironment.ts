@@ -16,6 +16,7 @@ import { MOBILE_BREAKPOINT_PX } from '/_102033_/l2/shared/breakpoints.js';
 // brings the global Window.collabBoot declaration into every program that compiles this file
 import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
 import { readDraftModules, type ConfigModule, type ConfigNavItem } from '/_102033_/l2/cbe/studioDraftConfig.js';
+import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 
 function moduleToMenu(moduleConfig: ConfigModule, project: number): CollabProgramMenu | null {
   if (!moduleConfig.moduleId) return null;
@@ -59,9 +60,8 @@ function studioModeOn(): boolean {
 }
 
 function siteProjectId(): number | null {
-  const id = Number((globalThis as { collabBoot?: { projectId?: string } }).collabBoot?.projectId);
-  if (!Number.isInteger(id) || id <= 0) return null;
-  return id;
+  const id = siteProjectFromBoot((globalThis as { collabBoot?: { projectId?: string; clientProjectId?: string } }).collabBoot);
+  return id > 0 ? id : null;
 }
 
 function replaceSiteMenus(menus: CollabProgramMenu[], project: number, draftMenus: CollabProgramMenu[]): CollabProgramMenu[] {

@@ -157,3 +157,11 @@ test('st39: o aside pinta o rascunho e o shell relê na entrada, na saída e no 
   const enter = shellSource.indexOf('After initStudio');
   assert.ok(leave > 0 && enter > leave, 'leaving Studio restores the menu before the draft is read again on entry');
 });
+
+test('st39: o projeto do site é o clientProjectId, não o projectId do módulo de lib', async () => {
+  const { asideProjectId } = await asideModule;
+  assert.equal(asideProjectId({ projectId: '102033', clientProjectId: '102047' }), 102047);
+  assert.equal(asideProjectId({ projectId: '102047' }), 102047);
+  assert.equal(asideProjectId({}), null);
+  assert.equal(asideProjectId(undefined), null);
+});

@@ -2,6 +2,7 @@
 import { LitElement, html } from 'lit';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 import { readDraftModules, type ConfigModule, type ConfigNavItem } from '/_102033_/l2/cbe/studioDraftConfig.js';
+import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 import { beginExpectedNavigationLoad, runBlockingUiAction } from '/_102033_/l2/shared/interactionRuntime.js';
 import { closeAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js';
 import { visibleNavigation } from '/_102033_/l2/shared/navigationVisibility.js';
@@ -26,11 +27,10 @@ export interface AsideNavigation {
   items: AsideNavItem[];
 }
 
-/** Site project of `collabBoot.projectId`. The same id `readDraftModules` reads in the apps menu. */
-export function asideProjectId(boot: { projectId?: string | number } | undefined): number | null {
-  const id = Number(boot?.projectId);
-  if (!Number.isInteger(id) || id <= 0) return null;
-  return id;
+/** Site project of the boot config (`siteProjectFromBoot`). The same id `readDraftModules` reads in the apps menu. */
+export function asideProjectId(boot: { projectId?: string | number; clientProjectId?: string | number } | undefined): number | null {
+  const id = siteProjectFromBoot(boot);
+  return id > 0 ? id : null;
 }
 
 function liveBoot(fallback?: AsideBoot): AsideBoot {

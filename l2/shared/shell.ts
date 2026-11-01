@@ -1897,9 +1897,7 @@ export class CollabAuraShell extends LitElement {
 
   private draftSendShouldRefresh(files: readonly DraftSendFile[], results: readonly DraftSendResult[]): boolean {
     if (!this.studioModeOn) return false;
-    const project = asideProjectId((globalThis as { window?: { collabBoot?: { projectId?: string } }; collabBoot?: { projectId?: string } }).window?.collabBoot
-      ?? (globalThis as { collabBoot?: { projectId?: string } }).collabBoot
-      ?? this.bootConfig);
+    const project = asideProjectId(window.collabBoot ?? this.bootConfig);
     if (project === null) {
       if (!this.reportedMissingProject && files.some((file) => file.level === 5 && file.shortName === 'config' && file.extension === '.json')) {
         this.reportedMissingProject = true;
