@@ -194,6 +194,17 @@ export function isModuleTabPinned(basePath: string): boolean {
   return stored.ok && stored.pinned.some((entry) => entry.basePath === basePath);
 }
 
+/**
+ * Whether the menu of THIS tab says "unpin". A pinned tab (`#n`) is pinned; a free hosted tab is not, even
+ * when its module has pins elsewhere; the app tab is pinned only when a pin holds its current route.
+ */
+export function isTabPinned(tabIdValue: string, bootBasePath: string, appRoute: string): boolean {
+  if (/#\d+$/u.test(tabIdValue)) return true;
+  if (tabIdValue !== 'app') return false;
+  const stored = readPinnedTabs();
+  return stored.ok && stored.pinned.some((entry) => entry.basePath === bootBasePath && entry.route === appRoute);
+}
+
 export function moduleTabPinLabel(basePath: string, language: string): string {
   const code = language.toLowerCase().startsWith('pt') ? 'pt' : 'en';
   return isModuleTabPinned(basePath) ? pinLabels[code].unpin : pinLabels[code].pin;

@@ -12,6 +12,7 @@ import {
   findModuleTabForPath,
   isModuleRegistered,
   isModuleTabPinned,
+isTabPinned,
   moduleTabPinLabel,
   mountModuleTabOnActivate,
   pinBasePathForTab,
@@ -945,7 +946,7 @@ describe('rt154 s2: pin lives on the nav3 menu, including the app tab', () => {
           const route = id === 'app' ? `${location.pathname}${location.search}${location.hash}` : undefined;
           toggleModuleTabPin(basePath, route);
         },
-        isPinned: (id: string) => isModuleTabPinned(pinBasePathForTab(id, '/home')),
+        isPinned: (id: string) => isTabPinned(id, '/home', `${location.pathname}${location.search}${location.hash}`),
       },
     } as unknown as Window & typeof globalThis;
     globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -962,6 +963,10 @@ describe('rt154 s2: pin lives on the nav3 menu, including the app tab', () => {
       nav.togglePin('app');
       assert.equal(nav.isPinned('app'), true);
       assert.equal(moduleTabPinLabel('/home', 'en'), 'Unpin tab');
+      // the menu follows the tab, not the module: a free tab of a module with a pin still offers "pin"
+      assert.equal(isTabPinned('mod-/home#1', '/home', '/x'), true);
+      assert.equal(isTabPinned('mod-/home', '/home', '/x'), false);
+      assert.equal(isTabPinned('app', '/home', '/home/other'), false);
       const saved = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ basePath: string; route: string }> };
       assert.deepEqual(saved.pinned, [{ basePath: '/home', route: '/home/now' }]);
 
@@ -969,10 +974,10 @@ describe('rt154 s2: pin lives on the nav3 menu, including the app tab', () => {
       active = 'mod-/tasks';
       assert.equal(moduleTabPinLabel(pinBasePathForTab(nav.activeTab(), '/home'), 'pt-BR'), 'Fixar aba');
       nav.togglePin('mod-/tasks');
-      assert.equal(nav.isPinned('mod-/tasks'), true);
+      assert.equal(isModuleTabPinned('/tasks'), true);
       assert.equal(moduleTabPinLabel('/tasks', 'en'), 'Unpin tab');
       nav.togglePin('mod-/tasks');
-      assert.equal(nav.isPinned('mod-/tasks'), false);
+      assert.equal(isModuleTabPinned('/tasks'), false);
 
       location.pathname = '/home';
       opened.length = 0;

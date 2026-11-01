@@ -41,7 +41,7 @@ import { getCollabRouteChunkCache, loadAuraRouteChunk, matchAuraRoute } from '/_
 import { isInternalModuleHref } from '/_102033_/l2/shared/layout/auraNavigate.js';
 import {
   findModuleTabForPath,
-  isModuleTabPinned,
+  isTabPinned,
   moduleTabOpenActivates,
   mountModuleTabOnActivate,
   pinBasePathForTab,
@@ -302,10 +302,11 @@ export class CollabAuraShell extends LitElement {
       ],
       activeTab: () => this.activeContentTabId,
       togglePin: this.toggleContentTabPin,
-      isPinned: (id) => {
-        const basePath = pinBasePathForTab(id, this.bootConfig?.basePath ?? '');
-        return isModuleTabPinned(basePath);
-      },
+      isPinned: (id) => isTabPinned(
+        id,
+        this.bootConfig?.basePath ?? '',
+        `${window.location.pathname}${window.location.search}${window.location.hash}`,
+      ),
     };
     this.registerSitesControls();
     setTimeout(() => this.maybeUpgradeStructure(), 1200);
