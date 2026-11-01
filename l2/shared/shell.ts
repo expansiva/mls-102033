@@ -180,6 +180,16 @@ export function attachDraftConfigSendWatch(
     console.error('[shell] mls.stor.setContents is missing; a draft send of l5/config.json will not refresh the aside');
     return () => undefined;
   }
+  // The lib exports `mls.stor.*` through getters (`mls.js` `__export`): a plain assignment throws in
+  // the browser. Without a writable slot there is nothing to wrap; say so and leave the original alone.
+  const descriptor = Object.getOwnPropertyDescriptor(stor, 'setContents');
+  const writable = descriptor
+    ? descriptor.writable === true || typeof descriptor.set === 'function'
+    : Object.isExtensible(stor);
+  if (!writable) {
+    console.error('[shell] mls.stor.setContents is read-only (lib export); a draft send of l5/config.json will not refresh the aside');
+    return () => undefined;
+  }
   const original = stor.setContents;
   const bound = original.bind(stor);
   const wrapped: StorSetContents = async (files, comments) => {

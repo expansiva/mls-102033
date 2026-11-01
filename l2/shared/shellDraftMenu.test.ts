@@ -75,3 +75,22 @@ test('st39: o observador devolve o setContents original', async () => {
   stop();
   assert.equal(stor.setContents, original);
 });
+
+test('st39: mls.stor com setContents só de leitura (export da lib) não derruba a entrada no Studio', async () => {
+  const { attachDraftConfigSendWatch } = await shellModule;
+  const send = async () => [{ project: 102047, result: true }];
+  const stor: { setContents?: typeof send } = {};
+  Object.defineProperty(stor, 'setContents', { get: () => send, enumerable: true, configurable: false });
+  const errors: unknown[][] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args); };
+  try {
+    const stop = attachDraftConfigSendWatch(stor, () => true, () => undefined);
+    stop();
+  } finally {
+    console.error = original;
+  }
+  assert.equal(stor.setContents, send, 'o original fica como estava');
+  assert.equal(errors.length, 1);
+  assert.match(String(errors[0][0]), /read-only/);
+});
