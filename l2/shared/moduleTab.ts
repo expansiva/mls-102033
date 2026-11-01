@@ -36,6 +36,20 @@ function freeTabId(basePath: string): string {
   return `mod-${basePath}`;
 }
 
+/** A module id shown as a name: first letter uppercased. Never a path. */
+export function moduleNameFromId(moduleId: string): string {
+  const name = moduleId.replace(/^\/+|\/+$/gu, '').split('/').pop() ?? '';
+  return name ? name.charAt(0).toUpperCase() + name.slice(1) : '';
+}
+
+/** Same name the apps menu uses (`moduleId`), with the first letter uppercased. Never a path. */
+export function moduleDisplayName(basePath: string): string {
+  const boot = window.collabBoot;
+  const bootBase = boot?.basePath ?? '';
+  const fromBoot = Boolean(boot?.moduleId) && basePath === bootBase;
+  return moduleNameFromId(fromBoot ? boot?.moduleId ?? '' : basePath);
+}
+
 function pinnedTabId(basePath: string, number: number): string {
   return `mod-${basePath}#${number}`;
 }
@@ -117,7 +131,7 @@ async function renderRoute(
     : document.createElement(matched.tag) as PageElement;
   page.bootConfig = boot;
   if (page !== current) div.replaceChildren(page);
-  return boot.moduleId || matched.title;
+  return moduleNameFromId(boot.moduleId) || matched.title;
 }
 
 function currentHref(): string {
@@ -277,7 +291,7 @@ function openPinnedBootTab(basePath: string, route: string, number: number): voi
     basePath,
     div,
     route,
-    title: basePath,
+    title: moduleDisplayName(basePath),
     pinned: true,
     mounted: false,
   };
@@ -373,7 +387,7 @@ function attachPinnedTab(item: PinnedModuleTab, number: number): void {
     basePath: item.basePath,
     div,
     route: item.route,
-    title: item.basePath,
+    title: moduleDisplayName(item.basePath),
     pinned: true,
     mounted: false,
   };
@@ -557,7 +571,7 @@ export async function openModuleTab(
     basePath,
     div,
     route,
-    title: basePath,
+    title: moduleDisplayName(basePath),
     pinned: false,
     mounted: false,
   };

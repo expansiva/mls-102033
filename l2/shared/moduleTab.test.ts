@@ -16,6 +16,8 @@ import {
   mountModuleTabOnActivate,
   pinBasePathForTab,
   navigateModuleTab,
+  moduleDisplayName,
+  moduleNameFromId,
   openModuleTab,
   readShellRoute,
   restorePinnedModuleTabs,
@@ -1067,6 +1069,34 @@ describe('rt161 s3: pinning the app tab hosts the boot module and leaves app fre
       globalThis.window = previousWindow;
       globalThis.document = previousDocument;
       globalThis.fetch = previousFetch;
+    }
+  });
+});
+
+describe('rt161 r1: tab title is the module name', () => {
+  test('last path segment, capitalized, and the boot moduleId when it is the boot base', () => {
+    const previousWindow = globalThis.window;
+    const shell = readFileSync(new URL('./shell.ts', import.meta.url), 'utf8');
+    const start = shell.indexOf('export function contentTabPinNumber');
+    const end = shell.indexOf('export function contentTabMarkAction');
+    const chunk = shell.slice(start, end).replace(/^export /gmu, '').replace(/: number \| undefined/gu, '').replace(/: string/gu, '');
+    const load = new Function(`${chunk}\nreturn { contentTabLabel };`);
+    const contentTabLabel = load().contentTabLabel as (title: string, tabId: string) => string;
+    globalThis.window = { collabBoot: { basePath: '/desk', moduleId: 'tarefas' } } as unknown as Window & typeof globalThis;
+    try {
+      assert.equal(moduleDisplayName('/tarefas'), 'Tarefas');
+      assert.equal(moduleDisplayName('/monitor'), 'Monitor');
+      assert.equal(moduleDisplayName('/a/b/'), 'B');
+      assert.equal(moduleDisplayName('/tarefas').startsWith('/'), false);
+      assert.equal(contentTabLabel(moduleDisplayName('/tarefas'), 'mod-/tarefas#1'), 'Tarefas #1');
+      assert.equal(moduleDisplayName('/desk'), 'Tarefas');
+      assert.equal(moduleDisplayName('/desk').startsWith('/'), false);
+      // The title the mounted page reports (renderRoute) uses the same formatting: never the raw moduleId.
+      assert.equal(moduleNameFromId('tarefas'), 'Tarefas');
+      assert.equal(moduleNameFromId('controleChamados'), 'ControleChamados');
+      assert.equal(moduleNameFromId(''), '');
+    } finally {
+      globalThis.window = previousWindow;
     }
   });
 });
