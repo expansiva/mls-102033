@@ -360,6 +360,12 @@ function pinStored(basePath: string, route: string, pinned: PinnedModuleTab[]): 
   navApi()?.closeTab(previousId);
 }
 
+/** The route a pinned tab holds, so unpinning it never lands on another pin of the module. */
+export function pinnedTabRoute(tabIdValue: string): string | undefined {
+  const host = hosts.get(tabIdValue);
+  return host?.pinned ? host.route : undefined;
+}
+
 export function toggleModuleTabPin(basePath: string, route?: string): void {
   const stored = readPinnedTabs();
   if (!stored.ok || !basePath) return;

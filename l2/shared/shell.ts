@@ -42,6 +42,7 @@ import { isInternalModuleHref } from '/_102033_/l2/shared/layout/auraNavigate.js
 import {
   findModuleTabForPath,
   isTabPinned,
+  pinnedTabRoute,
   moduleTabOpenActivates,
   mountModuleTabOnActivate,
   pinBasePathForTab,
@@ -1336,7 +1337,7 @@ export class CollabAuraShell extends LitElement {
     if (!basePath) return;
     const route = id === 'app' || id.startsWith('app#')
       ? `${window.location.pathname}${window.location.search}${window.location.hash}`
-      : undefined;
+      : pinnedTabRoute(id);
     toggleModuleTabPin(basePath, route);
     this.requestUpdate();
   };

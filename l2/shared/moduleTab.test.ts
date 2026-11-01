@@ -14,6 +14,7 @@ import {
   isModuleTabPinned,
 isTabPinned,
   moduleTabPinLabel,
+pinnedTabRoute,
   mountModuleTabOnActivate,
   pinBasePathForTab,
   navigateModuleTab,
@@ -749,7 +750,11 @@ test('rt161: two pins keep their pages, a link opens the free tab, unpin renumbe
     const saved = store.get('collabTabs');
     await navigateModuleTab('/rt161', '/rt161/minhas', async () => ({}));
     assert.equal(store.get('collabTabs'), saved);
-    toggleModuleTabPin('/rt161', '/rt161/minhas');
+    // the pin mark of a pinned tab names that tab's own route, so it never unpins another pin
+    assert.equal(pinnedTabRoute('mod-/rt161#1'), '/rt161/minhas');
+    assert.equal(pinnedTabRoute('mod-/rt161#2'), '/rt161/outras');
+    assert.equal(pinnedTabRoute('mod-/rt161'), undefined);
+    toggleModuleTabPin('/rt161', pinnedTabRoute('mod-/rt161#1'));
     const after = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ basePath: string; route: string }> };
     assert.deepEqual(after.pinned, [{ basePath: '/rt161', route: '/rt161/outras' }]);
     assert.equal(tabs.includes('mod-/rt161#2'), false);
@@ -895,6 +900,7 @@ describe('rt154 s2: pin lives on the nav3 menu, including the app tab', () => {
     assert.equal(shell.includes('nav3-tab-pin'), false);
     assert.match(shell, /activeTab: \(\) => this\.activeContentTabId/u);
     assert.match(shell, /togglePin: this\.toggleContentTabPin/u);
+    assert.match(shell, /: pinnedTabRoute\(id\)/u);
     assert.match(shell, /isPinned:/u);
     assert.match(service, /pinMenuText\(\)/u);
     assert.match(service, /nav\?\.isPinned\?\.\(/u);
