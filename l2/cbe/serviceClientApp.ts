@@ -15,12 +15,12 @@ import { moveConnectedRegion } from '/_102033_/l2/shared/connectedRegionMove.js'
 import { parseMsizeHeight } from '/_102033_/l2/shared/regionMsize.js';
 import { publishEditHost } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { loadStudioTools } from '/_102033_/l2/cbe/studioServices.js';
-import { moduleTabPinLabel, pinBasePathForTab } from '/_102033_/l2/shared/moduleTab.js';
+import { tabPinLabel } from '/_102033_/l2/shared/moduleTab.js';
 
 function pinMenuText(): string {
-  const id = window.collabRuntimeNav3?.activeTab?.() ?? 'app';
-  const basePath = pinBasePathForTab(id, window.collabBoot?.basePath ?? '');
-  return moduleTabPinLabel(basePath, document.documentElement?.lang || 'en');
+  const nav = window.collabRuntimeNav3;
+  const pinned = Boolean(nav?.isPinned?.(nav.activeTab?.() ?? 'app'));
+  return tabPinLabel(pinned, document.documentElement?.lang || 'en');
 }
 
 /**

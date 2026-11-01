@@ -205,9 +205,13 @@ export function isTabPinned(tabIdValue: string, bootBasePath: string, appRoute: 
   return stored.ok && stored.pinned.some((entry) => entry.basePath === bootBasePath && entry.route === appRoute);
 }
 
-export function moduleTabPinLabel(basePath: string, language: string): string {
+export function tabPinLabel(pinned: boolean, language: string): string {
   const code = language.toLowerCase().startsWith('pt') ? 'pt' : 'en';
-  return isModuleTabPinned(basePath) ? pinLabels[code].unpin : pinLabels[code].pin;
+  return pinned ? pinLabels[code].unpin : pinLabels[code].pin;
+}
+
+export function moduleTabPinLabel(basePath: string, language: string): string {
+  return tabPinLabel(isModuleTabPinned(basePath), language);
 }
 
 /** Result of closing one nav3 tab. `reopenInitial` means nothing was left, so the app tab returns at the boot route. */

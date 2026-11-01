@@ -897,6 +897,8 @@ describe('rt154 s2: pin lives on the nav3 menu, including the app tab', () => {
     assert.match(shell, /togglePin: this\.toggleContentTabPin/u);
     assert.match(shell, /isPinned:/u);
     assert.match(service, /pinMenuText\(\)/u);
+    assert.match(service, /nav\?\.isPinned\?\.\(/u);
+    assert.equal(service.includes('moduleTabPinLabel'), false);
     assert.match(service, /nav\.togglePin\(nav\.activeTab\(\)\)/u);
     assert.match(service, /this\.menu\.refresh\?\.\(\)/u);
     const mount = shell.slice(shell.indexOf('async mountModuleRoot'), shell.indexOf('private readonly handleViewportChange'));
