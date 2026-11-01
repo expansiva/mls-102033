@@ -24,7 +24,7 @@ function moduleToMenu(moduleConfig: ConfigModule, project: number): CollabProgra
   const menu: CollabProgramMenuItem[] = navigation.length > 0
     ? navigation.map((nav) => ({
         title: nav.label ?? nav.id ?? nav.href ?? '',
-        icon: '',
+        icon: typeof nav.icon === 'string' && nav.icon !== '' ? nav.icon : '',
         url: nav.href ?? '',
         pageName: nav.id ?? nav.href ?? '',
       }))

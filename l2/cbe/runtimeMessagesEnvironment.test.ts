@@ -167,7 +167,7 @@ type AppEntry = {
     projectId: number;
     moduleId: string;
     basePath: string;
-    navigation: Array<{ id: string; label: string; href: string }>;
+    navigation: Array<{ id: string; label: string; href: string; icon?: string }>;
 };
 
 const bffApps: AppEntry[] = [
@@ -185,21 +185,25 @@ const bffApps: AppEntry[] = [
     },
 ];
 
-function draftConfig(pageId: string): string {
+function draftConfig(pageId: string, icon?: string): string {
     return JSON.stringify({
         projects: {
             [String(SITE)]: {
                 modules: [{
                     moduleId: 'orders',
                     basePath: '/orders',
-                    navigation: [{ id: pageId, label: pageId, href: `/orders/${pageId}` }],
+                    navigation: [{ id: pageId, label: pageId, href: `/orders/${pageId}`, ...(icon === undefined ? {} : { icon }) }],
                 }],
             },
         },
     });
 }
 
-function installDraftMenu(mode: 'studio' | 'production', configBody: string): { errors: unknown[][]; restore: () => void } {
+function installDraftMenu(
+    mode: 'studio' | 'production',
+    configBody: string,
+    apps: AppEntry[] = bffApps,
+): { errors: unknown[][]; restore: () => void } {
     const host = globalThis as {
         mls?: { stor?: unknown; sites?: { getMode?: () => 'studio' | 'production' } };
         collabBoot?: { projectId?: string };
@@ -231,7 +235,7 @@ function installDraftMenu(mode: 'studio' | 'production', configBody: string): { 
         if (body.routine !== 'monitor.appsMenu.load') {
             throw new Error(`unexpected routine ${String(body.routine)}`);
         }
-        return new Response(JSON.stringify({ ok: true, data: { apps: bffApps } }), {
+        return new Response(JSON.stringify({ ok: true, data: { apps } }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
         });
@@ -268,6 +272,50 @@ test('st39: Studio desligado fica só com o menu do BFF', async () => {
         const found = menuUrls(await buildProgramMenu());
         assert.deepEqual(found, [`${MASTER}:/monitor`, `${SITE}:/orders/old`]);
         assert.equal(env.errors.length, 0);
+    } finally {
+        env.restore();
+    }
+});
+
+function menuIcons(menus: Array<{ project: number; icon: string; menu: Array<{ url: string; icon: string }> }>): string[] {
+    return menus.flatMap((menu) => [
+        `module:${menu.project}:${menu.icon}`,
+        ...menu.menu.map((item) => `${menu.project}:${item.url}=${item.icon}`),
+    ]);
+}
+
+test('rt165: BFF copies a nav icon and uses empty string when it is missing or blank', async () => {
+    const apps: AppEntry[] = [
+        {
+            projectId: MASTER,
+            moduleId: 'monitor',
+            basePath: '/monitor',
+            navigation: [
+                { id: 'mon', label: 'Monitor', href: '/monitor', icon: 'list-todo' },
+                { id: 'blank', label: 'Blank', href: '/monitor/blank', icon: '' },
+                { id: 'none', label: 'None', href: '/monitor/none' },
+            ],
+        },
+    ];
+    const env = installDraftMenu('production', draftConfig('new-page'), apps);
+    try {
+        assert.deepEqual(menuIcons(await buildProgramMenu()), [
+            `module:${MASTER}:`,
+            `${MASTER}:/monitor=list-todo`,
+            `${MASTER}:/monitor/blank=`,
+            `${MASTER}:/monitor/none=`,
+        ]);
+    } finally {
+        env.restore();
+    }
+});
+
+test('rt165: Studio draft copies the nav icon from l5/config.json', async () => {
+    const env = installDraftMenu('studio', draftConfig('new-page', 'list-todo'));
+    try {
+        const icons = menuIcons(await buildProgramMenu());
+        assert.equal(icons.includes(`${SITE}:/orders/new-page=list-todo`), true);
+        assert.equal(icons.includes(`module:${SITE}:`), true);
     } finally {
         env.restore();
     }

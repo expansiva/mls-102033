@@ -1,6 +1,6 @@
 /// <mls fileReference="_102033_/l2/cbe/studioDraftConfig.ts" enhancement="_blank" />
 
-export interface ConfigNavItem { id?: string; label?: string; href?: string }
+export interface ConfigNavItem { id?: string; label?: string; href?: string; icon?: string }
 
 export interface ConfigModule { moduleId?: string; basePath?: string; navigation?: ConfigNavItem[] }
 
