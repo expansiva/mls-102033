@@ -33,64 +33,81 @@ doc.createTextNode = (text: string) => ({ data: text });
 const shellModule = import('/_102033_/l2/shared/shell.js');
 
 const SITE = 102047;
-const configFile = { project: SITE, level: 5, shortName: 'config', folder: '', extension: '.json' };
-const otherFile = { project: SITE, level: 2, shortName: 'page', folder: '', extension: '.ts' };
+
+function getterOnlyStor(send: () => Promise<readonly { project: number; result: boolean }[]>): { setContents: typeof send } {
+  const stor: { setContents?: typeof send } = {};
+  Object.defineProperty(stor, 'setContents', { get: () => send, enumerable: true, configurable: false });
+  return stor as { setContents: typeof send };
+}
 
 test('st39: envio do l5/config.json com sucesso pede a releitura', async () => {
-  const { attachDraftConfigSendWatch, draftConfigSendSucceeded } = await shellModule;
+  const { attachCollabDraftSavedWatch, COLLAB_DRAFT_SAVED, draftSavedShouldRefresh } = await shellModule;
+  const target = new EventTarget();
   const refreshed: number[] = [];
   let studioOn = true;
-  let accepted = true;
-  const stor = {
-    setContents: async () => [{ project: SITE, result: accepted }],
-  };
-  const stop = attachDraftConfigSendWatch(
-    stor,
-    (files, results) => studioOn && draftConfigSendSucceeded(files, SITE, results),
-    () => { refreshed.push(1); },
-  );
+  const stop = attachCollabDraftSavedWatch(target, (detail) => {
+    if (draftSavedShouldRefresh(detail, studioOn, SITE)) refreshed.push(1);
+  });
   try {
-    await stor.setContents([configFile], 'save config');
+    target.dispatchEvent(new CustomEvent(COLLAB_DRAFT_SAVED, {
+      detail: { project: SITE, paths: ['l5/config.json'] },
+    }));
     assert.equal(refreshed.length, 1);
     studioOn = false;
-    await stor.setContents([configFile], 'save while off');
+    target.dispatchEvent(new CustomEvent(COLLAB_DRAFT_SAVED, {
+      detail: { project: SITE, paths: ['l5/config.json'] },
+    }));
     assert.equal(refreshed.length, 1);
     studioOn = true;
-    await stor.setContents([otherFile], 'save a page');
-    assert.equal(refreshed.length, 1);
-    accepted = false;
-    await stor.setContents([configFile], 'refused');
+    target.dispatchEvent(new CustomEvent(COLLAB_DRAFT_SAVED, {
+      detail: { project: SITE, paths: ['l2/page.ts'] },
+    }));
     assert.equal(refreshed.length, 1);
   } finally {
     stop();
   }
 });
 
-test('st39: o observador devolve o setContents original', async () => {
-  const { attachDraftConfigSendWatch } = await shellModule;
-  const original = async () => [{ project: SITE, result: true }];
-  const stor = { setContents: original };
-  const stop = attachDraftConfigSendWatch(stor, () => false, () => undefined);
-  assert.notEqual(stor.setContents, original);
+test('st39: o observador sai e o mls.stor de só-leitura da lib fica intacto', async () => {
+  const { attachCollabDraftSavedWatch, COLLAB_DRAFT_SAVED } = await shellModule;
+  const send = async () => [{ project: SITE, result: true }];
+  const stor = getterOnlyStor(send);
+  const target = new EventTarget();
+  const seen: number[] = [];
+  const stop = attachCollabDraftSavedWatch(target, () => { seen.push(1); });
+  target.dispatchEvent(new CustomEvent(COLLAB_DRAFT_SAVED, {
+    detail: { project: SITE, paths: ['l5/config.json'] },
+  }));
+  assert.equal(seen.length, 1);
   stop();
-  assert.equal(stor.setContents, original);
+  target.dispatchEvent(new CustomEvent(COLLAB_DRAFT_SAVED, {
+    detail: { project: SITE, paths: ['l5/config.json'] },
+  }));
+  assert.equal(seen.length, 1);
+  assert.equal(stor.setContents, send);
 });
 
-test('st39: mls.stor com setContents só de leitura (export da lib) não derruba a entrada no Studio', async () => {
-  const { attachDraftConfigSendWatch } = await shellModule;
-  const send = async () => [{ project: 102047, result: true }];
-  const stor: { setContents?: typeof send } = {};
-  Object.defineProperty(stor, 'setContents', { get: () => send, enumerable: true, configurable: false });
+test('st39: mls.stor com setContents só de leitura (export da lib) não derruba a escuta', async () => {
+  const { attachCollabDraftSavedWatch, COLLAB_DRAFT_SAVED, draftSavedShouldRefresh } = await shellModule;
+  const send = async () => [{ project: SITE, result: true }];
+  const stor = getterOnlyStor(send);
   const errors: unknown[][] = [];
   const original = console.error;
   console.error = (...args: unknown[]) => { errors.push(args); };
+  const target = new EventTarget();
+  const refreshed: number[] = [];
   try {
-    const stop = attachDraftConfigSendWatch(stor, () => true, () => undefined);
+    const stop = attachCollabDraftSavedWatch(target, (detail) => {
+      if (draftSavedShouldRefresh(detail, true, SITE)) refreshed.push(1);
+    });
+    target.dispatchEvent(new CustomEvent(COLLAB_DRAFT_SAVED, {
+      detail: { project: SITE, paths: ['l5/config.json'] },
+    }));
     stop();
   } finally {
     console.error = original;
   }
   assert.equal(stor.setContents, send, 'o original fica como estava');
-  assert.equal(errors.length, 1);
-  assert.match(String(errors[0][0]), /read-only/);
+  assert.equal(refreshed.length, 1);
+  assert.equal(errors.length, 0);
 });
