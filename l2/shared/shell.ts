@@ -79,7 +79,7 @@ import { nextTopBandState, type TopBandState } from '/_102033_/l2/shared/topBand
 import { initialMobilePane, otherMobilePane, type MobilePane } from '/_102033_/l2/shared/mobilePane.js';
 import { LitElement, html } from 'lit';
 
-/** Pin number encoded in `mod-<base>#n` or `app#n`. A free tab has none. */
+/** Pin number encoded in `mod-<base>#n`. The free tab, including `app`, has none. */
 export function contentTabPinNumber(tabId: string): number | undefined {
   const match = /#(\d+)$/u.exec(tabId);
   if (!match) return undefined;
@@ -1381,7 +1381,9 @@ export class CollabAuraShell extends LitElement {
         if (pinned) this.toggleContentTabPin(id);
         else this.closeContentTab(id);
       }}
-    >${pinned ? '📌' : '×'}</span>`;
+    >${pinned
+      ? html`<i class="fa-solid fa-thumbtack" aria-label=${contentTabMarkTitle(id, language)}></i>`
+      : '×'}</span>`;
   }
 
   private readonly activateContentTab = (id: string): void => {

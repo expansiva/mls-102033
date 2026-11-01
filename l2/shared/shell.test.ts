@@ -53,7 +53,9 @@ describe('rt161 s2: pinned tab shows its number and a pin mark', () => {
     const { shell } = loadTabMark();
     assert.match(shell, /contentTabLabel\(tab\.title, tab\.id\)/u);
     assert.match(shell, /data-pinned=\$\{String\(pinned\)\}/u);
-    assert.match(shell, /📌/u);
+    assert.match(shell, /fa-solid fa-thumbtack/u);
+    assert.match(shell, /aria-label=\$\{contentTabMarkTitle\(id, language\)\}/u);
+    assert.equal(shell.includes('📌'), false);
     assert.match(shell, /if \(pinned\) this\.toggleContentTabPin\(id\)/u);
     assert.match(shell, /else this\.closeContentTab\(id\)/u);
     assert.match(shell, /closeContentTab\('app'\)/u);

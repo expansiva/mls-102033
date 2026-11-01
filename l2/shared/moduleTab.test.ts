@@ -920,7 +920,7 @@ describe('rt154 s2: pin lives on the nav3 menu, including the app tab', () => {
     };
     globalThis.document = { createElement } as unknown as Document;
     globalThis.window = {
-      collabRouteChunkCache: new Set<string>(['/tasks/page.js']),
+      collabRouteChunkCache: new Set<string>(['/tasks/page.js', '/home/now.js']),
       collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
       collabBoot: { basePath: '/home' },
       location,
@@ -948,7 +948,11 @@ describe('rt154 s2: pin lives on the nav3 menu, including the app tab', () => {
     } as unknown as Window & typeof globalThis;
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const basePath = new URL(String(input), 'http://collab.local').searchParams.get('basePath') ?? '';
-      return new Response(JSON.stringify(boot(basePath, basePath, basePath, 'pin-page')), { status: 200 });
+      const config = boot(basePath, basePath, basePath, 'pin-page');
+      if (basePath === '/home') {
+        config.routes.push({ path: '/home/now', entrypoint: '/home/now.js', tag: 'pin-now', title: 'Now' });
+      }
+      return new Response(JSON.stringify(config), { status: 200 });
     }) as typeof fetch;
     try {
       const nav = window.collabRuntimeNav3!;
@@ -972,12 +976,93 @@ describe('rt154 s2: pin lives on the nav3 menu, including the app tab', () => {
       opened.length = 0;
       await restorePinnedModuleTabs(async () => ({}));
       assert.equal(location.pathname, '/home');
-      assert.equal(opened.includes('mod-/home#1'), true);
+      assert.equal(tabs.includes('app'), true);
+      assert.equal(tabs.includes('mod-/home#1'), true);
       assert.equal(readShellRoute(), '/home');
 
       location.pathname = '/home/stay';
       await restorePinnedModuleTabs(async () => ({}));
       assert.equal(location.pathname, '/home/stay');
+    } finally {
+      globalThis.window = previousWindow;
+      globalThis.document = previousDocument;
+      globalThis.fetch = previousFetch;
+    }
+  });
+});
+
+describe('rt161 s3: pinning the app tab hosts the boot module and leaves app free', () => {
+  test('pin creates mod-<base>#1, a boot link stays on app, and reload restores the pin unmounted', async () => {
+    const store = new Map<string, string>();
+    const tabs: string[] = ['app'];
+    const elements = new Map<string, FakeElement>();
+    let active = 'app';
+    const location = { pathname: '/desk/minhas', search: '', hash: '' };
+    const previousWindow = globalThis.window;
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    globalThis.document = { createElement } as unknown as Document;
+    globalThis.window = {
+      collabRouteChunkCache: new Set<string>(['/desk/page.js', '/desk/minhas.js', '/desk/outras.js']),
+      collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+      collabBoot: { basePath: '/desk' },
+      location,
+      history: { replaceState() {} },
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => { store.set(key, value); },
+      },
+      collabRuntimeNav3: {
+        openTab(tab: { id: string; element: FakeElement }) {
+          if (!tabs.includes(tab.id)) tabs.push(tab.id);
+          elements.set(tab.id, tab.element);
+          active = tab.id;
+        },
+        activateTab(id: string) { active = id; },
+        closeTab(id: string) {
+          const index = tabs.indexOf(id);
+          if (index >= 0) tabs.splice(index, 1);
+        },
+        listTabs: () => tabs,
+        activeTab: () => active,
+      },
+    } as unknown as Window & typeof globalThis;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      ...boot('/desk', 'desk', '/desk', 'desk-page'),
+      routes: [
+        { path: '/desk', entrypoint: '/desk/page.js', tag: 'desk-page', title: 'Desk' },
+        { path: '/desk/minhas', entrypoint: '/desk/minhas.js', tag: 'desk-minhas', title: 'Minhas' },
+        { path: '/desk/outras', entrypoint: '/desk/outras.js', tag: 'desk-outras', title: 'Outras' },
+      ],
+    }), { status: 200 })) as typeof fetch;
+    try {
+      toggleModuleTabPin('/desk', '/desk/minhas');
+      assert.equal(tabs.includes('app'), true);
+      assert.equal(tabs.includes('mod-/desk#1'), true);
+      const saved = store.get('collabTabs');
+      assert.equal(await revealModuleTabForLocation('/desk/outras'), false);
+      assert.equal(active, 'mod-/desk#1');
+      assert.equal(tabs.includes('app'), true);
+      const shell = readFileSync(new URL('./shell.ts', import.meta.url), 'utf8');
+      const pop = shell.slice(shell.indexOf('const ownedByBoot'), shell.indexOf('this.requestUpdate();', shell.indexOf('const ownedByBoot')));
+      assert.match(pop, /ownedByBoot \? undefined : findModuleTabForPath/u);
+      assert.match(pop, /this\.activateContentTab\('app'\)/u);
+      assert.equal(findModuleTabForPath('/desk/outras'), undefined);
+      assert.equal(store.get('collabTabs'), saved);
+
+      for (const id of [...tabs]) {
+        if (id !== 'app') window.collabRuntimeNav3?.closeTab(id);
+      }
+      tabs.splice(0, tabs.length, 'app');
+      active = 'app';
+      elements.clear();
+      location.pathname = '/desk';
+      await restorePinnedModuleTabs(async () => ({}));
+      assert.equal(tabs.includes('mod-/desk#1'), true);
+      assert.equal(tabs.includes('app'), true);
+      assert.equal(elements.get('mod-/desk#1')?.child ?? null, null);
+      await mountModuleTabOnActivate('mod-/desk#1', async () => ({}));
+      assert.equal(elements.get('mod-/desk#1')?.child?.tagName, 'DESK-MINHAS');
     } finally {
       globalThis.window = previousWindow;
       globalThis.document = previousDocument;

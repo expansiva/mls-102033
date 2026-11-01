@@ -259,6 +259,33 @@ function renumberPinnedHosts(basePath: string, pinned: PinnedModuleTab[]): void 
   });
 }
 
+/** A pin of the boot module is a hosted tab. The `app` tab stays the free one. */
+function openPinnedBootTab(basePath: string, route: string, number: number): void {
+  const id = pinnedTabId(basePath, number);
+  const nav = navApi();
+  if (!nav) {
+    const error = new Error('collabRuntimeNav3 is not available');
+    console.error('[moduleTab]', error.message);
+    return;
+  }
+  const existing = hosts.get(id);
+  if (tabIsOpen(existing)) return;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:block;width:100%;height:100%;';
+  const host: ModuleTabHost = {
+    id,
+    basePath,
+    div,
+    route,
+    title: basePath,
+    pinned: true,
+    mounted: false,
+  };
+  hosts.set(id, host);
+  nav.openTab({ id, title: host.title, element: div });
+  void mountModuleTabOnActivate(id);
+}
+
 /** The pinned tab becomes the free tab. A second free tab closes the older one. Remaining pins renumber. */
 function unpinStored(pinned: PinnedModuleTab[], index: number): void {
   const entry = pinned[index];
@@ -289,6 +316,11 @@ function pinStored(basePath: string, route: string, pinned: PinnedModuleTab[]): 
   const next = [...pinned, { basePath, route }];
   writePinnedTabs(next);
   const number = next.filter((entry) => entry.basePath === basePath).length;
+  const bootBase = window.collabBoot?.basePath ?? '';
+  if (basePath === bootBase) {
+    openPinnedBootTab(basePath, route, number);
+    return;
+  }
   const free = hosts.get(freeTabId(basePath));
   if (!free || free.pinned) return;
   free.pinned = true;
