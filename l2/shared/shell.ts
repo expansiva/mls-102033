@@ -43,6 +43,7 @@ import {
   findModuleTabForPath,
   isModuleTabPinned,
   moduleTabOpenActivates,
+  mountModuleTabOnActivate,
   pinBasePathForTab,
   rememberShellRoute,
   restorePinnedModuleTabs,
@@ -77,6 +78,37 @@ import {
 import { nextTopBandState, type TopBandState } from '/_102033_/l2/shared/topBandScroll.js';
 import { initialMobilePane, otherMobilePane, type MobilePane } from '/_102033_/l2/shared/mobilePane.js';
 import { LitElement, html } from 'lit';
+
+/** Pin number encoded in `mod-<base>#n` or `app#n`. A free tab has none. */
+export function contentTabPinNumber(tabId: string): number | undefined {
+  const match = /#(\d+)$/u.exec(tabId);
+  if (!match) return undefined;
+  const number = Number(match[1]);
+  return number > 0 ? number : undefined;
+}
+
+/** Pinned tabs show the module title plus the pin order. */
+export function contentTabLabel(title: string, tabId: string): string {
+  const number = contentTabPinNumber(tabId);
+  if (!number) return title;
+  const suffix = ` #${number}`;
+  return title.endsWith(suffix) ? title : `${title}${suffix}`;
+}
+
+/** The pin mark unpins; the close mark closes. */
+export function contentTabMarkAction(tabId: string): 'unpin' | 'close' {
+  return contentTabPinNumber(tabId) ? 'unpin' : 'close';
+}
+
+const tabMarkLabels: Record<string, { unpin: string; close: string }> = {
+  en: { unpin: 'Unpin', close: 'Close' },
+  pt: { unpin: 'Desafixar', close: 'Fechar' },
+};
+
+export function contentTabMarkTitle(tabId: string, language: string): string {
+  const code = language.toLowerCase().startsWith('pt') ? 'pt' : 'en';
+  return contentTabMarkAction(tabId) === 'unpin' ? tabMarkLabels[code].unpin : tabMarkLabels[code].close;
+}
 
 function traceLazy(event: string, details?: Record<string, unknown>) {
   if (!window.isTraceLazy) {
@@ -1301,7 +1333,7 @@ export class CollabAuraShell extends LitElement {
   private readonly toggleContentTabPin = (id: string): void => {
     const basePath = pinBasePathForTab(id, this.bootConfig?.basePath ?? '');
     if (!basePath) return;
-    const route = id === 'app'
+    const route = id === 'app' || id.startsWith('app#')
       ? `${window.location.pathname}${window.location.search}${window.location.hash}`
       : undefined;
     toggleModuleTabPin(basePath, route);
@@ -1337,6 +1369,21 @@ export class CollabAuraShell extends LitElement {
     void this.loadActiveRoute();
   }
 
+  private renderTabMark(id: string) {
+    const language = document.documentElement?.lang ?? 'en';
+    const pinned = contentTabMarkAction(id) === 'unpin';
+    return html`<span
+      class="nav3-tab-close"
+      data-pinned=${String(pinned)}
+      title=${contentTabMarkTitle(id, language)}
+      @click=${(event: Event) => {
+        event.stopPropagation();
+        if (pinned) this.toggleContentTabPin(id);
+        else this.closeContentTab(id);
+      }}
+    >${pinned ? '📌' : '×'}</span>`;
+  }
+
   private readonly activateContentTab = (id: string): void => {
     if (id === 'app') {
       this.appTabOpen = true;
@@ -1345,6 +1392,7 @@ export class CollabAuraShell extends LitElement {
     }
     syncHistoryForContentTab(id);
     this.activeContentTabId = id;
+    void mountModuleTabOnActivate(id);
   };
 
   // Studio nav3 contract for hosted elements: msize="width,height,top,left" +
@@ -2054,6 +2102,10 @@ export class CollabAuraShell extends LitElement {
         cursor: pointer;
       }
 
+      collab-aura-shell .nav3-tab-close[data-pinned="true"] {
+        font-size: 0.85rem;
+      }
+
       collab-aura-shell .nav3-tab-close:hover {
         opacity: 1;
       }
@@ -2275,16 +2327,14 @@ export class CollabAuraShell extends LitElement {
                     ${this.appTabOpen
             ? html`
                     <button class="nav3-tab" role="tab" data-active=${String(this.activeContentTabId === 'app')} @click=${() => this.activateContentTab('app')}>
-                      ${this.bootConfig?.pageTitle ?? 'App'}
-                      <span class="nav3-tab-close" title="Fechar" @click=${(event: Event) => { event.stopPropagation(); this.closeContentTab('app'); }}>×</span>
+                      ${contentTabLabel(this.bootConfig?.pageTitle ?? 'App', 'app')}
+                      <span class="nav3-tab-close" data-pinned="false" title=${contentTabMarkTitle('app', document.documentElement?.lang ?? 'en')} @click=${(event: Event) => { event.stopPropagation(); this.closeContentTab('app'); }}>×</span>
                     </button>`
             : null}
                     ${this.contentTabs.map((tab) => html`
                       <button class="nav3-tab" role="tab" data-active=${String(this.activeContentTabId === tab.id)} @click=${() => this.activateContentTab(tab.id)}>
-                        ${tab.title}
-                        ${tab.closable
-            ? html`<span class="nav3-tab-close" title="Fechar" @click=${(event: Event) => { event.stopPropagation(); this.closeContentTab(tab.id); }}>×</span>`
-            : null}
+                        ${contentTabLabel(tab.title, tab.id)}
+                        ${tab.closable ? this.renderTabMark(tab.id) : null}
                       </button>
                     `)}
                   </div>

@@ -6,9 +6,13 @@ type PageElement = HTMLElement & { bootConfig?: MasterFrontendBootConfig };
 type RouteImporter = (specifier: string) => Promise<unknown>;
 
 interface ModuleTabHost {
+  id: string;
+  basePath: string;
   div: HTMLDivElement;
   route: string;
   title: string;
+  pinned: boolean;
+  mounted: boolean;
 }
 
 const COLLAB_TABS_KEY = 'collabTabs';
@@ -28,8 +32,12 @@ const pinLabels: Record<string, { pin: string; unpin: string }> = {
   pt: { pin: 'Fixar aba', unpin: 'Desafixar aba' },
 };
 
-function tabId(basePath: string): string {
+function freeTabId(basePath: string): string {
   return `mod-${basePath}`;
+}
+
+function pinnedTabId(basePath: string, number: number): string {
+  return `mod-${basePath}#${number}`;
 }
 
 function pathnameOf(route: string): string {
@@ -155,19 +163,14 @@ function writePinnedTabs(pinned: PinnedModuleTab[]): void {
   }
 }
 
-function rememberPinnedRoute(basePath: string, route: string): void {
-  const stored = readPinnedTabs();
-  if (!stored.ok) return;
-  const item = stored.pinned.find((entry) => entry.basePath === basePath);
-  if (!item || item.route === route) return;
-  item.route = route;
-  writePinnedTabs(stored.pinned);
-}
-
-/** `app` is the boot module; `mod-*` is that module's basePath. */
+/** `app` is the boot module; `mod-*` is that module's basePath. `#n` is the pin number. */
 export function pinBasePathForTab(tabIdValue: string, bootBasePath: string): string {
-  if (tabIdValue === 'app') return bootBasePath;
-  if (tabIdValue.startsWith('mod-')) return tabIdValue.slice(4);
+  if (tabIdValue === 'app' || tabIdValue.startsWith('app#')) return bootBasePath;
+  if (tabIdValue.startsWith('mod-')) {
+    const rest = tabIdValue.slice(4);
+    const hash = rest.indexOf('#');
+    return hash === -1 ? rest : rest.slice(0, hash);
+  }
   return '';
 }
 
@@ -228,50 +231,171 @@ export function moduleTabOpenActivates(): boolean {
   return !restoringPins;
 }
 
+function navApi(): Window['collabRuntimeNav3'] | undefined {
+  return window.collabRuntimeNav3;
+}
+
+function publishHost(host: ModuleTabHost, id: string): void {
+  host.id = id;
+  hosts.set(id, host);
+  navApi()?.openTab({ id, title: host.title, element: host.div });
+}
+
+function dropHost(host: ModuleTabHost): void {
+  hosts.delete(host.id);
+  navApi()?.closeTab(host.id);
+}
+
+function renumberPinnedHosts(basePath: string, pinned: PinnedModuleTab[]): void {
+  const mine = pinned.filter((entry) => entry.basePath === basePath);
+  mine.forEach((entry, index) => {
+    const nextId = pinnedTabId(basePath, index + 1);
+    const current = [...hosts.values()].find((host) => host.pinned && host.basePath === basePath && host.route === entry.route);
+    if (!current || current.id === nextId) return;
+    const previousId = current.id;
+    hosts.delete(previousId);
+    publishHost(current, nextId);
+    navApi()?.closeTab(previousId);
+  });
+}
+
+/** The pinned tab becomes the free tab. A second free tab closes the older one. Remaining pins renumber. */
+function unpinStored(pinned: PinnedModuleTab[], index: number): void {
+  const entry = pinned[index];
+  const next = pinned.filter((_, itemIndex) => itemIndex !== index);
+  writePinnedTabs(next);
+  const host = [...hosts.values()].find((item) => item.pinned && item.basePath === entry.basePath && item.route === entry.route);
+  if (host) {
+    host.pinned = false;
+    const freeId = freeTabId(entry.basePath);
+    const other = hosts.get(freeId);
+    if (other && other !== host) {
+      dropHost(other);
+      const previousId = host.id;
+      hosts.delete(previousId);
+      publishHost(host, freeId);
+      navApi()?.closeTab(previousId);
+    } else if (host.id !== freeId) {
+      const previousId = host.id;
+      hosts.delete(previousId);
+      publishHost(host, freeId);
+      navApi()?.closeTab(previousId);
+    }
+  }
+  renumberPinnedHosts(entry.basePath, next);
+}
+
+function pinStored(basePath: string, route: string, pinned: PinnedModuleTab[]): void {
+  const next = [...pinned, { basePath, route }];
+  writePinnedTabs(next);
+  const number = next.filter((entry) => entry.basePath === basePath).length;
+  const free = hosts.get(freeTabId(basePath));
+  if (!free || free.pinned) return;
+  free.pinned = true;
+  free.route = route;
+  const previousId = free.id;
+  hosts.delete(previousId);
+  publishHost(free, pinnedTabId(basePath, number));
+  navApi()?.closeTab(previousId);
+}
+
 export function toggleModuleTabPin(basePath: string, route?: string): void {
   const stored = readPinnedTabs();
   if (!stored.ok || !basePath) return;
-  const existing = stored.pinned.find((entry) => entry.basePath === basePath);
-  if (existing) {
-    writePinnedTabs(stored.pinned.filter((entry) => entry.basePath !== basePath));
+  const free = hosts.get(freeTabId(basePath));
+  const modulePins = stored.pinned.filter((entry) => entry.basePath === basePath);
+  const freeOpen = Boolean(free && !free.pinned);
+  let target = route;
+  if (!target) {
+    if (freeOpen && free) target = free.route;
+    else if (modulePins.length === 1) target = modulePins[0].route;
+    else target = currentHref() || basePath;
+  }
+  const index = stored.pinned.findIndex((entry) => entry.basePath === basePath && entry.route === target);
+  if (index >= 0 && !(freeOpen && !route)) {
+    unpinStored(stored.pinned, index);
     return;
   }
-  const pinnedRoute = route || hosts.get(basePath)?.route || currentHref() || basePath;
-  writePinnedTabs([...stored.pinned, { basePath, route: pinnedRoute }]);
+  pinStored(basePath, target, stored.pinned);
 }
 
-/** At the boot module root, the stored pin replaces the URL. A deeper boot route stays. */
-function restorePinnedBootRoute(pinned: PinnedModuleTab[]): void {
-  const bootBasePath = window.collabBoot?.basePath ?? '';
-  if (!bootBasePath) return;
-  const pathname = pathnameOf(currentHref());
-  const atRoot = pathname === bootBasePath || pathname === `${bootBasePath}/`;
-  if (!atRoot) return;
-  const item = pinned.find((entry) => entry.basePath === bootBasePath);
-  if (!item?.route || pathnameOf(item.route) === bootBasePath) return;
-  if (typeof window.history?.replaceState !== 'function') return;
-  window.history.replaceState({}, '', item.route);
+function basePathOwns(basePath: string, href: string): boolean {
+  const pathname = pathnameOf(href);
+  return pathname === basePath || pathname.startsWith(`${basePath}/`);
+}
+
+function attachPinnedTab(item: PinnedModuleTab, number: number): void {
+  const id = pinnedTabId(item.basePath, number);
+  const existing = hosts.get(id);
+  if (existing && tabIsOpen(existing)) return;
+  const nav = navApi();
+  if (!nav) {
+    const error = new Error('collabRuntimeNav3 is not available');
+    console.error('[moduleTab]', error.message);
+    throw error;
+  }
+  const div = document.createElement('div');
+  div.style.cssText = 'display:block;width:100%;height:100%;';
+  const host: ModuleTabHost = {
+    id,
+    basePath: item.basePath,
+    div,
+    route: item.route,
+    title: item.basePath,
+    pinned: true,
+    mounted: false,
+  };
+  hosts.set(id, host);
+  nav.openTab({ id, title: host.title, element: div });
+}
+
+/** First activation renders the page. A tab that was already rendered stays as it is. */
+export async function mountModuleTabOnActivate(id: string, importer?: RouteImporter): Promise<void> {
+  const host = hosts.get(id);
+  if (!host || host.mounted) return;
+  try {
+    host.title = await renderRoute(host.basePath, host.route, host.div, importer);
+    host.mounted = true;
+  } catch (error) {
+    host.mounted = true;
+    showTabError(host.div, error);
+  }
 }
 
 export async function restorePinnedModuleTabs(importer?: RouteImporter): Promise<void> {
   const stored = readPinnedTabs();
   if (!stored.ok) return;
-  restorePinnedBootRoute(stored.pinned);
   const href = currentHref();
   if (bootOwns(href)) rememberShellRoute(href);
   restoringPins = true;
   try {
-    const bootBasePath = window.collabBoot?.basePath ?? '';
+    const counts = new Map<string, number>();
     for (const item of stored.pinned) {
-      // The boot module already lives in the `app` tab; its pin stays stored for when the F5 lands elsewhere.
-      if (bootBasePath && item.basePath === bootBasePath) continue;
-      await openModuleTab(item.basePath, item.route, importer);
+      const number = (counts.get(item.basePath) ?? 0) + 1;
+      counts.set(item.basePath, number);
+      attachPinnedTab(item, number);
     }
+    const exact = [...hosts.values()].find((host) => host.pinned && tabIsOpen(host) && host.route === href);
+    if (exact) {
+      await mountModuleTabOnActivate(exact.id, importer);
+      navApi()?.activateTab(exact.id);
+      return;
+    }
+    if (bootOwns(href)) {
+      navApi()?.activateTab('app');
+      return;
+    }
+    const owner = [...counts.keys()]
+      .filter((basePath) => basePathOwns(basePath, href))
+      .sort((left, right) => right.length - left.length)[0];
+    if (owner) {
+      await openModuleTab(owner, href, importer);
+      return;
+    }
+    navApi()?.activateTab('app');
   } finally {
     restoringPins = false;
   }
-  const owner = bootOwns(href) ? undefined : findModuleTabForPath(href);
-  window.collabRuntimeNav3?.activateTab(owner ? tabId(owner.basePath) : 'app');
 }
 
 /** True when `/_moduleBoot` knows `basePath`. Only a 404 is "no"; any other failure is thrown, never hidden. */
@@ -285,27 +409,24 @@ export async function isModuleRegistered(basePath: string): Promise<boolean> {
   }
 }
 
-function tabIsOpen(basePath: string): ModuleTabHost | undefined {
-  const host = hosts.get(basePath);
+function tabIsOpen(host: ModuleTabHost | undefined): host is ModuleTabHost {
   const nav = window.collabRuntimeNav3;
   // `listTabs` is the truth: the shell updates it synchronously in `openTab` and `closeTab`. The div is NOT
   // required to be connected yet, because right after `openTab` Lit has not rendered it (first open).
-  if (!host || !nav) return undefined;
-  if (!nav.listTabs().includes(tabId(basePath))) return undefined;
-  return host;
+  if (!host || !nav) return false;
+  return nav.listTabs().includes(host.id);
 }
 
+/** The free tab of the module that owns `path`. A pinned tab is never the link target. */
 export function findModuleTabForPath(path: string): { basePath: string; route: string } | undefined {
   const pathname = pathnameOf(path);
-  let found: { basePath: string; route: string } | undefined;
-  for (const [basePath, host] of hosts) {
-    if (!tabIsOpen(basePath)) continue;
-    if (pathname !== basePath && !pathname.startsWith(`${basePath}/`)) continue;
-    if (!found || basePath.length > found.basePath.length) {
-      found = { basePath, route: host.route };
-    }
+  let found: ModuleTabHost | undefined;
+  for (const host of hosts.values()) {
+    if (host.pinned || !tabIsOpen(host)) continue;
+    if (pathname !== host.basePath && !pathname.startsWith(`${host.basePath}/`)) continue;
+    if (!found || host.basePath.length > found.basePath.length) found = host;
   }
-  return found;
+  return found ? { basePath: found.basePath, route: found.route } : undefined;
 }
 
 export function rememberShellRoute(route: string): void {
@@ -325,19 +446,34 @@ export function syncHistoryForContentTab(id: string): void {
     if (target && target !== current) window.history.replaceState({}, '', target);
     return;
   }
-  if (!id.startsWith('mod-')) return;
-  const tab = findModuleTabForPath(id.slice(4));
-  if (!tab) return;
+  const host = hosts.get(id);
+  if (!host?.route) return;
   if (bootOwns(current)) rememberShellRoute(current);
-  if (tab.route && tab.route !== current) window.history.replaceState({}, '', tab.route);
+  if (host.route !== current) window.history.replaceState({}, '', host.route);
 }
 
-/** Back/forward: the open module tab that owns `href` renders it and becomes active. */
+function exactPinnedHost(href: string): ModuleTabHost | undefined {
+  let found: ModuleTabHost | undefined;
+  for (const host of hosts.values()) {
+    if (!host.pinned || !tabIsOpen(host) || host.route !== href) continue;
+    if (!found || host.basePath.length > found.basePath.length) found = host;
+  }
+  return found;
+}
+
+/** Back/forward: an exact pinned route activates that pin. Any other link stays on the free tab. */
 export async function revealModuleTabForLocation(href: string): Promise<boolean> {
+  if (bootOwns(href)) return false;
+  const pinned = exactPinnedHost(href);
+  if (pinned) {
+    await mountModuleTabOnActivate(pinned.id);
+    window.collabRuntimeNav3?.activateTab(pinned.id);
+    return true;
+  }
   const tab = findModuleTabForPath(href);
-  if (!tab || bootOwns(href)) return false;
+  if (!tab) return false;
   if (tab.route !== href) await navigateModuleTab(tab.basePath, href);
-  window.collabRuntimeNav3?.activateTab(tabId(tab.basePath));
+  window.collabRuntimeNav3?.activateTab(freeTabId(tab.basePath));
   return true;
 }
 
@@ -346,8 +482,8 @@ export async function navigateModuleTab(
   route: string,
   importer?: RouteImporter,
 ): Promise<void> {
-  const host = hosts.get(basePath);
-  if (!host) {
+  const host = hosts.get(freeTabId(basePath));
+  if (!host || host.pinned) {
     const error = new Error(`Module tab is not open for ${basePath}`);
     console.error('[moduleTab]', error.message);
     throw error;
@@ -355,10 +491,10 @@ export async function navigateModuleTab(
   try {
     host.title = await renderRoute(basePath, route, host.div, importer);
     host.route = route;
-    rememberPinnedRoute(basePath, route);
+    host.mounted = true;
   } catch (error) {
     host.route = route;
-    rememberPinnedRoute(basePath, route);
+    host.mounted = true;
     showTabError(host.div, error);
   }
 }
@@ -374,21 +510,33 @@ export async function openModuleTab(
     console.error('[moduleTab]', error.message);
     throw error;
   }
-  const open = tabIsOpen(basePath);
-  if (open) {
-    if (open.route !== route) await navigateModuleTab(basePath, route, importer);
-    nav.activateTab(tabId(basePath));
+  const id = freeTabId(basePath);
+  const existing = hosts.get(id);
+  if (tabIsOpen(existing)) {
+    if (existing.route !== route) await navigateModuleTab(basePath, route, importer);
+    nav.activateTab(id);
     return;
   }
+  hosts.delete(id);
   const div = document.createElement('div');
   div.style.cssText = 'display:block;width:100%;height:100%;';
-  const host: ModuleTabHost = { div, route, title: basePath };
-  hosts.set(basePath, host);
+  const host: ModuleTabHost = {
+    id,
+    basePath,
+    div,
+    route,
+    title: basePath,
+    pinned: false,
+    mounted: false,
+  };
+  hosts.set(id, host);
   try {
     host.title = await renderRoute(basePath, route, div, importer);
+    host.mounted = true;
   } catch (error) {
+    host.mounted = true;
     showTabError(div, error);
   }
-  nav.openTab({ id: tabId(basePath), title: host.title, element: div });
-  if (moduleTabOpenActivates()) syncHistoryForContentTab(tabId(basePath));
+  nav.openTab({ id, title: host.title, element: div });
+  if (moduleTabOpenActivates()) syncHistoryForContentTab(id);
 }

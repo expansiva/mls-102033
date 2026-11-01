@@ -13,6 +13,7 @@ import {
   isModuleRegistered,
   isModuleTabPinned,
   moduleTabPinLabel,
+  mountModuleTabOnActivate,
   pinBasePathForTab,
   navigateModuleTab,
   openModuleTab,
@@ -378,25 +379,25 @@ test('pin writes one localStorage variable, unpin removes, and a reload restores
       { basePath: '/pin-a', route: '/pin-a' },
       { basePath: '/pin-b', route: '/pin-b/item' },
     ]);
-    await navigateModuleTab('/pin-b', '/pin-b', async () => ({}));
-    const moved = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ route: string }> };
-    assert.equal(moved.pinned[1].route, '/pin-b');
+    await openModuleTab('/pin-b', '/pin-b', async () => ({}));
+    const stayed = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ route: string }> };
+    assert.equal(stayed.pinned[1].route, '/pin-b/item');
     toggleModuleTabPin('/pin-a');
     toggleModuleTabPin('/pin-a');
     const repinned = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ basePath: string }> };
     assert.deepEqual(repinned.pinned.map((item) => item.basePath), ['/pin-b', '/pin-a']);
     toggleModuleTabPin('/pin-a');
 
-    location.pathname = '/pin-b';
+    location.pathname = '/pin-b/item';
     installWindow();
     await restorePinnedModuleTabs(async () => ({}));
-    assert.deepEqual(opened, ['mod-/pin-b']);
-    assert.equal(activated.at(-1), 'mod-/pin-b');
+    assert.deepEqual(opened, ['mod-/pin-b#1']);
+    assert.equal(activated.at(-1), 'mod-/pin-b#1');
 
     location.pathname = '/home';
     installWindow();
     await restorePinnedModuleTabs(async () => ({}));
-    assert.deepEqual(opened, ['mod-/pin-b']);
+    assert.deepEqual(opened, ['mod-/pin-b#1']);
     assert.equal(activated.at(-1), 'app');
     assert.equal(opened.includes('mod-/pin-c'), false);
   } finally {
@@ -502,7 +503,7 @@ test('r1: a link that is not a registered module is a full page load, never a ta
   }
 });
 
-test('r1: restoring pins skips the module the boot already opened and keeps its pin stored', async () => {
+test('r1: restoring pins keeps stored pins and mounts only the one that matches the address', async () => {
   const stored = JSON.stringify({
     pinned: [
       { basePath: '/skip-a', route: '/skip-a' },
@@ -536,11 +537,17 @@ test('r1: restoring pins skips the module the boot already opened and keeps its 
   } as unknown as Window & typeof globalThis;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const basePath = new URL(String(input), 'http://collab.local').searchParams.get('basePath') ?? '';
-    return new Response(JSON.stringify(boot(basePath, basePath, basePath, 'skip-page')), { status: 200 });
+    return new Response(JSON.stringify({
+      ...boot(basePath, basePath, basePath, 'skip-page'),
+      routes: [
+        { path: basePath, entrypoint: `${basePath}/page.js`, tag: 'skip-page', title: basePath },
+        { path: `${basePath}/x`, entrypoint: `${basePath}/x.js`, tag: 'skip-x', title: 'x' },
+      ],
+    }), { status: 200 });
   }) as typeof fetch;
   try {
     await restorePinnedModuleTabs(async () => ({}));
-    assert.deepEqual(opened, ['mod-/skip-a', 'mod-/skip-b']);
+    assert.deepEqual(opened, ['mod-/skip-a#1', 'mod-/skip-home#1', 'mod-/skip-b#1']);
     assert.equal(store.get('collabTabs'), stored);
   } finally {
     globalThis.window = previousWindow;
@@ -686,6 +693,140 @@ test('r3: the shell handlers for the three transitions all sync the URL (class g
   // Opening: the shell only activates; the URL is pointed at the tab by openModuleTab itself.
   assert.match(handler('openContentTab'), /moduleTabOpenActivates\(\)/u);
 });
+
+test('rt161: two pins keep their pages, a link opens the free tab, unpin renumbers and drops the older free tab', async () => {
+  const store = new Map<string, string>();
+  const tabs: string[] = [];
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  globalThis.document = { createElement } as unknown as Document;
+  globalThis.window = {
+    collabRouteChunkCache: new Set<string>(),
+    collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+    collabBoot: { basePath: '/home' },
+    location: { pathname: '/home', search: '', hash: '' },
+    history: { replaceState() {} },
+    localStorage: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+    },
+    collabRuntimeNav3: {
+      openTab(tab: { id: string }) { if (!tabs.includes(tab.id)) tabs.push(tab.id); },
+      activateTab() {},
+      closeTab(id: string) {
+        const index = tabs.indexOf(id);
+        if (index >= 0) tabs.splice(index, 1);
+      },
+      listTabs: () => tabs,
+    },
+  } as unknown as Window & typeof globalThis;
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+      ...boot('/rt161', 'tarefas', '/rt161', 'rt161-page'),
+      routes: [
+        { path: '/rt161', entrypoint: '/rt161/page.js', tag: 'rt161-page', title: 'Tarefas' },
+        { path: '/rt161/minhas', entrypoint: '/rt161/minhas.js', tag: 'rt161-minhas', title: 'Minhas' },
+        { path: '/rt161/outras', entrypoint: '/rt161/outras.js', tag: 'rt161-outras', title: 'Outras' },
+      ],
+    }), { status: 200 })) as typeof fetch;
+  try {
+    await openModuleTab('/rt161', '/rt161/minhas', async () => ({}));
+    toggleModuleTabPin('/rt161');
+    await openModuleTab('/rt161', '/rt161/outras', async () => ({}));
+    toggleModuleTabPin('/rt161');
+    const pinned = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ basePath: string; route: string }> };
+    assert.deepEqual(pinned.pinned, [
+      { basePath: '/rt161', route: '/rt161/minhas' },
+      { basePath: '/rt161', route: '/rt161/outras' },
+    ]);
+    assert.deepEqual(tabs.filter((id) => id.startsWith('mod-/rt161')), ['mod-/rt161#1', 'mod-/rt161#2']);
+    await openModuleTab('/rt161', '/rt161', async () => ({}));
+    assert.equal(tabs.includes('mod-/rt161'), true);
+    assert.deepEqual(findModuleTabForPath('/rt161'), { basePath: '/rt161', route: '/rt161' });
+    const saved = store.get('collabTabs');
+    await navigateModuleTab('/rt161', '/rt161/minhas', async () => ({}));
+    assert.equal(store.get('collabTabs'), saved);
+    toggleModuleTabPin('/rt161', '/rt161/minhas');
+    const after = JSON.parse(store.get('collabTabs') ?? '{}') as { pinned: Array<{ basePath: string; route: string }> };
+    assert.deepEqual(after.pinned, [{ basePath: '/rt161', route: '/rt161/outras' }]);
+    assert.equal(tabs.includes('mod-/rt161#2'), false);
+    assert.equal(tabs.includes('mod-/rt161#1'), true);
+    assert.equal(tabs.includes('mod-/rt161'), true);
+    assert.equal(findModuleTabForPath('/rt161')?.route, '/rt161/minhas');
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('rt161: restore creates pins without rendering and mounts the active one; an old collabTabs entry still loads', async () => {
+  const stored = JSON.stringify({
+    pinned: [
+      { basePath: '/old', route: '/old/a' },
+      { basePath: '/rt161b', route: '/rt161b/one' },
+      { basePath: '/rt161b', route: '/rt161b/two' },
+    ],
+  });
+  const store = new Map<string, string>([['collabTabs', stored]]);
+  const tabs: string[] = [];
+  const elements = new Map<string, FakeElement>();
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  globalThis.document = { createElement } as unknown as Document;
+  globalThis.window = {
+    collabRouteChunkCache: new Set<string>(),
+    collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+    collabBoot: { basePath: '/home' },
+    location: { pathname: '/home', search: '', hash: '' },
+    history: { replaceState() {} },
+    localStorage: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+    },
+    collabRuntimeNav3: {
+      openTab(tab: { id: string; element: FakeElement }) {
+        if (!tabs.includes(tab.id)) tabs.push(tab.id);
+        elements.set(tab.id, tab.element);
+      },
+      activateTab() {},
+      closeTab() {},
+      listTabs: () => tabs,
+    },
+  } as unknown as Window & typeof globalThis;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const basePath = new URL(String(input), 'http://collab.local').searchParams.get('basePath') ?? '';
+    return new Response(JSON.stringify({
+      ...boot(basePath, basePath, basePath, 'lazy-page'),
+      routes: [
+        { path: basePath, entrypoint: `${basePath}/page.js`, tag: 'lazy-page', title: basePath },
+        { path: `${basePath}/a`, entrypoint: `${basePath}/a.js`, tag: 'lazy-a', title: 'a' },
+        { path: `${basePath}/one`, entrypoint: `${basePath}/one.js`, tag: 'lazy-one', title: 'one' },
+        { path: `${basePath}/two`, entrypoint: `${basePath}/two.js`, tag: 'lazy-two', title: 'two' },
+      ],
+    }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    await restorePinnedModuleTabs(async () => ({}));
+    assert.deepEqual(tabs, ['mod-/old#1', 'mod-/rt161b#1', 'mod-/rt161b#2']);
+    assert.equal(elements.get('mod-/old#1')?.child ?? null, null);
+    assert.equal(elements.get('mod-/rt161b#1')?.child ?? null, null);
+    assert.equal(elements.get('mod-/rt161b#2')?.child ?? null, null);
+    assert.equal(store.get('collabTabs'), stored);
+    await mountModuleTabOnActivate('mod-/rt161b#2', async () => ({}));
+    assert.equal(elements.get('mod-/rt161b#2')?.child?.tagName, 'LAZY-TWO');
+    assert.equal(elements.get('mod-/rt161b#1')?.child ?? null, null);
+    await mountModuleTabOnActivate('mod-/old#1', async () => ({}));
+    assert.equal(elements.get('mod-/old#1')?.child?.tagName, 'LAZY-A');
+    assert.equal(pinBasePathForTab('mod-/rt161b#2', '/home'), '/rt161b');
+    assert.equal(isModuleTabPinned('/old'), true);
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.fetch = previousFetch;
+  }
+});
 });
 
 describe('rt154 s1: one tab is enough, the app tab closes, the active cursor is default', () => {
@@ -830,10 +971,9 @@ describe('rt154 s2: pin lives on the nav3 menu, including the app tab', () => {
       location.pathname = '/home';
       opened.length = 0;
       await restorePinnedModuleTabs(async () => ({}));
-      assert.equal(location.pathname, '/home/now');
-      assert.equal(replaced.at(-1), '/home/now');
-      assert.equal(opened.includes('mod-/home'), false);
-      assert.equal(readShellRoute(), '/home/now');
+      assert.equal(location.pathname, '/home');
+      assert.equal(opened.includes('mod-/home#1'), true);
+      assert.equal(readShellRoute(), '/home');
 
       location.pathname = '/home/stay';
       await restorePinnedModuleTabs(async () => ({}));
