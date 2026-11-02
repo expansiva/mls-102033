@@ -410,17 +410,22 @@ export async function publishDraftL2(
   project: number,
   slug: string,
   deps: PublishDraftL2Deps = defaultPublishDeps,
+  known?: { head: string; files: DraftDiffName[] },
 ): Promise<{ sent: number }> {
   if (!DRAFT_SLUG.test(slug)) {
     console.error(`[studioDraftL2] ${slug}: draft slug is invalid; versions were not sent`);
     return { sent: 0 };
   }
   let diff: { head: string; files: DraftDiffName[] };
-  try {
-    diff = await deps.draftDiff(project, slug);
-  } catch (err) {
-    console.error(`[studioDraftL2] draftDiff: ${errorText(err)}`);
-    return { sent: 0 };
+  if (known) {
+    diff = known;
+  } else {
+    try {
+      diff = await deps.draftDiff(project, slug);
+    } catch (err) {
+      console.error(`[studioDraftL2] draftDiff: ${errorText(err)}`);
+      return { sent: 0 };
+    }
   }
   const byPath = new Map(diff.files.map((file) => [file.path, file]));
   const pending: PendingDraftL2[] = [];

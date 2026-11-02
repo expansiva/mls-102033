@@ -218,7 +218,7 @@ function draftDiffFile(item: unknown): DraftDiffFile {
   return file;
 }
 
-async function requestDraftDiff(project: number, slug: string): Promise<DraftDiffResult> {
+export async function requestDraftDiff(project: number, slug: string): Promise<DraftDiffResult> {
   const parsed = await postExec({ action: 'draftDiff', project, draft: slug, names: true });
   if (!isRecord(parsed) || parsed.status !== 'files' || typeof parsed.head !== 'string' || parsed.head.length === 0) {
     const code = isRecord(parsed) && typeof parsed.code === 'string' ? parsed.code : 'bad response';
@@ -462,13 +462,18 @@ export async function applyDraftFiles(
   project: number,
   slug: string,
   deps: DraftFilesDeps = defaultDeps,
+  known?: DraftDiffResult,
 ): Promise<{ added: number; changed: number; removed: number }> {
   let diff: DraftDiffResult;
-  try {
-    diff = await deps.draftDiff(project, slug);
-  } catch (err) {
-    console.error(`[studioDraftFiles] draftDiff: ${errorText(err)}`);
-    return { added: 0, changed: 0, removed: 0 };
+  if (known) {
+    diff = known;
+  } else {
+    try {
+      diff = await deps.draftDiff(project, slug);
+    } catch (err) {
+      console.error(`[studioDraftFiles] draftDiff: ${errorText(err)}`);
+      return { added: 0, changed: 0, removed: 0 };
+    }
   }
   if (typeof diff.main === 'string') rememberDraftMain(diff.main);
 

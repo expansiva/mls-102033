@@ -10,7 +10,7 @@
 
 import type { StudioMls } from './global.js';
 import { activeDraft, readCollabModeNotice } from '/_102033_/l2/cbe/studioDraft.js';
-import { applyDraftFiles, draftPublishedCommit } from '/_102033_/l2/cbe/studioDraftFiles.js';
+import { applyDraftFiles, draftPublishedCommit, requestDraftDiff, type DraftDiffResult } from '/_102033_/l2/cbe/studioDraftFiles.js';
 import { swapVisibleScreen } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { draftL2Targets, publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
 import { createGitSlotVmDriver, readSourcesFromGitHub } from '/_102033_/l2/cbe/studioSourcesOption.js';
@@ -260,10 +260,10 @@ export interface DraftScreenRef {
 }
 
 export interface StudioDraftEntryDeps {
-  applyFiles(project: number, slug: string): Promise<unknown>;
-  publishL2(project: number, slug: string): Promise<unknown>;
+  applyFiles(project: number, slug: string, diff?: DraftDiffResult): Promise<unknown>;
+  publishL2(project: number, slug: string, diff?: DraftDiffResult): Promise<unknown>;
   /** Compiled draft `.ts` files, after `publishL2`. Absent when the caller only publishes. */
-  changedTs?(project: number, slug: string): Promise<DraftScreenRef[]>;
+  changedTs?(project: number, slug: string, diff?: DraftDiffResult): Promise<DraftScreenRef[]>;
   /** Swaps one visible screen. Same function on the way out, after the production compile. */
   applyChanged?(ref: DraftScreenRef): Promise<void>;
 }
@@ -427,38 +427,52 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** l2 `.ts` files the draft differs from production. Empty when the diff cannot be read. */
-export async function listChangedDraftTs(project: number, slug: string): Promise<DraftScreenRef[]> {
-  let response: Response;
-  try {
-    response = await fetch('/exec', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'draftDiff', project, draft: slug, names: true }),
-    });
-  } catch (err) {
-    console.error('[initStudio] draftDiff failed:', err);
-    return [];
-  }
-  let parsed: unknown;
-  try {
-    parsed = await response.json();
-  } catch (err) {
-    console.error('[initStudio] draftDiff response is not json:', err);
-    return [];
-  }
-  if (!response.ok || !isRecord(parsed) || parsed.status !== 'files' || !Array.isArray(parsed.files)) {
-    const code = isRecord(parsed) && typeof parsed.code === 'string' ? parsed.code : `HTTP ${response.status}`;
-    console.error('[initStudio] draftDiff:', code);
-    return [];
-  }
+export async function listChangedDraftTs(
+  project: number,
+  slug: string,
+  known?: { files: { status: string; path: string }[] },
+): Promise<DraftScreenRef[]> {
   const files: { status: string; path: string }[] = [];
-  for (const item of parsed.files) {
-    if (!isRecord(item) || typeof item.status !== 'string' || typeof item.path !== 'string') {
-      console.error('[initStudio] draftDiff file entry is invalid');
+  if (known) {
+    for (const item of known.files) {
+      if (typeof item.status !== 'string' || typeof item.path !== 'string') {
+        console.error('[initStudio] draftDiff file entry is invalid');
+        return [];
+      }
+      files.push({ status: item.status, path: item.path });
+    }
+  } else {
+    let response: Response;
+    try {
+      response = await fetch('/exec', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'draftDiff', project, draft: slug, names: true }),
+      });
+    } catch (err) {
+      console.error('[initStudio] draftDiff failed:', err);
       return [];
     }
-    files.push({ status: item.status, path: item.path });
+    let parsed: unknown;
+    try {
+      parsed = await response.json();
+    } catch (err) {
+      console.error('[initStudio] draftDiff response is not json:', err);
+      return [];
+    }
+    if (!response.ok || !isRecord(parsed) || parsed.status !== 'files' || !Array.isArray(parsed.files)) {
+      const code = isRecord(parsed) && typeof parsed.code === 'string' ? parsed.code : `HTTP ${response.status}`;
+      console.error('[initStudio] draftDiff:', code);
+      return [];
+    }
+    for (const item of parsed.files) {
+      if (!isRecord(item) || typeof item.status !== 'string' || typeof item.path !== 'string') {
+        console.error('[initStudio] draftDiff file entry is invalid');
+        return [];
+      }
+      files.push({ status: item.status, path: item.path });
+    }
   }
   const refs: DraftScreenRef[] = [];
   for (const path of draftL2Targets(files)) {
@@ -478,8 +492,9 @@ async function applyChangedOnVisible(ref: DraftScreenRef): Promise<void> {
 }
 
 /**
- * On studio entry: the draft list, then each l2 that differs from production compiled into the
- * service worker, then the visible screens swapped. Does not reload and does not write a `-d<slug>` cache.
+ * On studio entry: one `draftDiff`, then the draft list, then each l2 that differs from production
+ * compiled into the service worker, then the visible screens swapped. Does not reload and does not
+ * write a `-d<slug>` cache. A failed read is logged and each stage asks on its own.
  */
 export async function enterStudioDraft(
   project: number,
@@ -490,10 +505,22 @@ export async function enterStudioDraft(
     console.warn('[initStudio] no active draft; draft versions were not sent');
     return;
   }
-  await deps.applyFiles(project, slug);
-  await deps.publishL2(project, slug);
+  let diff: DraftDiffResult | undefined;
+  try {
+    diff = await requestDraftDiff(project, slug);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[initStudio] draftDiff: ${message}`);
+  }
+  if (diff) {
+    await deps.applyFiles(project, slug, diff);
+    await deps.publishL2(project, slug, diff);
+  } else {
+    await deps.applyFiles(project, slug);
+    await deps.publishL2(project, slug);
+  }
   if (!deps.changedTs || !deps.applyChanged) return;
-  const refs = await deps.changedTs(project, slug);
+  const refs = diff ? await deps.changedTs(project, slug, diff) : await deps.changedTs(project, slug);
   visibleRefs = refs;
   swapChanged = deps.applyChanged;
   listenForProductionSwap();
@@ -553,9 +580,9 @@ export async function loadProjectDefinitions(project: number): Promise<void> {
   }
   // `draftEnter` and `setMode('studio')` already ran; `activeDraft()` is that slug.
   await enterStudioDraft(project, activeDraft(), {
-    applyFiles: (prj, slug) => applyDraftFiles(prj, slug),
-    publishL2: (prj, slug) => publishDraftL2(prj, slug),
-    changedTs: (prj, slug) => listChangedDraftTs(prj, slug),
+    applyFiles: (prj, slug, diff) => applyDraftFiles(prj, slug, undefined, diff),
+    publishL2: (prj, slug, diff) => publishDraftL2(prj, slug, undefined, diff),
+    changedTs: (prj, slug, diff) => listChangedDraftTs(prj, slug, diff),
     applyChanged: (ref) => applyChangedOnVisible(ref),
   });
 }

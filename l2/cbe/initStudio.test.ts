@@ -1,10 +1,12 @@
 /// <mls fileReference="_102033_/l2/cbe/initStudio.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { rememberDraftMain } from '/_102033_/l2/cbe/studioDraftFiles.js';
+import { applyDraftFiles, rememberDraftMain } from '/_102033_/l2/cbe/studioDraftFiles.js';
+import { publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
 import {
   enterStudioDraft,
   handleCollabModeMessage,
+  listChangedDraftTs,
   loadProjectDefinitions,
   registerDrivers,
   registerVmDriver,
@@ -359,6 +361,40 @@ test('enterStudioDraft lists the draft and publishes l2 without reload', async (
     assert.deepEqual(calls, ['apply', 'publish']);
   } finally {
     (globalThis as { location?: { reload?: () => void } }).location = previous;
+  }
+});
+
+test('enterStudioDraft reads draftDiff once; publishDraftL2 alone still reads it', async () => {
+  const seen: { action?: string; names?: boolean }[] = [];
+  const previousFetch = globalThis.fetch;
+  const previousError = console.error;
+  console.error = () => undefined;
+  globalThis.fetch = async (_url: unknown, init?: { body?: unknown }) => {
+    const body = JSON.parse(String(init?.body)) as { action?: string; names?: boolean };
+    seen.push(body);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'files', head: 'hhh', files: [] }),
+    } as Response;
+  };
+  const diffCount = () => seen.filter((body) => body.action === 'draftDiff').length;
+  try {
+    await enterStudioDraft(102047, 'team-102047', {
+      applyFiles: (project, slug, diff) => applyDraftFiles(project, slug, undefined, diff),
+      publishL2: (project, slug, diff) => publishDraftL2(project, slug, undefined, diff),
+      changedTs: (project, slug, diff) => listChangedDraftTs(project, slug, diff),
+      applyChanged: async () => undefined,
+    });
+    assert.equal(diffCount(), 1);
+    assert.equal(seen[0]?.names, true);
+    await publishDraftL2(102047, 'team-102047');
+    assert.equal(diffCount(), 2);
+    assert.equal(seen[1]?.action, 'draftDiff');
+    assert.equal(seen[1]?.names, true);
+  } finally {
+    console.error = previousError;
+    globalThis.fetch = previousFetch;
   }
 });
 
