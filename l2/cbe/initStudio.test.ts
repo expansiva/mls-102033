@@ -5,8 +5,10 @@ import { rememberDraftMain } from '/_102033_/l2/cbe/studioDraftFiles.js';
 import {
   enterStudioDraft,
   handleCollabModeMessage,
+  loadProjectDefinitions,
   registerDrivers,
   registerVmDriver,
+  resetProjectDefinitions,
   resetVmDriverRegistration,
 } from '/_102033_/l2/cbe/initStudio.js';
 import { environment, setEnvironment } from '/_102036_/l2/environmentContract.js';
@@ -443,5 +445,42 @@ test('production exit does not swap a screen that has no published version', asy
     console.warn = origWarn;
     if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
     else (globalThis as { window: unknown }).window = previousWindow;
+  }
+});
+
+test('loadProjectDefinitions creates definition models before enterStudioDraft; re-entry keeps them', async () => {
+  resetVmDriverRegistration();
+  resetProjectDefinitions();
+  const host = installDriverHost();
+  const calls: string[] = [];
+  const origInfo = console.info;
+  const origWarn = console.warn;
+  console.info = () => undefined;
+  console.warn = (msg?: unknown) => {
+    if (typeof msg === 'string' && msg.includes('no active draft')) calls.push('enterStudioDraft');
+  };
+  const win = (globalThis as { window: { mls: {
+    editor?: unknown;
+    l5?: unknown;
+    stor: { others: unknown; localDB?: unknown; LOCALPROJECTNUMBER?: number };
+  } } }).window;
+  win.mls.editor = {
+    getModels: () => ({}),
+    createModelProjectDefinition: async () => { calls.push('definitions'); },
+  };
+  win.mls.l5 = { getProjectDependencies: () => [] };
+  win.mls.stor.localDB = { readPrjInfo: async () => ({ indexModules: 'export {}' }) };
+  win.mls.stor.LOCALPROJECTNUMBER = 0;
+  try {
+    await loadProjectDefinitions(102047);
+    assert.deepEqual(calls, ['definitions', 'enterStudioDraft']);
+    calls.length = 0;
+    await loadProjectDefinitions(102047);
+    assert.deepEqual(calls, ['enterStudioDraft']);
+  } finally {
+    console.info = origInfo;
+    console.warn = origWarn;
+    host.restore();
+    resetProjectDefinitions();
   }
 });

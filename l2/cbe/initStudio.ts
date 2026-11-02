@@ -246,6 +246,11 @@ const SKIP_PROJECTS = [100529, 100131];
 
 let definitionsLoaded = false;
 
+/** Clears the once-per-page definition models so tests can load them again. */
+export function resetProjectDefinitions(): void {
+  definitionsLoaded = false;
+}
+
 /** One l2 `.ts` the draft compiled. `level` is 2. */
 export interface DraftScreenRef {
   project: number;
@@ -515,39 +520,42 @@ export async function loadProjectDefinitions(project: number): Promise<void> {
   // Called from the studio switch, which can happen before the Monaco download finishes — the
   // editor API below, and the draft compile, only exist after it. cbeMiniCfe sets this promise at boot.
   if (window.monacoReady) await window.monacoReady.catch(() => undefined);
+  // Definition models (`_<project>_.d.ts`) first: the draft compile cuts imports
+  // from them. Once per page; re-entry still publishes the draft.
+  if (!definitionsLoaded) {
+    const mls = (window as unknown as { mls?: MlsDefinitionApi }).mls;
+    const editor = mls?.editor;
+    if (editor?.getModels && editor.createModelProjectDefinition && mls?.stor?.localDB?.readPrjInfo) {
+      definitionsLoaded = true;
+
+      const dependencies = mls.l5?.getProjectDependencies?.(project, false) ?? [];
+      const localProject = mls.stor.LOCALPROJECTNUMBER;
+      let created = 0;
+
+      for (const prj of [project, ...dependencies]) {
+        if (SKIP_PROJECTS.includes(prj) || prj === localProject) continue;
+        try {
+          const model = editor.getModels(prj, '', '', 2);
+          if (model?.ts) continue; // already modeled
+          const info = await mls.stor.localDB.readPrjInfo(prj);
+          if (!info?.indexModules) {
+            console.warn(`[initStudio] project ${prj} has no indexModules — definitions not loaded`);
+            continue;
+          }
+          await editor.createModelProjectDefinition(prj, info.indexModules);
+          created += 1;
+        } catch (err) {
+          console.warn(`[initStudio] definition model failed for project ${prj}:`, err);
+        }
+      }
+      console.info(`[initStudio] definition models ready (${created} created of ${dependencies.length + 1} project(s))`);
+    }
+  }
   // `draftEnter` and `setMode('studio')` already ran; `activeDraft()` is that slug.
-  // Re-entry in the same page (no reload) publishes again. Definition models stay once.
   await enterStudioDraft(project, activeDraft(), {
     applyFiles: (prj, slug) => applyDraftFiles(prj, slug),
     publishL2: (prj, slug) => publishDraftL2(prj, slug),
     changedTs: (prj, slug) => listChangedDraftTs(prj, slug),
     applyChanged: (ref) => applyChangedOnVisible(ref),
   });
-  if (definitionsLoaded) return;
-  const mls = (window as unknown as { mls?: MlsDefinitionApi }).mls;
-  const editor = mls?.editor;
-  if (!editor?.getModels || !editor.createModelProjectDefinition || !mls?.stor?.localDB?.readPrjInfo) return;
-  definitionsLoaded = true;
-
-  const dependencies = mls.l5?.getProjectDependencies?.(project, false) ?? [];
-  const localProject = mls.stor.LOCALPROJECTNUMBER;
-  let created = 0;
-
-  for (const prj of [project, ...dependencies]) {
-    if (SKIP_PROJECTS.includes(prj) || prj === localProject) continue;
-    try {
-      const model = editor.getModels(prj, '', '', 2);
-      if (model?.ts) continue; // already modeled
-      const info = await mls.stor.localDB.readPrjInfo(prj);
-      if (!info?.indexModules) {
-        console.warn(`[initStudio] project ${prj} has no indexModules — definitions not loaded`);
-        continue;
-      }
-      await editor.createModelProjectDefinition(prj, info.indexModules);
-      created += 1;
-    } catch (err) {
-      console.warn(`[initStudio] definition model failed for project ${prj}:`, err);
-    }
-  }
-  console.info(`[initStudio] definition models ready (${created} created of ${dependencies.length + 1} project(s))`);
 }
