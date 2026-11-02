@@ -118,10 +118,14 @@ export async function buildProgramMenu(): Promise<CollabProgramMenu[]> {
   }
   // Site project comes from the draft config. Master modules (other projects) stay on the BFF menu.
   const modules = await readDraftModules(project);
-  if (!modules) return menus;
+  if (!modules) {
+    console.info('[runtimeMessagesEnvironment] apps menu', { studio: true, source: 'release', reason: 'draft config not read' });
+    return menus;
+  }
   const draftMenus = modules
     .map((moduleConfig) => moduleToMenu(moduleConfig, project))
     .filter((menu): menu is CollabProgramMenu => menu !== null);
+  console.info('[runtimeMessagesEnvironment] apps menu', { studio: true, source: 'draft', siteModules: draftMenus.length });
   return replaceSiteMenus(menus, project, draftMenus);
 }
 

@@ -61,7 +61,9 @@ export async function readDraftModules(project: number): Promise<ConfigModule[] 
       console.error(`[studioDraftConfig] l5/config.json has no text for project ${project}`);
       return null;
     }
-    return modulesFromText(text, project);
+    const modules = modulesFromText(text, project);
+    console.info('[studioDraftConfig] read l5/config.json', { project, fromLocalCopy: file.inLocalStorage === true, length: text.length, modules: modules?.length ?? null });
+    return modules;
   } catch (err) {
     console.error(`[studioDraftConfig] failed to read l5/config.json for project ${project}:`, err);
     return null;

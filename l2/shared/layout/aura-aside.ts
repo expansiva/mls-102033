@@ -136,6 +136,7 @@ export class AuraAside extends LitElement {
   async syncStudioNavigation(studioOn: boolean): Promise<void> {
     const epoch = ++this.navEpoch;
     const resolved = await readAsideNavigation(studioOn, liveBoot(this.bootConfig));
+    console.info('[aura-aside] navigation', { studioOn, source: resolved.source, items: resolved.items.length, superseded: epoch !== this.navEpoch });
     if (epoch !== this.navEpoch) return;
     this.draftNavigation = resolved.source === 'draft' ? resolved.items : null;
     this.requestUpdate();

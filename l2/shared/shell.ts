@@ -1877,7 +1877,9 @@ export class CollabAuraShell extends LitElement {
       }
       return;
     }
-    if (!draftSavedShouldRefresh(detail, this.studioModeOn, project)) return;
+    const refresh = draftSavedShouldRefresh(detail, this.studioModeOn, project);
+    console.info('[shell] collabDraftSaved', { studioModeOn: this.studioModeOn, project, paths: detail.paths, refresh });
+    if (!refresh) return;
     this.refreshAsideNavigation('send');
   }
 
@@ -1898,6 +1900,13 @@ export class CollabAuraShell extends LitElement {
     }
     this.asideNavPending = false;
     const studioOn = this.studioModeOn;
+    console.info('[shell] aside refresh', {
+      reason,
+      studioOn,
+      instances: document.querySelectorAll('collab-aura-aside').length,
+      connected: aside.isConnected,
+      visible: aside.offsetParent !== null,
+    });
     void aside.syncStudioNavigation(studioOn).catch((err: unknown) => {
       console.error('[shell] aside navigation refresh failed:', err);
     });
