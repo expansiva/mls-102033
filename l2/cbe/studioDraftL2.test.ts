@@ -73,14 +73,14 @@ test('publishDraftL2 sends add with the draft slug and does not reload', async (
     draftDiff: async () => ({
       head: 'abc',
       files: [
-        { status: 'M', path: 'l2/a.ts' },
-        { status: 'A', path: 'l2/pasta/nome.ts' },
-        { status: 'M', path: 'l2/local.ts' },
-        { status: 'M', path: 'l2/bad.ts' },
-        { status: 'D', path: 'l2/gone.ts' },
+        { status: 'M', path: 'l2/a.ts', sha: 'sha-a' },
+        { status: 'A', path: 'l2/pasta/nome.ts', sha: 'sha-nome' },
+        { status: 'M', path: 'l2/local.ts', sha: 'sha-local' },
+        { status: 'M', path: 'l2/bad.ts', sha: 'sha-bad' },
+        { status: 'D', path: 'l2/gone.ts', sha: 'sha-gone' },
       ],
     }),
-    readDraftText: async (_project, path) => `text ${path}`,
+    readDraftTexts: async (_project, paths) => new Map(paths.map((path) => [path, `text ${path}`])),
     apply: async () => {},
     compile: async (_project, path) => {
       if (path === 'l2/bad.ts') return null;
@@ -89,6 +89,7 @@ test('publishDraftL2 sends add with the draft slug and does not reload', async (
     },
     postAdd: async (message) => { adds.push(message); },
     hasLocalEdit: (_project, path) => path === 'l2/local.ts',
+    cachedDraft: async () => null,
   };
   try {
     const result = await publishDraftL2(102047, 'team-102047', deps);
@@ -98,7 +99,7 @@ test('publishDraftL2 sends add with the draft slug and does not reload', async (
       {
         action: 'add',
         path: '_102047_a.js',
-        version: 'v-a',
+        version: 'sha-a',
         content: 'js-a',
         contentType: 'application/javascript',
         draft: 'team-102047',
@@ -106,7 +107,7 @@ test('publishDraftL2 sends add with the draft slug and does not reload', async (
       {
         action: 'add',
         path: '_102047_pasta/nome.js',
-        version: 'v-pasta/nome',
+        version: 'sha-nome',
         content: 'js-pasta/nome',
         contentType: 'application/javascript',
         draft: 'team-102047',
@@ -216,29 +217,43 @@ test('applyDraft binds one listener and one edit fires that listener once', asyn
 
 test('compileDraftForWorker compiles with saveCache false', async () => {
   const saveCacheFlags: boolean[] = [];
+  const modelCreates: string[] = [];
   const model = {
     storFile: { project: 7, folder: 'pasta', shortName: 'nome', extension: '.ts' },
     compilerResults: {
       modelNeedCompile: false,
-      imports: [] as string[],
+      imports: ['/_7_/l2/dep.js'] as string[],
       cacheVersion: '',
       prodJS: '',
     },
   };
   const previous = (globalThis as { mls?: unknown }).mls;
   (globalThis as { mls: unknown }).mls = {
-    editor: { getModels: () => ({ ts: model }) },
+    editor: {
+      getModels: (_project: number, shortName: string) => (shortName === 'nome' ? { ts: model } : undefined),
+    },
+    stor: {
+      files: {
+        dep: {
+          getOrCreateModel: async () => {
+            modelCreates.push('import');
+            return model;
+          },
+        },
+      },
+      getKeyToFile: () => 'dep',
+    },
     l2: {
       typescript: {
         compileAndPostProcess: async (
           _model: typeof model,
-          _runAfterCompile: boolean,
+          runAfterCompile: boolean,
           saveCache: boolean,
         ) => {
           saveCacheFlags.push(saveCache);
+          if (!runAfterCompile) model.compilerResults.imports = ['/_7_/l2/dep.js'];
           model.compilerResults.cacheVersion = '20260101120000000';
           model.compilerResults.prodJS = 'compiled';
-          model.compilerResults.imports = [];
           return true;
         },
       },
@@ -247,12 +262,91 @@ test('compileDraftForWorker compiles with saveCache false', async () => {
   try {
     const compiled = await compileDraftForWorker(7, 'l2/pasta/nome.ts');
     assert.equal(saveCacheFlags.includes(true), false);
-    assert.deepEqual(saveCacheFlags, [false, false]);
+    assert.deepEqual(saveCacheFlags, [false]);
+    assert.deepEqual(modelCreates, []);
     assert.deepEqual(compiled, {
       path: '_7_pasta/nome.js',
       version: '20260101120000000',
       content: 'compiled',
     });
+  } finally {
+    (globalThis as { mls?: unknown }).mls = previous;
+  }
+});
+
+test('publishDraftL2 reads and compiles only a sha the worker does not have', async () => {
+  const reads: string[][] = [];
+  const compiled: string[] = [];
+  const adds: DraftWorkerAdd[] = [];
+  const modelCreates: string[] = [];
+  const cached = new Set<string>();
+  let bSha = 'sha-b';
+  const previous = (globalThis as { mls?: unknown }).mls;
+  (globalThis as { mls: unknown }).mls = {
+    editor: { getModels: () => undefined },
+    stor: {
+      files: {
+        dep: {
+          getOrCreateModel: async () => {
+            modelCreates.push('import');
+            return {};
+          },
+        },
+      },
+      getKeyToFile: () => 'dep',
+    },
+  };
+  const deps: PublishDraftL2Deps = {
+    draftDiff: async () => ({
+      head: 'abc',
+      files: [
+        { status: 'M', path: 'l2/a.ts', sha: 'sha-a' },
+        { status: 'M', path: 'l2/b.ts', sha: bSha },
+        { status: 'M', path: 'l2/local.ts', sha: 'sha-local' },
+      ],
+    }),
+    readDraftTexts: async (_project, paths) => {
+      reads.push([...paths]);
+      return new Map(paths.map((path) => [path, `text ${path}`]));
+    },
+    apply: async () => {},
+    compile: async (_project, path) => {
+      compiled.push(path);
+      const short = path.slice(3, -3);
+      return { path: `_102047_${short}.js`, version: 'compiled-version', content: `js-${short}` };
+    },
+    postAdd: async (message) => {
+      adds.push(message);
+      cached.add(`${message.path}@${message.version}`);
+    },
+    hasLocalEdit: (_project, path) => path === 'l2/local.ts',
+    cachedDraft: async (project, path, sha) => {
+      const short = path.slice(3, -3);
+      const key = `_${project}_${short}.js@${sha}`;
+      return cached.has(key) ? `/local/${key.split('@')[0]}?v=${sha}` : null;
+    },
+  };
+  try {
+    const first = await publishDraftL2(102047, 'team-102047', deps);
+    assert.equal(first.sent, 2);
+    assert.deepEqual(reads, [['l2/a.ts', 'l2/b.ts']]);
+    assert.deepEqual(compiled, ['l2/a.ts', 'l2/b.ts']);
+
+    reads.length = 0;
+    compiled.length = 0;
+    const second = await publishDraftL2(102047, 'team-102047', deps);
+    assert.equal(second.sent, 0);
+    assert.deepEqual(reads, []);
+    assert.deepEqual(compiled, []);
+
+    bSha = 'sha-b-next';
+    const third = await publishDraftL2(102047, 'team-102047', deps);
+    assert.equal(third.sent, 1);
+    assert.deepEqual(reads, [['l2/b.ts']]);
+    assert.deepEqual(compiled, ['l2/b.ts']);
+    assert.equal(adds.at(-1)?.version, 'sha-b-next');
+    assert.equal(adds.at(-1)?.content, 'js-b');
+    assert.deepEqual(modelCreates, []);
   } finally {
     (globalThis as { mls?: unknown }).mls = previous;
   }

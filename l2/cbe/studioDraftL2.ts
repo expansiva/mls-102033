@@ -5,7 +5,6 @@
 
 const DRAFT_SLUG = /^(team|user)-[a-z0-9_.-]{1,64}$/;
 const L2_STATUS = new Set(['A', 'M', 'R']);
-const IMPORT_DEPTH = 3;
 const L2_IMPORT = /^\/?_(\d+)_\/l2\/(.+?)(\.js)?$/;
 /** `getUrlLocalWithVersion` (`mls.js:5148`) plus a 17-digit `cacheVersion` (`mls.js:3087`). */
 const COMPILED_L2_URL = /^\/local\/_(\d+)_(.+)\.js\?v=(\d{17})$/;
@@ -13,6 +12,8 @@ const COMPILED_L2_URL = /^\/local\/_(\d+)_(.+)\.js\?v=(\d{17})$/;
 export interface DraftDiffName {
   status: string;
   path: string;
+  /** Blob sha from `draftDiff`. `null` when the server has none. */
+  sha: string | null;
 }
 
 interface StaleCacheRequest {
@@ -58,12 +59,15 @@ export interface DraftWorkerAdd {
 
 export interface PublishDraftL2Deps {
   draftDiff(project: number, slug: string): Promise<{ head: string; files: DraftDiffName[] }>;
-  readDraftText(project: number, path: string): Promise<string>;
+  /** One `getContents` for every path still missing from the service worker. */
+  readDraftTexts(project: number, paths: readonly string[]): Promise<ReadonlyMap<string, string>>;
   apply(project: number, path: string, text: string): Promise<void>;
   /** `saveCache` is false. `null` when the compile produced nothing to send. */
   compile(project: number, path: string): Promise<DraftCompiledJs | null>;
   postAdd(message: DraftWorkerAdd): Promise<unknown>;
   hasLocalEdit(project: number, path: string): boolean;
+  /** `getURL` with `sha`. A string means that draft copy is already in the service worker. */
+  cachedDraft(project: number, path: string, sha: string): Promise<string | null>;
 }
 
 export interface L2ImportFile {
@@ -103,10 +107,6 @@ export function importToL2File(importName: string): L2ImportFile | null {
   const shortName = slash === -1 ? rest : rest.slice(slash + 1);
   if (!shortName || (slash !== -1 && !folder)) return null;
   return { project: Number(match[1]), folder, shortName };
-}
-
-function visitKey(file: { project: number; folder: string; shortName: string }): string {
-  return `${file.project}:${file.folder}:${file.shortName}`;
 }
 
 export function draftL2Targets(files: { status: string; path: string }[]): string[] {
@@ -156,20 +156,33 @@ async function requestDraftDiff(project: number, slug: string): Promise<{ head: 
     if (!isRecord(item) || typeof item.status !== 'string' || typeof item.path !== 'string') {
       throw new Error('draftDiff file entry is invalid');
     }
-    files.push({ status: item.status, path: item.path });
+    const sha = item.sha;
+    if (typeof sha !== 'string' && sha !== null) throw new Error('draftDiff file entry is invalid');
+    files.push({ status: item.status, path: item.path, sha });
   }
   return { head: parsed.head, files };
 }
 
-async function requestDraftText(project: number, path: string): Promise<string> {
-  const parsed = await postExec({ action: 'getContents', project, shortPaths: [path] });
+async function requestDraftTexts(project: number, paths: readonly string[]): Promise<Map<string, string>> {
+  const texts = new Map<string, string>();
+  if (paths.length === 0) return texts;
+  const parsed = await postExec({ action: 'getContents', project, shortPaths: [...paths] });
   if (!isRecord(parsed) || parsed.statusCode !== 200 || !Array.isArray(parsed.files)) {
     const msg = isRecord(parsed) && typeof parsed.msg === 'string' ? parsed.msg : 'getContents failed';
     throw new Error(msg);
   }
-  const file = parsed.files.find((item) => isRecord(item) && item.shortPath === path);
-  if (!isRecord(file) || typeof file.content !== 'string') throw new Error('getContents missing content');
-  return file.encoding === 'base64' ? atob(file.content) : file.content;
+  for (const item of parsed.files) {
+    if (!isRecord(item) || typeof item.shortPath !== 'string') {
+      console.error('[studioDraftL2] getContents file entry is invalid');
+      continue;
+    }
+    if (typeof item.content !== 'string') {
+      console.error(`[studioDraftL2] ${item.shortPath}: getContents missing content`);
+      continue;
+    }
+    texts.set(item.shortPath, item.encoding === 'base64' ? atob(item.content) : item.content);
+  }
+  return texts;
 }
 
 function l2FileBase(project: number, loc: L2File): mls.stor.IFileInfoBase {
@@ -205,46 +218,6 @@ function storFileFor(project: number, loc: L2File): mls.stor.IFileInfo {
   };
 }
 
-function asModelTS(model: mls.editor.IModelBase): mls.editor.IModelTS | undefined {
-  if (model.storFile.extension !== '.ts') return undefined;
-  return model as mls.editor.IModelTS;
-}
-
-async function loadImportModels(model: mls.editor.IModelTS, depth: number, visited: Set<string>): Promise<void> {
-  const key = visitKey(model.storFile);
-  if (visited.has(key)) return;
-  visited.add(key);
-  if (depth <= 0) return;
-
-  let imports: string[] = [];
-  try {
-    await mls.l2.typescript.compileAndPostProcess(model, false, false);
-    imports = model.compilerResults?.imports ?? [];
-  } catch (err) {
-    console.warn(`[studioDraftL2] ${key}: ${errorText(err)}`);
-    return;
-  }
-
-  for (const importName of imports) {
-    const info = importToL2File(importName);
-    if (!info || visited.has(visitKey(info))) continue;
-    try {
-      const storFile = mls.stor.files[mls.stor.getKeyToFile(l2FileBase(info.project, info))];
-      if (!storFile) continue;
-      const existing = mls.editor.getModels(info.project, info.shortName, info.folder, 2)?.ts;
-      const created = existing ?? await storFile.getOrCreateModel();
-      const dep = asModelTS(created);
-      if (!dep) {
-        console.warn(`[studioDraftL2] ${importName}: model is not typescript`);
-        continue;
-      }
-      await loadImportModels(dep, depth - 1, visited);
-    } catch (err) {
-      console.warn(`[studioDraftL2] ${importName}: ${errorText(err)}`);
-    }
-  }
-}
-
 export async function applyDraft(project: number, path: string, text: string): Promise<void> {
   const loc = parseL2Ts(path);
   if (!loc) throw new Error(`not an l2 source: ${path}`);
@@ -265,7 +238,6 @@ export async function compileDraftForWorker(project: number, path: string): Prom
   if (!loc) throw new Error(`not an l2 source: ${path}`);
   const model = mls.editor.getModels(project, loc.shortName, loc.folder, 2)?.ts;
   if (!model) throw new Error(`model missing: ${path}`);
-  await loadImportModels(model, IMPORT_DEPTH, new Set());
   if (model.compilerResults) model.compilerResults.modelNeedCompile = true;
   const ok = await mls.l2.typescript.compileAndPostProcess(model, true, false);
   if (!ok) return null;
@@ -404,18 +376,35 @@ async function deleteStaleCompiled(
   return count;
 }
 
+/** `getURL` with the draft sha. Studio mode looks up the draft copy before the release copy. */
+async function cachedDraftUrl(project: number, path: string, sha: string): Promise<string | null> {
+  const loc = parseL2Ts(path);
+  if (!loc) {
+    console.error(`[studioDraftL2] ${path}: cache check is not an l2 source`);
+    return null;
+  }
+  return mls.stor.cache.getURL(project, loc.folder || null, loc.shortName, '.js', sha);
+}
+
 const defaultPublishDeps: PublishDraftL2Deps = {
   draftDiff: requestDraftDiff,
-  readDraftText: requestDraftText,
+  readDraftTexts: requestDraftTexts,
   apply: applyDraft,
   compile: compileDraftForWorker,
   postAdd: postDraftAdd,
   hasLocalEdit: defaultHasLocalEdit,
+  cachedDraft: cachedDraftUrl,
 };
 
+interface PendingDraftL2 {
+  path: string;
+  sha: string;
+}
+
 /**
- * Each l2 the draft changed against production: compile with `saveCache` false and
- * `{action:'add', draft:slug}` to the service worker. Does not reload and does not touch a `-d<slug>` cache.
+ * l2 sources the draft changed: skip a sha the service worker already has, read the rest in one
+ * `getContents`, apply them, then compile and send `{action:'add', draft:slug}` with `version: sha`.
+ * A local edit is left as it is. Does not reload and does not touch a `-d<slug>` cache.
  */
 export async function publishDraftL2(
   project: number,
@@ -433,31 +422,68 @@ export async function publishDraftL2(
     console.error(`[studioDraftL2] draftDiff: ${errorText(err)}`);
     return { sent: 0 };
   }
-  let sent = 0;
+  const byPath = new Map(diff.files.map((file) => [file.path, file]));
+  const pending: PendingDraftL2[] = [];
   for (const path of draftL2Targets(diff.files)) {
     if (deps.hasLocalEdit(project, path)) {
       console.info(`[studioDraftL2] ${path}: local edit kept`);
       continue;
     }
+    const sha = byPath.get(path)?.sha;
+    if (typeof sha !== 'string' || sha.length === 0) {
+      console.error(`[studioDraftL2] ${path}: draft sha is missing; compiled copy was not sent`);
+      continue;
+    }
+    let cached: string | null = null;
     try {
-      const text = await deps.readDraftText(project, path);
-      await deps.apply(project, path, text);
-      const compiled = await deps.compile(project, path);
+      cached = await deps.cachedDraft(project, path, sha);
+    } catch (err) {
+      console.error(`[studioDraftL2] ${path}: ${errorText(err)}`);
+    }
+    if (cached) continue;
+    pending.push({ path, sha });
+  }
+  if (pending.length === 0) return { sent: 0 };
+  let texts: ReadonlyMap<string, string>;
+  try {
+    texts = await deps.readDraftTexts(project, pending.map((item) => item.path));
+  } catch (err) {
+    console.error(`[studioDraftL2] getContents: ${errorText(err)}`);
+    return { sent: 0 };
+  }
+  const applied: PendingDraftL2[] = [];
+  for (const item of pending) {
+    const text = texts.get(item.path);
+    if (text === undefined) {
+      console.error(`[studioDraftL2] ${item.path}: getContents missing content`);
+      continue;
+    }
+    try {
+      await deps.apply(project, item.path, text);
+      applied.push(item);
+    } catch (err) {
+      console.error(`[studioDraftL2] ${item.path}: ${errorText(err)}`);
+    }
+  }
+  let sent = 0;
+  for (const item of applied) {
+    try {
+      const compiled = await deps.compile(project, item.path);
       if (!compiled) {
-        console.error(`[studioDraftL2] ${path}: compile failed`);
+        console.error(`[studioDraftL2] ${item.path}: compile failed`);
         continue;
       }
       await deps.postAdd({
         action: 'add',
         path: compiled.path,
-        version: compiled.version,
+        version: item.sha,
         content: compiled.content,
         contentType: 'application/javascript',
         draft: slug,
       });
       sent += 1;
     } catch (err) {
-      console.error(`[studioDraftL2] ${path}: ${errorText(err)}`);
+      console.error(`[studioDraftL2] ${item.path}: ${errorText(err)}`);
     }
   }
   return { sent };
