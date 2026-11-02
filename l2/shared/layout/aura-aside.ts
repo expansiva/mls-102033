@@ -5,6 +5,7 @@ import { readDraftModules, type ConfigModule, type ConfigNavItem } from '/_10203
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 import { beginExpectedNavigationLoad, runBlockingUiAction } from '/_102033_/l2/shared/interactionRuntime.js';
 import { closeAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js';
+import { getSessionUserStrict } from '/_102033_/l2/shared/sessionUser.js';
 import { visibleNavigation } from '/_102033_/l2/shared/navigationVisibility.js';
 
 function traceLazy(event: string, details?: Record<string, unknown>) {
@@ -87,7 +88,7 @@ export class AuraAside extends LitElement {
 
   declare bootConfig?: MasterFrontendBootConfig;
   declare currentPath: string;
-  /** The user's authorities, asked of the server once (the token is httpOnly; JS cannot read claims). */
+  /** The user's authorities from the shared session probe (the token is httpOnly; JS cannot read claims). */
   declare authorities: string[];
   /** Draft menu while Studio is on. `null` means render `collabBoot.navigation`. */
   declare draftNavigation: AsideNavItem[] | null;
@@ -107,19 +108,17 @@ export class AuraAside extends LitElement {
   }
 
   /**
-   * The claims live in an httpOnly cookie, so the client cannot read them — it ASKS. Best-effort: a
-   * failure leaves the list empty, which means "filter nothing" and the menu behaves as it always did.
+   * The claims live in an httpOnly cookie, so the client cannot read them — it ASKS the session
+   * probe the header already starts. `getSessionUser()` never rejects (a failed probe looks
+   * anonymous), so the strict read is what makes the failure visible. It shares that probe: one
+   * `/session/info` per page. A failure leaves the list empty, which means "filter nothing".
    */
   private async loadAuthorities(): Promise<void> {
     try {
-      const response = await fetch('/session/info', { credentials: 'same-origin' });
-      if (!response.ok) return;
-      const info = await response.json() as { allAuthorities?: unknown };
-      if (Array.isArray(info.allAuthorities)) {
-        this.authorities = info.allAuthorities.filter((value): value is string => typeof value === 'string');
-      }
-    } catch {
-      // keep the unfiltered menu
+      const user = await getSessionUserStrict();
+      this.authorities = user.authorities ?? [];
+    } catch (err) {
+      console.error('[aura-aside] session read failed; menu stays unfiltered', err);
     }
   }
 
