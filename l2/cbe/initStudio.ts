@@ -13,7 +13,7 @@ import { activeDraft, readCollabModeNotice } from '/_102033_/l2/cbe/studioDraft.
 import { applyDraftFiles, draftPublishedCommit, requestDraftDiff, type DraftDiffResult } from '/_102033_/l2/cbe/studioDraftFiles.js';
 import { swapVisibleScreen } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { draftL2Targets, publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
-import { createGitSlotVmDriver, readSourcesFromGitHub } from '/_102033_/l2/cbe/studioSourcesOption.js';
+import type { DriverVm } from '/_102033_/l2/cbe/driverVm.js';
 
 const MONACO_SCRIPT_ID = 'cbe-monaco-loader';
 
@@ -146,8 +146,8 @@ async function registerDriverInSlot(
 /**
  * Registers every storage driver this runtime can offer, each in ITS OWN slot:
  *   vm     -> DriverVm (this project)      — sources read from / written to the VM disk
- *   github / gitlab -> DriverVm (read-only wrap) by default, or the real git host
- *     when collabStudioSourcesFromGitHub is '1'
+ *   github / gitlab -> DriverVm (read-only wrap). Writing a GitHub project
+ *     through those slots stays refused.
  *
  * Port of collabInit.setDrivers (mls-100554), which never runs on the VM runtime, plus the VM
  * driver, which only exists here. Dynamic imports on purpose — these classes extend
@@ -209,21 +209,54 @@ async function registerDriverSlots(): Promise<void> {
     return;
   }
   await registerVmDriver();
-  if (readSourcesFromGitHub()) {
-    await registerDriverInSlot(others, 'github', async () => {
-      const url = '/_100554_/l2/driverGithub.js';
-      const { DriverGitHub } = await import(url);
-      return new DriverGitHub();
-    });
-    await registerDriverInSlot(others, 'gitlab', async () => {
-      const url = '/_100554_/l2/driverGitlab.js';
-      const { DriverGitLab } = await import(url);
-      return new DriverGitLab();
-    });
-    return;
-  }
   await registerDriverInSlot(others, 'github', createGitSlotVmDriver);
   await registerDriverInSlot(others, 'gitlab', createGitSlotVmDriver);
+}
+
+/// **collab_i18n_start**
+const message_en = {
+  gitSlotWriteRefused:
+    "this project lives on GitHub; the Studio reads its sources from the VM and cannot save changes to it",
+};
+type MessageType = typeof message_en;
+const messages: Record<string, MessageType> = {
+  en: message_en,
+  pt: {
+    gitSlotWriteRefused:
+      "este projeto vive no GitHub; o Studio lê os fontes da VM e não pode gravar alterações nele",
+  },
+  es: {
+    gitSlotWriteRefused:
+      "este proyecto vive en GitHub; el Studio lee sus fuentes de la VM y no puede guardar cambios en él",
+  },
+};
+/// **collab_i18n_end**
+
+function gitSlotWriteRefusedText(): string {
+  const requested = typeof document !== 'undefined' ? document.documentElement.lang || 'en' : 'en';
+  const primary = requested.trim().toLowerCase().split('-')[0];
+  return (messages[primary] ?? messages.en).gitSlotWriteRefused;
+}
+
+function refuseGitSlotWrite(project: number): never {
+  const message = gitSlotWriteRefusedText();
+  console.error(`[initStudio] refused write for git-declared project ${project}`);
+  throw new Error(message);
+}
+
+/** DriverVm that still reads from the VM, but refuses writes through a git slot. */
+async function createGitSlotVmDriver(): Promise<DriverVm> {
+  const { DriverVm: DriverVmClass } = await import('/_102033_/l2/cbe/driverVm.js');
+  class GitSlotVmDriver extends DriverVmClass {
+    public setContents = async (
+      project: number,
+      _fileInfos: mls.stor.IFileInfo[],
+      _comments: string | null,
+    ): Promise<boolean> => {
+      refuseGitSlotWrite(project);
+    };
+  }
+  return new GitSlotVmDriver();
 }
 
 // ─── Project definition models (.d.ts of the dependency chain) ───────────────

@@ -95,24 +95,22 @@ test('T6v: registerVmDriver preenche só vm; registerDrivers depois não troca o
   }
 });
 
-test('T6: com a opção ligada, o github fica para o driver real', async () => {
+test('st45: com a chave ligada, github e gitlab ainda recebem o DriverVm', async () => {
   resetVmDriverRegistration();
   const host = installDriverHost({ sourcesFromGitHub: true });
   const origInfo = console.info;
   const origWarn = console.warn;
   console.info = () => undefined;
-  // Os drivers do 100554 não existem fora do browser: o import falha e é logado.
   console.warn = () => undefined;
   try {
     await registerDrivers();
-    const vm = host.calls.filter((c) => c.provider === 'vm');
-    assert.equal(vm.length, 1, 'o driver da VM entra uma vez, no slot vm');
-    const github = host.calls.find((c) => c.provider === 'github');
-    const gitlab = host.calls.find((c) => c.provider === 'gitlab');
-    assert.equal((github?.driver as { shortName?: string } | undefined)?.shortName, 'github');
-    assert.equal((gitlab?.driver as { shortName?: string } | undefined)?.shortName, 'gitlab');
-    assert.notEqual((github?.driver as object | undefined)?.constructor.name, 'DriverVm');
-    assert.notEqual((github?.driver as object | undefined)?.constructor.name, 'GitSlotVmDriver');
+    const { DriverVm } = await import('/_102033_/l2/cbe/driverVm.js');
+    const github = host.slots.get('github');
+    const gitlab = host.slots.get('gitlab');
+    assert.equal(github instanceof DriverVm, true);
+    assert.equal(gitlab instanceof DriverVm, true);
+    assert.equal((github as object).constructor.name, 'GitSlotVmDriver');
+    assert.equal((gitlab as object).constructor.name, 'GitSlotVmDriver');
   } finally {
     console.info = origInfo;
     console.warn = origWarn;
@@ -145,7 +143,7 @@ test('st38: sem chave, github e gitlab recebem o DriverVm', async () => {
   }
 });
 
-test('st38: localStorage que lança deixa os slots git na VM e loga o erro', async () => {
+test('st45: os slots git não leem localStorage', async () => {
   resetVmDriverRegistration();
   const host = installDriverHost({ throwingStorage: true });
   const origInfo = console.info;
@@ -160,7 +158,7 @@ test('st38: localStorage que lança deixa os slots git na VM e loga o erro', asy
     const { DriverVm } = await import('/_102033_/l2/cbe/driverVm.js');
     assert.equal(host.slots.get('github') instanceof DriverVm, true);
     assert.equal(host.slots.get('gitlab') instanceof DriverVm, true);
-    assert.equal(JSON.stringify(errors).includes('collabStudioSourcesFromGitHub'), true);
+    assert.equal(JSON.stringify(errors).includes('collabStudioSourcesFromGitHub'), false);
   } finally {
     console.info = origInfo;
     console.warn = origWarn;
@@ -198,7 +196,7 @@ test('st38: setContents no slot git recusa e o slot vm grava', async () => {
     const vm = host.slots.get('vm') as { setContents: (project: number, files: mls.stor.IFileInfo[], comments: string | null) => Promise<boolean> };
     await assert.rejects(
       () => github.setContents(102033, [deleted], null),
-      (err: unknown) => err instanceof Error && err.message.includes('Fetch sources from GitHub'),
+      (err: unknown) => err instanceof Error && err.message.includes('lives on GitHub') && !err.message.includes('Fetch sources'),
     );
     assert.deepEqual(fetchUrls, []);
     const wrote = await vm.setContents(102047, [deleted], null);
