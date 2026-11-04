@@ -59,6 +59,8 @@ import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPage
 import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
 import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
 import { onStudioExit, readCollabReleaseId, rememberRelease } from '/_102033_/l2/cbe/studioExitReload.js';
+import { enterStudioTheme, leaveStudioTheme } from '/_102033_/l2/cbe/studioTheme.js';
+import { contentDevice, isStudioDevice, readStudioDevice, rememberStudioDevice, type StudioDevice } from '/_102033_/l2/cbe/studioDevice.js';
 import {
   applyCollabModeNotice,
   enterDraft,
@@ -212,6 +214,8 @@ type AuraSitesControls = {
   listDS?: () => string[];
   getMode?: () => CollabRunMode;
   setMode?: (mode: CollabRunMode) => Promise<void>;
+  getDevice?: () => MasterFrontendDeviceKind;
+  setDevice?: (device: MasterFrontendDeviceKind) => Promise<boolean>;
 };
 
 const DEFAULT_REGION_TAGS: Record<Exclude<MasterFrontendRegionName, 'content'>, string> = {
@@ -242,6 +246,9 @@ export class CollabAuraShell extends LitElement {
     clearContentWhileBusy: false,
   };
   resolvedDevice: MasterFrontendDeviceKind = 'desktop';
+  // The page variant the studio picked (Desktop | Mobile), only while studio mode is on. It moves the
+  // PAGE only: the layout keeps following `resolvedDevice`, or the studio split would fold into one pane.
+  private studioDevicePick: StudioDevice | null = null;
   isAsideOpen = false;
   activeRoute?: MasterFrontendRouteDefinition;
   private mobileMediaQuery?: MediaQueryList;
@@ -797,6 +804,9 @@ export class CollabAuraShell extends LitElement {
     this.studioModeOn = studioOn;
     this.requestUpdate();
     if (!this.studioModeOn) {
+      // The light/dark switched while editing was the studio's: the app gets its own back.
+      leaveStudioTheme();
+      this.dropStudioDevice();
       this.refreshAsideNavigation('mode');
       this.showRuntimeServices();
       this.syncStructureSplit(false);
@@ -807,6 +817,9 @@ export class CollabAuraShell extends LitElement {
     // press this. So the first studio session on a browser costs one reload; from then on it
     // is already armed (TASK-102020-live-update-stand-in).
     rememberElementSwapForNextBoot();
+    enterStudioTheme();
+    const rememberedDevice = readStudioDevice();
+    if (rememberedDevice) void this.setStudioDevice(rememberedDevice);
     const { monaco } = this.loadStudioDefinitions();
     // The studio services (the plugin scan) were left out of the client boot; first entry
     // brings them.
@@ -1002,8 +1015,9 @@ export class CollabAuraShell extends LitElement {
     this.resolvedDevice = nextDevice;
     this.isAsideOpen = this.getDefaultAsideOpen(nextDevice);
     // Crossing the breakpoint (rotating a tablet, resizing, toggling "request desktop site")
-    // swaps the content to the variant of the new device, without a reload.
-    if (this.activeRoute) {
+    // swaps the content to the variant of the new device, without a reload. Not while the studio
+    // holds a pick: then only the layout follows the width.
+    if (this.activeRoute && this.studioDevicePick === null) {
       void this.applyContentPageDevice(nextDevice, true);
     }
     // Which layout the spliter shows (client split or one pane) follows from updated() →
@@ -1021,6 +1035,41 @@ export class CollabAuraShell extends LitElement {
       return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`).matches ? 'mobile' : 'desktop';
     }
     return this.bootConfig?.device ?? 'desktop';
+  }
+
+  /** The variant the content region mounts: the studio pick while there is one, the width otherwise. */
+  private getContentDevice(): MasterFrontendDeviceKind {
+    return contentDevice(this.studioDevicePick, this.resolvedDevice);
+  }
+
+  /**
+   * The studio's Desktop | Mobile switch. Outside studio mode it refuses: the width is the app's rule.
+   * False when the variant is missing or did not load — the page stays as it was, and so does the
+   * pick (the reason already went to the console). Resolves after the new page is in the DOM, so the
+   * caller can read it.
+   */
+  private async setStudioDevice(device: MasterFrontendDeviceKind): Promise<boolean> {
+    if (!this.studioModeOn || !isStudioDevice(device)) return false;
+    const previous = this.studioDevicePick;
+    this.studioDevicePick = device;
+    const ok = this.activeRoute ? await this.applyContentPageDevice(device, true) : true;
+    if (!ok) {
+      this.studioDevicePick = previous;
+      return false;
+    }
+    rememberStudioDevice(device);
+    // The pick is not a reactive property, and without a route nothing else re-renders: the frame needs updated().
+    this.requestUpdate();
+    await this.updateComplete;
+    return true;
+  }
+
+  /** Leaving studio mode: the pick goes, and the page goes back to the variant the width asks for. */
+  private dropStudioDevice(): void {
+    if (this.studioDevicePick === null) return;
+    this.studioDevicePick = null;
+    if (this.activeRoute) void this.applyContentPageDevice(this.resolvedDevice, true);
+    this.requestUpdate();
   }
 
   private getDefaultAsideOpen(device: MasterFrontendDeviceKind) {
@@ -1329,6 +1378,10 @@ export class CollabAuraShell extends LitElement {
         getMode: () => this.getMode(),
         setMode: (mode: CollabRunMode) => this.setMode(mode),
       };
+      const deviceControls = {
+        getDevice: () => this.getContentDevice(),
+        setDevice: (device: MasterFrontendDeviceKind) => this.setStudioDevice(device),
+      };
       register({
         getHeader: () => this.getRegionIndex('header'),
         setHeader: (index: number) => this.setRegionByIndex('header', index),
@@ -1339,6 +1392,7 @@ export class CollabAuraShell extends LitElement {
         ...languageControls,
         ...designSystemControls,
         ...modeControls,
+        ...deviceControls,
       });
       // Compatibility with an already-published mls.js that predates the language/DS/mode
       // forwarders. A future mls.js exposes these itself and this branch is skipped.
@@ -1351,6 +1405,8 @@ export class CollabAuraShell extends LitElement {
         sites.listDS ??= designSystemControls.listDS;
         sites.getMode ??= modeControls.getMode;
         sites.setMode ??= modeControls.setMode;
+        sites.getDevice ??= deviceControls.getDevice;
+        sites.setDevice ??= deviceControls.setDevice;
       }
       return;
     }
@@ -1751,7 +1807,7 @@ export class CollabAuraShell extends LitElement {
     // The server registers one entrypoint per route — the desktop one — so only mobile needs the
     // swap here. Before the chunk cache is read, or the loading state and importRegion would run
     // against the desktop entrypoint.
-    if (this.resolvedDevice === 'mobile') {
+    if (this.getContentDevice() === 'mobile') {
       await this.applyContentPageDevice('mobile', false);
     }
     const loadedChunks = getCollabRouteChunkCache();
@@ -1921,6 +1977,9 @@ export class CollabAuraShell extends LitElement {
     this.setAttribute('data-aside-open', String(this.getActualAsideOpen()));
     this.setAttribute('data-structure', this.structureState);
     this.setAttribute('data-studio-mode', String(this.studioModeOn));
+    // The phone frame around the app region: only when the studio picked Mobile on a desktop-wide window. On a
+    // narrow window the app already is the mobile app, full width, and a frame would add nothing.
+    this.setAttribute('data-studio-frame', String(this.studioModeOn && this.studioDevicePick === 'mobile' && this.resolvedDevice === 'desktop'));
     this.setAttribute('data-mobile-pane', this.mobilePane);
     const environmentBadge = document.getElementById('collab-env-badge');
     if (environmentBadge) environmentBadge.hidden = this.studioModeOn;
@@ -2184,6 +2243,25 @@ export class CollabAuraShell extends LitElement {
           linear-gradient(180deg, #f7f4ea 0%, #fffdfa 100%);
       }
 
+      /* Studio picked Mobile on a wide window: the app region (adopted by the client app service, still inside
+         this shell) becomes a phone-wide column. Only the region — the studio's own columns are untouched. */
+      collab-aura-shell[data-studio-frame="true"] cbe--service-client-app-102033 {
+        background: #d1d5db;
+      }
+
+      .dark collab-aura-shell[data-studio-frame="true"] cbe--service-client-app-102033 {
+        background: #111827;
+      }
+
+      collab-aura-shell[data-studio-frame="true"] main[data-region="content"] {
+        width: 390px;
+        max-width: 100%;
+        margin-inline: auto;
+        box-sizing: border-box;
+        border-inline: 1px solid rgba(0, 0, 0, 0.15);
+        box-shadow: 0 0 24px rgba(0, 0, 0, 0.18);
+      }
+
       /* Unified nav3: the outer shell is always a tab host, including one tab. */
       collab-aura-shell .region.content[data-has-tabs="true"] {
         display: flex;
@@ -2255,7 +2333,6 @@ export class CollabAuraShell extends LitElement {
       }
 
       collab-aura-shell .nav3-panel-app {
-        padding: 24px;
         box-sizing: border-box;
       }
 
