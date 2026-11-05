@@ -89,6 +89,65 @@ async function execAction<T>(action: string, payload: Record<string, unknown>): 
   return await response.json() as T;
 }
 
+/**
+ * Full POST body (`action` + payload), under the 1 MB default of nginx
+ * `location /` and of Fastify. A file whose own body already exceeds this
+ * goes in a request by itself.
+ */
+const SET_CONTENTS_MAX_BODY_BYTES = 800 * 1024;
+
+interface ISetContentsBatch {
+  files: IVmFilePayload[];
+  deletes: string[];
+}
+
+function setContentsBodyBytes(
+  project: number,
+  files: IVmFilePayload[],
+  deletes: string[],
+  comments: string | null,
+): number {
+  const json = JSON.stringify({ action: 'setContents', project, files, deletes, comments });
+  return new TextEncoder().encode(json).length;
+}
+
+/** Deletes ride only on the first batch. A file over the limit is never packed with another file. */
+function planSetContentsBatches(
+  project: number,
+  files: IVmFilePayload[],
+  deletes: string[],
+  comments: string | null,
+): ISetContentsBatch[] {
+  const batches: ISetContentsBatch[] = [];
+  let current: IVmFilePayload[] = [];
+  let deletesLeft = deletes;
+
+  const flush = (): void => {
+    if (current.length === 0 && deletesLeft.length === 0) return;
+    batches.push({ files: current, deletes: deletesLeft });
+    current = [];
+    deletesLeft = [];
+  };
+
+  for (const file of files) {
+    const alone = setContentsBodyBytes(project, [file], [], comments);
+    if (alone > SET_CONTENTS_MAX_BODY_BYTES) {
+      flush();
+      batches.push({ files: [file], deletes: [] });
+      continue;
+    }
+    const trial = setContentsBodyBytes(project, [...current, file], deletesLeft, comments);
+    if (current.length > 0 && trial > SET_CONTENTS_MAX_BODY_BYTES) flush();
+    if (current.length === 0 && deletesLeft.length > 0) {
+      const withDeletes = setContentsBodyBytes(project, [file], deletesLeft, comments);
+      if (withDeletes > SET_CONTENTS_MAX_BODY_BYTES) flush();
+    }
+    current.push(file);
+  }
+  flush();
+  return batches;
+}
+
 export class DriverVm extends mls.stor.others.DriverIOBase {
 
   /**
@@ -162,9 +221,29 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     if (files.length === 0 && deletes.length === 0) return true;
     // `comments` is the studio's save comment: on a git host it is the commit
     // message, and the VM now uses it for exactly that (mls-102034 cbeGitCommit.ts),
-    // so it shows up in getHistory below.
-    const rc = await execAction<{ statusCode: number; msg?: string }>('setContents', { project, files, deletes, comments });
-    if (rc.statusCode !== 200) throw new Error(`setContents: ${rc.msg || 'error'}`);
+    // so it shows up in getHistory below. Each batch repeats it; a failed batch
+    // stops the sequence and is not reported as saved.
+    const batches = planSetContentsBatches(project, files, deletes, comments);
+    for (let index = 0; index < batches.length; index++) {
+      const batch = batches[index];
+      const unsent = batches.slice(index).reduce((sum, item) => sum + item.files.length, 0);
+      try {
+        const rc = await execAction<{ statusCode: number; msg?: string }>('setContents', {
+          project,
+          files: batch.files,
+          deletes: batch.deletes,
+          comments,
+        });
+        if (rc.statusCode !== 200) {
+          console.error(`setContents: batch ${index + 1}/${batches.length} refused: ${rc.msg || 'error'}; ${unsent} file(s) not sent`);
+          return false;
+        }
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.error(`setContents: batch ${index + 1}/${batches.length} failed: ${reason}; ${unsent} file(s) not sent`);
+        return false;
+      }
+    }
     return true;
   };
 
