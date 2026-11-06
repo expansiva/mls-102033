@@ -28,8 +28,8 @@ const SOURCE_VIEW_URL = '/cbe/source';
 interface IVmFilePayload {
   shortPath: string;
   content: string;
-  /** utf8 for text, base64 for binary (l3 assets). */
-  encoding: 'utf8' | 'base64';
+  /** utf8 for text, base64 for binary (l3 assets), gzip-base64 when the utf-8 body alone exceeds the ceiling. */
+  encoding: 'utf8' | 'base64' | 'gzip-base64';
 }
 
 interface IVmContentsResponse {
@@ -92,9 +92,37 @@ async function execAction<T>(action: string, payload: Record<string, unknown>): 
 /**
  * UTF-8 size of one setContents POST (`action` + payload).
  * Every request stays at or under 2 MB. The server accepts 4 MB, so the
- * ceiling leaves margin. A file whose own body exceeds it is not sent.
+ * ceiling leaves margin. A text file whose own body exceeds it is sent as
+ * gzip-base64 when that still fits in one request; otherwise it is not sent.
  */
 const SET_CONTENTS_MAX_BODY_BYTES = 2 * 1024 * 1024;
+
+/** Multiple of 3 so each chunk but the last is valid base64 without padding. */
+const BASE64_CHUNK_BYTES = 3 * 8192;
+
+/** Base64 of a byte string, in chunks. A single spread (`String.fromCharCode(...bytes)`) blows the stack past ~500 KB. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let encoded = '';
+  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK_BYTES) {
+    const slice = bytes.subarray(offset, offset + BASE64_CHUNK_BYTES);
+    let binary = '';
+    for (let index = 0; index < slice.length; index++) binary += String.fromCharCode(slice[index]);
+    encoded += btoa(binary);
+  }
+  return encoded;
+}
+
+/** gzip (RFC 1952, same bytes pako and the server accept) then base64. The read starts before the write so a large body cannot stall the stream. */
+async function gzipBase64(text: string): Promise<string> {
+  const raw = new TextEncoder().encode(text);
+  const stream = new CompressionStream('gzip');
+  const done = new Response(stream.readable).arrayBuffer();
+  const writer = stream.writable.getWriter();
+  await writer.write(raw);
+  await writer.close();
+  const compressed = new Uint8Array(await done);
+  return bytesToBase64(compressed);
+}
 
 interface ISetContentsBatch {
   files: IVmFilePayload[];
@@ -114,6 +142,32 @@ function setContentsBodyBytes(
 ): number {
   const json = JSON.stringify({ action: 'setContents', project, files, deletes, comments });
   return new TextEncoder().encode(json).length;
+}
+
+/**
+ * A utf-8 file whose body alone exceeds the ceiling travels as gzip-base64
+ * when the compressed request still fits. Otherwise the original payload is
+ * left for the planner to refuse. Binary base64 is unchanged.
+ */
+async function compressIfOverCeiling(
+  project: number,
+  file: IVmFilePayload,
+  comments: string | null,
+): Promise<IVmFilePayload> {
+  if (file.encoding !== 'utf8') return file;
+  const bytes = setContentsBodyBytes(project, [file], [], comments);
+  if (bytes <= SET_CONTENTS_MAX_BODY_BYTES) return file;
+  let encoded: string;
+  try {
+    encoded = await gzipBase64(file.content);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(`setContents: gzip failed for ${file.shortPath}: ${reason}`);
+    return file;
+  }
+  const compressed: IVmFilePayload = { shortPath: file.shortPath, content: encoded, encoding: 'gzip-base64' };
+  if (setContentsBodyBytes(project, [compressed], [], comments) > SET_CONTENTS_MAX_BODY_BYTES) return file;
+  return compressed;
 }
 
 /** Deletes ride on the first batch. A file whose own body exceeds the ceiling stays out. */
@@ -239,7 +293,9 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     // message, and the VM now uses it for exactly that (mls-102034 cbeGitCommit.ts),
     // so it shows up in getHistory below. Each batch repeats it; a failed batch
     // stops the sequence and is not reported as saved.
-    const plan = planSetContentsBatches(project, files, deletes, comments);
+    const prepared: IVmFilePayload[] = [];
+    for (const file of files) prepared.push(await compressIfOverCeiling(project, file, comments));
+    const plan = planSetContentsBatches(project, prepared, deletes, comments);
     const { batches } = plan;
     for (const file of plan.oversized) {
       console.error(`setContents: ${file.shortPath} is ${file.bytes} bytes and exceeds the ${SET_CONTENTS_MAX_BODY_BYTES} byte limit; not sent`);

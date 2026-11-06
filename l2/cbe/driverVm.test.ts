@@ -15,22 +15,58 @@ async function loadDriver(): Promise<typeof import('/_102033_/l2/cbe/driverVm.js
   return loaded.DriverVm;
 }
 
+interface IPostedFile {
+  shortPath: string;
+  content: string;
+  encoding?: string;
+}
+
 interface IPostedBody {
-  files: { shortPath: string; content: string }[];
+  files: IPostedFile[];
   deletes: string[];
 }
 
-function fileOf(shortName: string, content: string, status = 'changed'): mls.stor.IFileInfo {
+function fileOf(shortName: string, content: string, status = 'changed', extension = '.ts'): mls.stor.IFileInfo {
   return {
     project: 102047,
     level: 2,
     folder: 'm',
     shortName,
-    extension: '.ts',
+    extension,
     status,
     inLocalStorage: true,
     getContent: async () => content,
   } as mls.stor.IFileInfo;
+}
+
+/** High-entropy ASCII. Gzip of this stays near the original size, so base64 still exceeds 2 MB. */
+function incompressibleText(bytes: number): string {
+  const chunk = 8192;
+  let out = '';
+  let seed = 0x9e3779b9;
+  while (out.length < bytes) {
+    let part = '';
+    const count = Math.min(chunk, bytes - out.length);
+    for (let index = 0; index < count; index++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      part += String.fromCharCode(32 + (seed % 95));
+    }
+    out += part;
+  }
+  return out;
+}
+
+async function decodeGzipBase64(encoded: string): Promise<string> {
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  const stream = new DecompressionStream('gzip');
+  const done = new Response(stream.readable).arrayBuffer();
+  const writer = stream.writable.getWriter();
+  await writer.write(bytes);
+  await writer.close();
+  const plain = new Uint8Array(await done);
+  return new TextDecoder().decode(plain);
 }
 
 function posted(body: string): IPostedBody {
@@ -90,8 +126,38 @@ test('st51: 457 arquivos de ~5 KB saem em lotes, todos de até 2 MB', async () =
   }
 });
 
-test('st51: um arquivo de 2,5 MB não sai, os outros saem, e a falha traz o caminho', async () => {
+test('st54: arquivo repetido acima do teto sai gzip-base64 junto dos pequenos', async () => {
   const big = 'b'.repeat((5 * 1024 * 1024) / 2);
+  const files = [
+    fileOf('before', 'x'),
+    fileOf('huge', big),
+    fileOf('after', 'y'),
+  ];
+  const fetchMock = withFetch(() => okResponse());
+  try {
+    const DriverVm = await loadDriver();
+    const saved = await new DriverVm().setContents(102047, files, null);
+    assert.equal(saved, true);
+    const seen = new Map<string, IPostedFile>();
+    fetchMock.bodies.forEach((body, index) => {
+      const bytes = new TextEncoder().encode(body).length;
+      assert.ok(bytes <= MAX_BODY, `pedido ${index + 1} tem ${bytes} bytes`);
+      for (const file of posted(body).files) seen.set(file.shortPath, file);
+    });
+    assert.equal(seen.get('l2/m/before.ts')?.content, 'x');
+    assert.equal(seen.get('l2/m/before.ts')?.encoding, 'utf8');
+    assert.equal(seen.get('l2/m/after.ts')?.content, 'y');
+    const huge = seen.get('l2/m/huge.ts');
+    assert.equal(huge?.encoding, 'gzip-base64');
+    assert.ok(huge && huge.content.length < big.length);
+    assert.equal(await decodeGzipBase64(huge.content), big);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test('st54: arquivo que continua acima de 2 MB depois do gzip não sai e os outros saem', async () => {
+  const big = incompressibleText(3 * 1024 * 1024);
   const files = [
     fileOf('before', 'x'),
     fileOf('huge', big),
@@ -130,6 +196,36 @@ test('st51: um arquivo de 2,5 MB não sai, os outros saem, e a falha traz o cami
     assert.ok(Number(match[1]) > MAX_BODY);
   } finally {
     console.error = previousError;
+    fetchMock.restore();
+  }
+});
+
+test('st54: um JSON de 12 MB vai gzip-base64 num pedido de até 2 MB e a volta é igual', async () => {
+  const row = JSON.stringify({ id: 0, name: 'task', status: 'done', note: 'x'.repeat(32) });
+  const target = 12 * 1024 * 1024;
+  const count = Math.ceil(target / (row.length + 1));
+  const json = `[${new Array(count).fill(row).join(',')}]`;
+  assert.ok(new TextEncoder().encode(json).length >= target);
+  const files = [fileOf('small', 'export const n = 1;\n'), fileOf('undo', json, 'changed', '.json')];
+  const fetchMock = withFetch(() => okResponse());
+  try {
+    const DriverVm = await loadDriver();
+    const saved = await new DriverVm().setContents(102047, files, 'save');
+    assert.equal(saved, true);
+    assert.equal(fetchMock.bodies.length, 1);
+    const body = fetchMock.bodies[0];
+    const bytes = new TextEncoder().encode(body).length;
+    assert.ok(bytes <= MAX_BODY, `pedido tem ${bytes} bytes`);
+    const payload = posted(body);
+    const small = payload.files.find((file) => file.shortPath === 'l2/m/small.ts');
+    const undo = payload.files.find((file) => file.shortPath === 'l2/m/undo.json');
+    assert.equal(small?.encoding, 'utf8');
+    assert.equal(small?.content, 'export const n = 1;\n');
+    assert.ok(undo);
+    assert.equal(undo.encoding, 'gzip-base64');
+    assert.ok(undo.content.length < json.length);
+    assert.equal(await decodeGzipBase64(undo.content), json);
+  } finally {
     fetchMock.restore();
   }
 });
