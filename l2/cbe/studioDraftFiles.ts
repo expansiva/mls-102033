@@ -410,25 +410,79 @@ function plantPublishedCrc(project: number, path: string, text: string, deps: Dr
   assignOpenModel(project, loc, crc);
 }
 
-async function seedSentCrc(project: number, path: string, deps: DraftFilesDeps): Promise<void> {
+/** One driver getContents call covers at most this many draft paths. */
+const DRAFT_CONTENT_BATCH = 100;
+
+interface SentCrcTarget {
+  path: string;
+  loc: ParsedDraftFile;
+  row: DraftStoredRow;
+}
+
+/** Path fields the driver reads. The stored row is sent when it already has them. */
+interface DraftContentRequest extends DraftFileIdentity {
+  versionRef: string;
+}
+
+function sentCrcTarget(project: number, path: string, deps: DraftFilesDeps): SentCrcTarget | undefined {
   const loc = parseDraftFile(path);
   const row = rowAt(project, path, deps);
-  if (!loc || !row || row.inLocalStorage === true || !row.getContent) return;
-  let loaded: string | Blob | null;
-  try {
-    loaded = await row.getContent.call(row);
-  } catch (err) {
-    console.error(`[studioDraftFiles] ${path}: ${errorText(err)}`);
-    return;
+  if (!loc || !row || row.inLocalStorage === true || !row.getContent) return undefined;
+  return { path, loc, row };
+}
+
+function contentRequest(project: number, target: SentCrcTarget): mls.stor.IFileInfo {
+  const row = target.row as Partial<mls.stor.IFileInfo>;
+  if (
+    row.level === target.loc.level
+    && row.folder === target.loc.folder
+    && row.shortName === target.loc.shortName
+    && row.extension === target.loc.extension
+  ) {
+    return target.row as mls.stor.IFileInfo;
   }
+  const request: DraftContentRequest = {
+    project,
+    level: target.loc.level,
+    folder: target.loc.folder,
+    shortName: target.loc.shortName,
+    extension: target.loc.extension,
+    versionRef: target.row.versionRef,
+  };
+  return request as mls.stor.IFileInfo;
+}
+
+function rememberLoadedCrc(project: number, target: SentCrcTarget, loaded: string | Blob | null | undefined): void {
   if (typeof loaded !== 'string') {
-    console.error(`[studioDraftFiles] ${path}: draft text is not a string`);
+    console.error(`[studioDraftFiles] ${target.path}: draft text is not a string`);
     return;
   }
   try {
-    rememberSentCrc(identityOf(project, loc), draftContentCrc(loaded, loc.extension));
+    rememberSentCrc(identityOf(project, target.loc), draftContentCrc(loaded, target.loc.extension));
   } catch (err) {
-    console.error(`[studioDraftFiles] ${path}: ${errorText(err)}`);
+    console.error(`[studioDraftFiles] ${target.path}: ${errorText(err)}`);
+  }
+}
+
+/** Draft text for the sent CRC, one getContents per batch. A failed batch is logged and skipped. */
+async function seedSentCrcs(project: number, targets: SentCrcTarget[]): Promise<void> {
+  for (let start = 0; start < targets.length; start += DRAFT_CONTENT_BATCH) {
+    const batch = targets.slice(start, start + DRAFT_CONTENT_BATCH);
+    const paths = batch.map((target) => target.path).join(', ');
+    const fileInfos = batch.map((target) => contentRequest(project, target));
+    let loaded: mls.stor.IRegGetContents[];
+    try {
+      const driver = await mls.stor.others.getDefaultDriver(project);
+      loaded = await driver.getContents(project, fileInfos);
+    } catch (err) {
+      console.error(`[studioDraftFiles] ${paths}: ${errorText(err)}`);
+      continue;
+    }
+    const byInfo = new Map<mls.stor.IFileInfo, string | Blob | null>();
+    for (const item of loaded ?? []) byInfo.set(item.fileInfo, item.content);
+    for (let index = 0; index < batch.length; index++) {
+      rememberLoadedCrc(project, batch[index], byInfo.get(fileInfos[index]));
+    }
   }
 }
 
@@ -478,6 +532,7 @@ export async function applyDraftFiles(
   if (typeof diff.main === 'string') rememberDraftMain(diff.main);
 
   const counts = { added: 0, changed: 0, removed: 0 };
+  const sentTargets: SentCrcTarget[] = [];
   for (const file of diff.files) {
     let ops: DraftFileOp[];
     try {
@@ -513,7 +568,9 @@ export async function applyDraftFiles(
     }
     if (typeof published !== 'string') continue;
     plantPublishedCrc(project, file.path, published, deps);
-    await seedSentCrc(project, file.path, deps);
+    const target = sentCrcTarget(project, file.path, deps);
+    if (target) sentTargets.push(target);
   }
+  await seedSentCrcs(project, sentTargets);
   return counts;
 }

@@ -227,9 +227,10 @@ test('published CRC is the history blob, including a model born later', async ()
       getContent: async () => draftLess,
     },
   };
-  const host = globalThis as { mls?: { editor?: unknown; common?: unknown } };
+  const host = globalThis as { mls?: { editor?: unknown; common?: unknown; stor?: unknown } };
   const previousEditor = host.mls?.editor;
   const previousCommon = host.mls?.common;
+  const previousStor = host.mls?.stor;
   if (!host.mls) host.mls = {};
   host.mls.common = {
     crc: {
@@ -238,6 +239,19 @@ test('published CRC is the history blob, including a model born later', async ()
         for (const ch of value) hash = (hash * 33 + ch.charCodeAt(0)) >>> 0;
         return hash;
       },
+    },
+  };
+  const draftByName: { [name: string]: string } = {
+    changed: draftTs,
+    next: 'renamed-body',
+    panel: draftLess,
+  };
+  host.mls.stor = {
+    others: {
+      getDefaultDriver: () => ({
+        getContents: async (_project: number, fileInfos: Array<{ shortName: string }>) =>
+          fileInfos.map((info) => ({ fileInfo: info, content: draftByName[info.shortName] ?? null })),
+      }),
     },
   };
   host.mls.editor = {
@@ -298,6 +312,7 @@ test('published CRC is the history blob, including a model born later', async ()
     if (host.mls) {
       host.mls.editor = previousEditor;
       host.mls.common = previousCommon;
+      host.mls.stor = previousStor;
     }
   }
 });
@@ -354,6 +369,220 @@ test('a rejecting getValueInfo stays resolved and logs the file', async () => {
     if (host.mls) {
       host.mls.editor = previousEditor;
       host.mls.common = previousCommon;
+    }
+  }
+});
+
+test('applyDraftFiles reads draft content in batches of 100', async () => {
+  interface Row {
+    versionRef: string;
+    inLocalStorage?: boolean;
+    getContent?: () => Promise<string | null>;
+    getHistoryContent?: (ref: string) => Promise<string | null>;
+  }
+  interface ContentInfo { project: number; shortName: string; folder: string; extension: string }
+  const host = globalThis as { mls?: { editor?: unknown; common?: unknown; stor?: unknown } };
+  const previousEditor = host.mls?.editor;
+  const previousCommon = host.mls?.common;
+  const previousStor = host.mls?.stor;
+  if (!host.mls) host.mls = {};
+  host.mls.common = {
+    crc: {
+      crc32: (value: string) => {
+        let hash = 0;
+        for (const ch of value) hash = (hash * 33 + ch.charCodeAt(0)) >>> 0;
+        return hash;
+      },
+    },
+  };
+  host.mls.editor = { getKeyModel: () => 'k', models: {} };
+  const calls: ContentInfo[][] = [];
+  const bodies = new Map<string, string | null>();
+  let contentReads = 0;
+  host.mls.stor = {
+    others: {
+      getDefaultDriver: () => ({
+        getContents: async (_project: number, fileInfos: ContentInfo[]) => {
+          calls.push(fileInfos);
+          if (fileInfos.some((info) => info.project === 53150 && info.shortName === 'n100')) {
+            throw new Error('batch failed');
+          }
+          return fileInfos.map((info) => ({
+            fileInfo: info,
+            content: bodies.get(`${info.project}/${info.shortName}`) ?? null,
+          }));
+        },
+      }),
+    },
+  };
+
+  function rowText(text: string | null): () => Promise<string | null> {
+    return async () => {
+      contentReads += 1;
+      return text;
+    };
+  }
+
+  /** What the per-file getContent path used to store. */
+  async function oldSentCrc(row: Row | undefined, extension: string): Promise<string | undefined> {
+    if (!row || row.inLocalStorage === true || !row.getContent) return undefined;
+    const loaded = await row.getContent.call(row);
+    if (typeof loaded !== 'string') return undefined;
+    return draftContentCrc(loaded, extension);
+  }
+
+  const errors: string[] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+
+  try {
+    const smallProject = 53003;
+    const stored: { [key: string]: Row } = {};
+    const alpha = { project: smallProject, level: 2, folder: '', shortName: 'alpha', extension: '.ts' };
+    const beta = { project: smallProject, level: 2, folder: '', shortName: 'beta', extension: '.ts' };
+    const panel = { project: smallProject, level: 2, folder: '', shortName: 'panel', extension: '.less' };
+    const defs = { project: smallProject, level: 1, folder: 'src', shortName: 'a', extension: '.defs.ts' };
+    const local = { project: smallProject, level: 2, folder: '', shortName: 'local', extension: '.ts' };
+    const missing = { project: smallProject, level: 2, folder: '', shortName: 'missing', extension: '.ts' };
+    const plain = { project: smallProject, level: 2, folder: '', shortName: 'plain', extension: '.ts' };
+    const alphaText = 'alpha-body';
+    const betaText = 'beta-body';
+    const panelText = 'b{}\n//Start Less Tokens\n.t{}\n//End Less Tokens';
+    const defsText = 'export {}';
+    const batchOnly = 'from-batch';
+    bodies.set(`${smallProject}/alpha`, alphaText);
+    bodies.set(`${smallProject}/beta`, betaText);
+    bodies.set(`${smallProject}/panel`, panelText);
+    bodies.set(`${smallProject}/a`, defsText);
+    bodies.set(`${smallProject}/plain`, batchOnly);
+    bodies.set(`${smallProject}/missing`, null);
+    stored[fileKey(alpha)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText(alphaText) };
+    stored[fileKey(beta)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText(betaText) };
+    stored[fileKey(panel)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText(panelText) };
+    stored[fileKey(defs)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText(defsText) };
+    stored[fileKey(local)] = { versionRef: 'o', inLocalStorage: true, getHistoryContent: async () => 'pub', getContent: rowText('local-body') };
+    stored[fileKey(missing)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText(null) };
+    stored[fileKey(plain)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText('from-row') };
+    const oldAlpha = await oldSentCrc(stored[fileKey(alpha)], '.ts');
+    const oldBeta = await oldSentCrc(stored[fileKey(beta)], '.ts');
+    const oldPanel = await oldSentCrc(stored[fileKey(panel)], '.less');
+    const oldDefs = await oldSentCrc(stored[fileKey(defs)], '.defs.ts');
+    const oldMissing = await oldSentCrc(stored[fileKey(missing)], '.ts');
+    const oldLocal = await oldSentCrc(stored[fileKey(local)], '.ts');
+    contentReads = 0;
+    calls.length = 0;
+    await applyDraftFiles(smallProject, 'team-small', {
+      draftDiff: async () => ({
+        head: 'abc',
+        main: 'main1',
+        files: [
+          { status: 'M', path: 'l2/alpha.ts', sha: 's' },
+          { status: 'M', path: 'l2/beta.ts', sha: 's' },
+          { status: 'M', path: 'l2/panel.less', sha: 's' },
+          { status: 'M', path: 'l1/src/a.defs.ts', sha: 's' },
+          { status: 'M', path: 'l2/local.ts', sha: 's' },
+          { status: 'M', path: 'l2/missing.ts', sha: 's' },
+          { status: 'M', path: 'l2/plain.ts', sha: 's' },
+          { status: 'M', path: 'l2/absent.ts', sha: 's' },
+        ],
+      }),
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async (info) => ({ versionRef: info.versionRef }),
+      fileKey,
+      files: () => stored,
+    });
+    assert.equal(contentReads, 0);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].map((info) => info.shortName), ['alpha', 'beta', 'panel', 'a', 'missing', 'plain']);
+    assert.equal(calls[0].some((info) => info.folder === 'src' && info.extension === '.defs.ts' && info.shortName === 'a'), true);
+    assert.equal(sentCrcOf(alpha), oldAlpha);
+    assert.equal(sentCrcOf(beta), oldBeta);
+    assert.equal(sentCrcOf(panel), oldPanel);
+    assert.equal(sentCrcOf(defs), oldDefs);
+    assert.equal(oldMissing, undefined);
+    assert.equal(sentCrcOf(missing), undefined);
+    assert.equal(oldLocal, undefined);
+    assert.equal(sentCrcOf(local), undefined);
+    assert.equal(sentCrcOf(plain), draftContentCrc(batchOnly, '.ts'));
+    assert.notEqual(sentCrcOf(plain), draftContentCrc('from-row', '.ts'));
+    assert.equal(errors.some((line) => line.includes('l2/missing.ts') && line.includes('draft text is not a string')), true);
+
+    async function runCount(project: number, count: number): Promise<number[]> {
+      const bag: { [key: string]: Row } = {};
+      const files: DraftDiffFile[] = [];
+      for (let i = 0; i < count; i++) {
+        const ident = { project, level: 2, folder: '', shortName: `n${i}`, extension: '.ts' };
+        bodies.set(`${project}/n${i}`, `body-${project}-${i}`);
+        bag[fileKey(ident)] = {
+          versionRef: 'o',
+          getHistoryContent: async () => 'pub',
+          getContent: rowText(`row-${project}-${i}`),
+        };
+        files.push({ status: 'M', path: `l2/n${i}.ts`, sha: 's' });
+      }
+      const before = calls.length;
+      contentReads = 0;
+      await applyDraftFiles(project, `team-${project}`, {
+        draftDiff: async () => ({ head: 'abc', main: 'main1', files }),
+        hasLocalEdit: () => false,
+        addOrUpdateFile: async (info) => ({ versionRef: info.versionRef }),
+        fileKey,
+        files: () => bag,
+      });
+      assert.equal(contentReads, 0);
+      const seen = calls.slice(before);
+      assert.equal(seen.length, Math.ceil(count / 100));
+      assert.equal(sentCrcOf({ project, level: 2, folder: '', shortName: 'n0', extension: '.ts' }), draftContentCrc(`body-${project}-0`, '.ts'));
+      const last = count - 1;
+      assert.equal(
+        sentCrcOf({ project, level: 2, folder: '', shortName: `n${last}`, extension: '.ts' }),
+        draftContentCrc(`body-${project}-${last}`, '.ts'),
+      );
+      return seen.map((batch) => batch.length);
+    }
+
+    assert.deepEqual(await runCount(53078, 78), [78]);
+    assert.deepEqual(await runCount(53457, 457), [100, 100, 100, 100, 57]);
+
+    const failedProject = 53150;
+    const failedCount = 150;
+    const failedBag: { [key: string]: Row } = {};
+    const failedFiles: DraftDiffFile[] = [];
+    for (let i = 0; i < failedCount; i++) {
+      const ident = { project: failedProject, level: 2, folder: '', shortName: `n${i}`, extension: '.ts' };
+      bodies.set(`${failedProject}/n${i}`, `body-${failedProject}-${i}`);
+      failedBag[fileKey(ident)] = {
+        versionRef: 'o',
+        getHistoryContent: async () => 'pub',
+        getContent: rowText(`row-${failedProject}-${i}`),
+      };
+      failedFiles.push({ status: 'M', path: `l2/n${i}.ts`, sha: 's' });
+    }
+    const failedBefore = errors.length;
+    const callsBefore = calls.length;
+    contentReads = 0;
+    const failedResult = await applyDraftFiles(failedProject, 'team-failed', {
+      draftDiff: async () => ({ head: 'abc', main: 'main1', files: failedFiles }),
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async (info) => ({ versionRef: info.versionRef }),
+      fileKey,
+      files: () => failedBag,
+    });
+    assert.deepEqual(failedResult, { added: 0, changed: failedCount, removed: 0 });
+    assert.equal(contentReads, 0);
+    assert.deepEqual(calls.slice(callsBefore).map((batch) => batch.length), [100, 50]);
+    assert.equal(sentCrcOf({ project: failedProject, level: 2, folder: '', shortName: 'n0', extension: '.ts' }), draftContentCrc(`body-${failedProject}-0`, '.ts'));
+    assert.equal(sentCrcOf({ project: failedProject, level: 2, folder: '', shortName: 'n99', extension: '.ts' }), draftContentCrc(`body-${failedProject}-99`, '.ts'));
+    assert.equal(sentCrcOf({ project: failedProject, level: 2, folder: '', shortName: 'n100', extension: '.ts' }), undefined);
+    assert.equal(sentCrcOf({ project: failedProject, level: 2, folder: '', shortName: 'n149', extension: '.ts' }), undefined);
+    const failure = errors.slice(failedBefore).join('\n');
+    assert.equal(failure.includes('l2/n100.ts') && failure.includes('l2/n149.ts') && failure.includes('batch failed'), true);
+  } finally {
+    console.error = previousError;
+    if (host.mls) {
+      host.mls.editor = previousEditor;
+      host.mls.common = previousCommon;
+      host.mls.stor = previousStor;
     }
   }
 });
