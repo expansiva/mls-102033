@@ -90,15 +90,20 @@ async function execAction<T>(action: string, payload: Record<string, unknown>): 
 }
 
 /**
- * Full POST body (`action` + payload), under the 1 MB default of nginx
- * `location /` and of Fastify. A file whose own body already exceeds this
- * goes in a request by itself.
+ * UTF-8 size of one setContents POST (`action` + payload).
+ * Every request stays at or under 2 MB. The server accepts 4 MB, so the
+ * ceiling leaves margin. A file whose own body exceeds it is not sent.
  */
-const SET_CONTENTS_MAX_BODY_BYTES = 800 * 1024;
+const SET_CONTENTS_MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 interface ISetContentsBatch {
   files: IVmFilePayload[];
   deletes: string[];
+}
+
+interface ISetContentsOversized {
+  shortPath: string;
+  bytes: number;
 }
 
 function setContentsBodyBytes(
@@ -111,13 +116,24 @@ function setContentsBodyBytes(
   return new TextEncoder().encode(json).length;
 }
 
-/** Deletes ride only on the first batch. A file over the limit is never packed with another file. */
+/** Deletes ride on the first batch. A file whose own body exceeds the ceiling stays out. */
 function planSetContentsBatches(
   project: number,
   files: IVmFilePayload[],
   deletes: string[],
   comments: string | null,
-): ISetContentsBatch[] {
+): { batches: ISetContentsBatch[]; oversized: ISetContentsOversized[] } {
+  const oversized: ISetContentsOversized[] = [];
+  const sendable: IVmFilePayload[] = [];
+  for (const file of files) {
+    const bytes = setContentsBodyBytes(project, [file], [], comments);
+    if (bytes > SET_CONTENTS_MAX_BODY_BYTES) {
+      oversized.push({ shortPath: file.shortPath, bytes });
+      continue;
+    }
+    sendable.push(file);
+  }
+
   const batches: ISetContentsBatch[] = [];
   let current: IVmFilePayload[] = [];
   let deletesLeft = deletes;
@@ -129,13 +145,7 @@ function planSetContentsBatches(
     deletesLeft = [];
   };
 
-  for (const file of files) {
-    const alone = setContentsBodyBytes(project, [file], [], comments);
-    if (alone > SET_CONTENTS_MAX_BODY_BYTES) {
-      flush();
-      batches.push({ files: [file], deletes: [] });
-      continue;
-    }
+  for (const file of sendable) {
     const trial = setContentsBodyBytes(project, [...current, file], deletesLeft, comments);
     if (current.length > 0 && trial > SET_CONTENTS_MAX_BODY_BYTES) flush();
     if (current.length === 0 && deletesLeft.length > 0) {
@@ -145,7 +155,7 @@ function planSetContentsBatches(
     current.push(file);
   }
   flush();
-  return batches;
+  return { batches, oversized };
 }
 
 export class DriverVm extends mls.stor.others.DriverIOBase {
@@ -223,7 +233,11 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     // message, and the VM now uses it for exactly that (mls-102034 cbeGitCommit.ts),
     // so it shows up in getHistory below. Each batch repeats it; a failed batch
     // stops the sequence and is not reported as saved.
-    const batches = planSetContentsBatches(project, files, deletes, comments);
+    const plan = planSetContentsBatches(project, files, deletes, comments);
+    const { batches } = plan;
+    for (const file of plan.oversized) {
+      console.error(`setContents: ${file.shortPath} is ${file.bytes} bytes and exceeds the ${SET_CONTENTS_MAX_BODY_BYTES} byte limit; not sent`);
+    }
     for (let index = 0; index < batches.length; index++) {
       const batch = batches[index];
       const unsent = batches.slice(index).reduce((sum, item) => sum + item.files.length, 0);
@@ -243,6 +257,10 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
         console.error(`setContents: batch ${index + 1}/${batches.length} failed: ${reason}; ${unsent} file(s) not sent`);
         return false;
       }
+    }
+    if (plan.oversized.length > 0) {
+      const detail = plan.oversized.map((file) => `${file.shortPath} (${file.bytes} bytes)`).join(', ');
+      throw new Error(`setContents: file exceeds the ${SET_CONTENTS_MAX_BODY_BYTES} byte limit: ${detail}`);
     }
     return true;
   };

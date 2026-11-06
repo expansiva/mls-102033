@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const MAX_BODY = 800 * 1024;
+const MAX_BODY = 2 * 1024 * 1024;
 
 class DriverIOBase {}
 (globalThis as { mls: unknown }).mls = {
@@ -61,7 +61,7 @@ function okResponse(): Response {
   return { ok: true, status: 200, json: async () => ({ statusCode: 200 }) } as Response;
 }
 
-test('st49: 457 arquivos de ~5 KB saem em vários pedidos, todos abaixo de 800 KB', async () => {
+test('st51: 457 arquivos de ~5 KB saem em lotes, todos de até 2 MB', async () => {
   const content = 'a'.repeat(5 * 1024);
   const files = Array.from({ length: 457 }, (_, index) => fileOf(`f${index}`, content));
   files.push(fileOf('gone', '', 'deleted'));
@@ -90,37 +90,52 @@ test('st49: 457 arquivos de ~5 KB saem em vários pedidos, todos abaixo de 800 K
   }
 });
 
-test('st49: um arquivo de 2 MB vai num pedido só dele', async () => {
-  const big = 'b'.repeat(2 * 1024 * 1024);
+test('st51: um arquivo de 2,5 MB não sai, os outros saem, e a falha traz o caminho', async () => {
+  const big = 'b'.repeat((5 * 1024 * 1024) / 2);
   const files = [
     fileOf('before', 'x'),
     fileOf('huge', big),
     fileOf('after', 'y'),
   ];
+  const errors: unknown[][] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => {
+    errors.push(args);
+  };
   const fetchMock = withFetch(() => okResponse());
   try {
     const DriverVm = await loadDriver();
-    const saved = await new DriverVm().setContents(102047, files, null);
-    assert.equal(saved, true);
-    const payloads = fetchMock.bodies.map(posted);
-    const ownIndex = payloads.findIndex((payload) => payload.files.some((file) => file.shortPath === 'l2/m/huge.ts'));
-    assert.notEqual(ownIndex, -1);
-    const own = payloads[ownIndex];
-    assert.deepEqual(own.files.map((file) => file.shortPath), ['l2/m/huge.ts']);
-    assert.equal(own.files[0].content.length, big.length);
-    assert.ok(new TextEncoder().encode(fetchMock.bodies[ownIndex]).length > MAX_BODY);
-    payloads.forEach((payload, index) => {
-      if (payload === own) return;
-      assert.ok(new TextEncoder().encode(fetchMock.bodies[index]).length <= MAX_BODY);
+    await assert.rejects(
+      () => new DriverVm().setContents(102047, files, null),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /l2\/m\/huge\.ts/);
+        return true;
+      },
+    );
+    assert.ok(fetchMock.bodies.length >= 1);
+    const seen = new Set<string>();
+    fetchMock.bodies.forEach((body, index) => {
+      const bytes = new TextEncoder().encode(body).length;
+      assert.ok(bytes <= MAX_BODY, `pedido ${index + 1} tem ${bytes} bytes`);
+      const payload = posted(body);
       assert.equal(payload.files.some((file) => file.shortPath === 'l2/m/huge.ts'), false);
+      for (const file of payload.files) seen.add(file.shortPath);
     });
+    assert.deepEqual([...seen].sort(), ['l2/m/after.ts', 'l2/m/before.ts']);
+    const logged = errors.map((args) => args.join(' ')).join('\n');
+    const match = logged.match(/l2\/m\/huge\.ts is (\d+) bytes and exceeds the (\d+) byte limit/);
+    assert.ok(match);
+    assert.equal(Number(match[2]), MAX_BODY);
+    assert.ok(Number(match[1]) > MAX_BODY);
   } finally {
+    console.error = previousError;
     fetchMock.restore();
   }
 });
 
 test('st49: falha no 2º lote devolve falso e o 2º lote em diante fica pendente', async () => {
-  const content = 'c'.repeat(600 * 1024);
+  const content = 'c'.repeat(1024 * 1024);
   const files = [fileOf('a', content), fileOf('b', content), fileOf('c', content)];
   const errors: unknown[][] = [];
   const previousError = console.error;
