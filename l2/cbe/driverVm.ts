@@ -85,7 +85,17 @@ async function execAction<T>(action: string, payload: Record<string, unknown>): 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, ...payload }),
   });
-  if (!response.ok) throw new Error(`cbe ${action} failed: HTTP ${response.status}`);
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const body = await response.json() as { msg?: string };
+      if (typeof body?.msg === 'string' && body.msg.length > 0) detail = `: ${body.msg}`;
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      console.error(`cbe ${action}: error body was not json: ${why}`);
+    }
+    throw new Error(`cbe ${action} failed: HTTP ${response.status}${detail}`);
+  }
   return await response.json() as T;
 }
 
@@ -93,9 +103,27 @@ async function execAction<T>(action: string, payload: Record<string, unknown>): 
  * UTF-8 size of one setContents POST (`action` + payload).
  * Every request stays at or under 2 MB. The server accepts 4 MB, so the
  * ceiling leaves margin. A text file whose own body exceeds it is sent as
- * gzip-base64 when that still fits in one request; otherwise it is not sent.
+ * gzip-base64 when that still fits in one request. Past that, the encoded
+ * text goes in parts and one setContents that only references the upload.
+ * A file above 64 MB is not sent.
  */
 const SET_CONTENTS_MAX_BODY_BYTES = 2 * 1024 * 1024;
+
+/** Original file size the server accepts after decode. Above this, the file is refused. */
+const SET_CONTENTS_MAX_FILE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Joined part text the server will store: the base64 of a 64 MB file.
+ * gzip-base64 of a file that does not shrink is larger than this, so that file
+ * travels as the original text instead.
+ */
+const MAX_UPLOAD_CHARS = Math.ceil((SET_CONTENTS_MAX_FILE_BYTES * 4) / 3);
+
+/** Server refuses a total above this. */
+const MAX_UPLOAD_PARTS = 64;
+
+/** About 1.5 MB of part text. The request ceiling above is what bounds each POST. */
+const PART_DATA_CHARS = Math.floor(1.5 * 1024 * 1024);
 
 /** Multiple of 3 so each chunk but the last is valid base64 without padding. */
 const BASE64_CHUNK_BYTES = 3 * 8192;
@@ -144,33 +172,154 @@ function setContentsBodyBytes(
   return new TextEncoder().encode(json).length;
 }
 
+interface IVmUploadFile {
+  shortPath: string;
+  encoding: 'gzip-base64' | 'utf8';
+  /** The string the parts are slices of: gzip-base64, or the original text when that encoding does not fit the upload cap. */
+  encoded: string;
+  sha256: string;
+}
+
+type IPreparedFile =
+  | { kind: 'inline'; file: IVmFilePayload }
+  | { kind: 'upload'; file: IVmUploadFile }
+  | { kind: 'refuse'; reason: string };
+
+function requestBytes(payload: Record<string, unknown>): number {
+  return new TextEncoder().encode(JSON.stringify(payload)).length;
+}
+
+/** SHA-256 hex of the file's final bytes (the utf-8 text the server writes). */
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  const bytes = new Uint8Array(digest);
+  let hex = '';
+  for (let index = 0; index < bytes.length; index++) hex += bytes[index].toString(16).padStart(2, '0');
+  return hex;
+}
+
+function refuseOverLimit(shortPath: string, bytes: number, limit: number): IPreparedFile {
+  return {
+    kind: 'refuse',
+    reason: `setContents: ${shortPath} is ${bytes} bytes and exceeds the ${limit} byte limit; not sent`,
+  };
+}
+
 /**
  * A utf-8 file whose body alone exceeds the ceiling travels as gzip-base64
- * when the compressed request still fits. Otherwise the original payload is
- * left for the planner to refuse. Binary base64 is unchanged.
+ * when the compressed request still fits. When it does not, and the file is
+ * within 64 MB, it is marked for parts. Binary base64 is unchanged.
  */
-async function compressIfOverCeiling(
+async function prepareSetContentsFile(
   project: number,
   file: IVmFilePayload,
   comments: string | null,
-): Promise<IVmFilePayload> {
-  if (file.encoding !== 'utf8') return file;
-  const bytes = setContentsBodyBytes(project, [file], [], comments);
-  if (bytes <= SET_CONTENTS_MAX_BODY_BYTES) return file;
+): Promise<IPreparedFile> {
+  if (file.encoding !== 'utf8') {
+    const bytes = setContentsBodyBytes(project, [file], [], comments);
+    if (bytes > SET_CONTENTS_MAX_BODY_BYTES) return refuseOverLimit(file.shortPath, bytes, SET_CONTENTS_MAX_BODY_BYTES);
+    return { kind: 'inline', file };
+  }
+  const originalBytes = new TextEncoder().encode(file.content).length;
+  if (originalBytes > SET_CONTENTS_MAX_FILE_BYTES) return refuseOverLimit(file.shortPath, originalBytes, SET_CONTENTS_MAX_FILE_BYTES);
+  if (setContentsBodyBytes(project, [file], [], comments) <= SET_CONTENTS_MAX_BODY_BYTES) return { kind: 'inline', file };
+
   let encoded: string;
   try {
     encoded = await gzipBase64(file.content);
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    console.error(`setContents: gzip failed for ${file.shortPath}: ${reason}`);
-    return file;
+    const why = err instanceof Error ? err.message : String(err);
+    console.error(`setContents: gzip failed for ${file.shortPath}: ${why}`);
+    return refuseOverLimit(file.shortPath, originalBytes, SET_CONTENTS_MAX_BODY_BYTES);
   }
   const compressed: IVmFilePayload = { shortPath: file.shortPath, content: encoded, encoding: 'gzip-base64' };
-  if (setContentsBodyBytes(project, [compressed], [], comments) > SET_CONTENTS_MAX_BODY_BYTES) return file;
-  return compressed;
+  if (setContentsBodyBytes(project, [compressed], [], comments) <= SET_CONTENTS_MAX_BODY_BYTES) return { kind: 'inline', file: compressed };
+
+  const sha256 = await sha256Hex(file.content);
+  if (encoded.length <= MAX_UPLOAD_CHARS) {
+    return { kind: 'upload', file: { shortPath: file.shortPath, encoding: 'gzip-base64', encoded, sha256 } };
+  }
+  if (file.content.length <= MAX_UPLOAD_CHARS) {
+    console.info(`setContents: gzip-base64 of ${file.shortPath} is ${encoded.length} chars and exceeds the upload cap; sending the original text in parts`);
+    return { kind: 'upload', file: { shortPath: file.shortPath, encoding: 'utf8', encoded: file.content, sha256 } };
+  }
+  return refuseOverLimit(file.shortPath, originalBytes, SET_CONTENTS_MAX_FILE_BYTES);
 }
 
-/** Deletes ride on the first batch. A file whose own body exceeds the ceiling stays out. */
+/** Slices of `text`, each a setContentsPart body of at most 2 MB. `total` in the measure is the maximum, so the real body is never larger. */
+function splitUpload(project: number, uploadId: string, text: string): string[] | null {
+  const parts: string[] = [];
+  let at = 0;
+  while (at < text.length) {
+    let size = Math.min(PART_DATA_CHARS, text.length - at);
+    let data = text.slice(at, at + size);
+    while (requestBytes({ action: 'setContentsPart', project, uploadId, index: parts.length, total: MAX_UPLOAD_PARTS, data }) > SET_CONTENTS_MAX_BODY_BYTES) {
+      if (size <= 1) return null;
+      size = Math.max(1, Math.floor(size * 3 / 4));
+      data = text.slice(at, at + size);
+    }
+    parts.push(data);
+    at += data.length;
+    if (parts.length > MAX_UPLOAD_PARTS) return null;
+  }
+  return parts;
+}
+
+/**
+ * Parts in order, then one setContents that names the upload and nothing else.
+ * A refused part stops this file only. Returns the reason, or null when it was sent.
+ */
+async function sendUpload(project: number, file: IVmUploadFile, comments: string | null): Promise<string | null> {
+  const uploadId = crypto.randomUUID();
+  const parts = splitUpload(project, uploadId, file.encoded);
+  if (!parts || parts.length === 0) {
+    const reason = `setContents: ${file.shortPath} does not fit in ${MAX_UPLOAD_PARTS} parts under the ${SET_CONTENTS_MAX_BODY_BYTES} byte limit; not sent`;
+    console.error(reason);
+    return reason;
+  }
+  for (let index = 0; index < parts.length; index++) {
+    try {
+      const rc = await execAction<{ statusCode: number; msg?: string }>('setContentsPart', {
+        project,
+        uploadId,
+        index,
+        total: parts.length,
+        data: parts[index],
+      });
+      if (rc.statusCode !== 200) {
+        const reason = `setContents: ${file.shortPath} part ${index + 1}/${parts.length} refused: ${rc.msg || 'error'}; not sent`;
+        console.error(reason);
+        return reason;
+      }
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      const reason = `setContents: ${file.shortPath} part ${index + 1}/${parts.length} refused: ${why}; not sent`;
+      console.error(reason);
+      return reason;
+    }
+  }
+  try {
+    const rc = await execAction<{ statusCode: number; msg?: string }>('setContents', {
+      project,
+      files: [{ shortPath: file.shortPath, uploadId, encoding: file.encoding, sha256: file.sha256 }],
+      deletes: [],
+      comments,
+    });
+    if (rc.statusCode !== 200) {
+      const reason = `setContents: ${file.shortPath} refused: ${rc.msg || 'error'}; not sent`;
+      console.error(reason);
+      return reason;
+    }
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    const reason = `setContents: ${file.shortPath} refused: ${why}; not sent`;
+    console.error(reason);
+    return reason;
+  }
+  return null;
+}
+
+/** Deletes ride on the first batch. Every file passed in already fits in one request. */
 function planSetContentsBatches(
   project: number,
   files: IVmFilePayload[],
@@ -293,13 +442,25 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     // message, and the VM now uses it for exactly that (mls-102034 cbeGitCommit.ts),
     // so it shows up in getHistory below. Each batch repeats it; a failed batch
     // stops the sequence and is not reported as saved.
-    const prepared: IVmFilePayload[] = [];
-    for (const file of files) prepared.push(await compressIfOverCeiling(project, file, comments));
-    const plan = planSetContentsBatches(project, prepared, deletes, comments);
-    const { batches } = plan;
-    for (const file of plan.oversized) {
-      console.error(`setContents: ${file.shortPath} is ${file.bytes} bytes and exceeds the ${SET_CONTENTS_MAX_BODY_BYTES} byte limit; not sent`);
+    const inline: IVmFilePayload[] = [];
+    const uploads: IVmUploadFile[] = [];
+    const refused: string[] = [];
+    for (const file of files) {
+      const prepared = await prepareSetContentsFile(project, file, comments);
+      if (prepared.kind === 'inline') inline.push(prepared.file);
+      else if (prepared.kind === 'upload') uploads.push(prepared.file);
+      else {
+        console.error(prepared.reason);
+        refused.push(prepared.reason);
+      }
     }
+    const plan = planSetContentsBatches(project, inline, deletes, comments);
+    for (const file of plan.oversized) {
+      const reason = `setContents: ${file.shortPath} is ${file.bytes} bytes and exceeds the ${SET_CONTENTS_MAX_BODY_BYTES} byte limit; not sent`;
+      console.error(reason);
+      refused.push(reason);
+    }
+    const { batches } = plan;
     for (let index = 0; index < batches.length; index++) {
       const batch = batches[index];
       const unsent = batches.slice(index).reduce((sum, item) => sum + item.files.length, 0);
@@ -320,10 +481,12 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
         return false;
       }
     }
-    if (plan.oversized.length > 0) {
-      const detail = plan.oversized.map((file) => `${file.shortPath} (${file.bytes} bytes)`).join(', ');
-      throw new Error(`setContents: file exceeds the ${SET_CONTENTS_MAX_BODY_BYTES} byte limit: ${detail}`);
+    // Each large file is its own request, after the small ones, so a refusal does not drop them.
+    for (const file of uploads) {
+      const reason = await sendUpload(project, file, comments);
+      if (reason) refused.push(reason);
     }
+    if (refused.length > 0) throw new Error(refused.join('; '));
     return true;
   };
 

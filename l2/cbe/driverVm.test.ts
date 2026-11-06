@@ -1,5 +1,6 @@
 /// <mls fileReference="_102033_/l2/cbe/driverVm.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 
 const MAX_BODY = 2 * 1024 * 1024;
@@ -17,13 +18,20 @@ async function loadDriver(): Promise<typeof import('/_102033_/l2/cbe/driverVm.js
 
 interface IPostedFile {
   shortPath: string;
-  content: string;
+  content?: string;
   encoding?: string;
+  uploadId?: string;
+  sha256?: string;
 }
 
 interface IPostedBody {
-  files: IPostedFile[];
-  deletes: string[];
+  action?: string;
+  files?: IPostedFile[];
+  deletes?: string[];
+  uploadId?: string;
+  index?: number;
+  total?: number;
+  data?: string;
 }
 
 function fileOf(shortName: string, content: string, status = 'changed', extension = '.ts'): mls.stor.IFileInfo {
@@ -72,6 +80,27 @@ async function decodeGzipBase64(encoded: string): Promise<string> {
 function posted(body: string): IPostedBody {
   return JSON.parse(body) as IPostedBody;
 }
+
+function sha256Hex(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+/** JSON of `bytes` whose payload does not repeat, so gzip stays near the original size. */
+function incompressibleJson(bytes: number): string {
+  const prefix = '{"blob":"';
+  const suffix = '"}';
+  const innerLen = bytes - prefix.length - suffix.length;
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const raw = Buffer.allocUnsafe(innerLen);
+  let seed = 0x9e3779b9;
+  for (let index = 0; index < innerLen; index++) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    raw[index] = alphabet.charCodeAt(seed % alphabet.length);
+  }
+  return prefix + raw.toString('latin1') + suffix;
+}
+
+const MAX_UPLOAD_CHARS = Math.ceil((64 * 1024 * 1024 * 4) / 3);
 
 function withFetch(
   handler: (body: string, call: number) => Response | Promise<Response>,
@@ -156,11 +185,146 @@ test('st54: arquivo repetido acima do teto sai gzip-base64 junto dos pequenos', 
   }
 });
 
-test('st54: arquivo que continua acima de 2 MB depois do gzip não sai e os outros saem', async () => {
+test('st54: arquivo que continua acima de 2 MB depois do gzip sai em partes, no setContents só dele', async () => {
   const big = incompressibleText(3 * 1024 * 1024);
   const files = [
     fileOf('before', 'x'),
     fileOf('huge', big),
+    fileOf('after', 'y'),
+  ];
+  const fetchMock = withFetch(() => okResponse());
+  try {
+    const DriverVm = await loadDriver();
+    const saved = await new DriverVm().setContents(102047, files, 'save');
+    assert.equal(saved, true);
+    const parts: IPostedBody[] = [];
+    const saves: IPostedBody[] = [];
+    fetchMock.bodies.forEach((body, index) => {
+      const bytes = new TextEncoder().encode(body).length;
+      assert.ok(bytes <= MAX_BODY, `pedido ${index + 1} tem ${bytes} bytes`);
+      const payload = posted(body);
+      if (payload.action === 'setContentsPart') parts.push(payload);
+      else saves.push(payload);
+    });
+    assert.ok(parts.length > 1);
+    const bigSaves = saves.filter((body) => body.files?.some((file) => file.uploadId));
+    assert.equal(bigSaves.length, 1);
+    assert.equal(bigSaves[0].files?.length, 1);
+    const huge = bigSaves[0].files?.[0];
+    assert.equal(huge?.shortPath, 'l2/m/huge.ts');
+    assert.equal(huge?.encoding, 'gzip-base64');
+    assert.equal(huge?.content, undefined);
+    assert.equal(huge?.sha256, sha256Hex(big));
+    const ordered = parts.filter((part) => part.uploadId === huge?.uploadId);
+    assert.equal(ordered.length, parts.length);
+    assert.deepEqual(ordered.map((part) => part.index), ordered.map((_, index) => index));
+    assert.ok(ordered.every((part) => part.total === ordered.length));
+    const joined = ordered.map((part) => part.data ?? '').join('');
+    assert.equal(await decodeGzipBase64(joined), big);
+    const small = saves.filter((body) => body !== bigSaves[0]);
+    const seen = new Set<string>();
+    for (const body of small) {
+      assert.equal(body.files?.some((file) => file.uploadId), false);
+      for (const file of body.files ?? []) seen.add(file.shortPath);
+    }
+    assert.deepEqual([...seen].sort(), ['l2/m/after.ts', 'l2/m/before.ts']);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test('st54: parte recusada não grava o arquivo grande e os pequenos seguem', async () => {
+  const big = incompressibleText(3 * 1024 * 1024);
+  const files = [
+    fileOf('before', 'x'),
+    fileOf('huge', big),
+    fileOf('after', 'y'),
+  ];
+  const fetchMock = withFetch((body) => {
+    if (posted(body).action === 'setContentsPart') {
+      return { ok: false, status: 400, json: async () => ({ statusCode: 400, msg: 'upload test: unknown' }) } as Response;
+    }
+    return okResponse();
+  });
+  try {
+    const DriverVm = await loadDriver();
+    await assert.rejects(
+      () => new DriverVm().setContents(102047, files, null),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /l2\/m\/huge\.ts/);
+        assert.match(err.message, /unknown/);
+        return true;
+      },
+    );
+    const seen = new Set<string>();
+    let uploadSave = 0;
+    fetchMock.bodies.forEach((body, index) => {
+      const bytes = new TextEncoder().encode(body).length;
+      assert.ok(bytes <= MAX_BODY, `pedido ${index + 1} tem ${bytes} bytes`);
+      const payload = posted(body);
+      if (payload.files?.some((file) => file.uploadId)) uploadSave += 1;
+      for (const file of payload.files ?? []) seen.add(file.shortPath);
+    });
+    assert.equal(uploadSave, 0);
+    assert.deepEqual([...seen].sort(), ['l2/m/after.ts', 'l2/m/before.ts']);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test('st54: um JSON de 64 MB pouco repetitivo sai em partes de até 2 MB, no setContents só dele', { timeout: 180_000 }, async () => {
+  const json = incompressibleJson(64 * 1024 * 1024);
+  assert.equal(new TextEncoder().encode(json).length, 64 * 1024 * 1024);
+  const files = [
+    fileOf('before', 'x'),
+    fileOf('undo', json, 'changed', '.json'),
+    fileOf('after', 'y'),
+  ];
+  const fetchMock = withFetch(() => okResponse());
+  try {
+    const DriverVm = await loadDriver();
+    const saved = await new DriverVm().setContents(102047, files, 'save');
+    assert.equal(saved, true);
+    const parts: IPostedBody[] = [];
+    const saves: IPostedBody[] = [];
+    fetchMock.bodies.forEach((body, index) => {
+      const bytes = new TextEncoder().encode(body).length;
+      assert.ok(bytes <= MAX_BODY, `pedido ${index + 1} tem ${bytes} bytes`);
+      const payload = posted(body);
+      if (payload.action === 'setContentsPart') parts.push(payload);
+      else saves.push(payload);
+    });
+    const joined = parts.map((part) => part.data ?? '').join('');
+    assert.ok(joined.length > MAX_BODY);
+    assert.ok(joined.length <= MAX_UPLOAD_CHARS, `texto das partes tem ${joined.length} caracteres`);
+    const bigSaves = saves.filter((body) => body.files?.some((file) => file.uploadId));
+    assert.equal(bigSaves.length, 1);
+    assert.equal(bigSaves[0].files?.length, 1);
+    const undo = bigSaves[0].files?.[0];
+    assert.equal(undo?.shortPath, 'l2/m/undo.json');
+    assert.equal(undo?.sha256, sha256Hex(json));
+    assert.equal(undo?.content, undefined);
+    const text = undo?.encoding === 'gzip-base64' ? await decodeGzipBase64(joined) : joined;
+    assert.equal(text, json);
+    const seen = new Set<string>();
+    for (const body of saves) {
+      if (body === bigSaves[0]) continue;
+      assert.equal(body.files?.some((file) => file.uploadId), false);
+      for (const file of body.files ?? []) seen.add(file.shortPath);
+    }
+    assert.deepEqual([...seen].sort(), ['l2/m/after.ts', 'l2/m/before.ts']);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test('st54: acima de 64 MB a recusa traz o motivo e os outros saem', async () => {
+  const big = `{"blob":"${'x'.repeat(64 * 1024 * 1024)}"}`;
+  assert.ok(new TextEncoder().encode(big).length > 64 * 1024 * 1024);
+  const files = [
+    fileOf('before', 'x'),
+    fileOf('huge', big, 'changed', '.json'),
     fileOf('after', 'y'),
   ];
   const errors: unknown[][] = [];
@@ -175,25 +339,23 @@ test('st54: arquivo que continua acima de 2 MB depois do gzip não sai e os outr
       () => new DriverVm().setContents(102047, files, null),
       (err: unknown) => {
         assert.ok(err instanceof Error);
-        assert.match(err.message, /l2\/m\/huge\.ts/);
+        assert.match(err.message, /l2\/m\/huge\.json/);
+        assert.match(err.message, /67108864 byte limit/);
         return true;
       },
     );
-    assert.ok(fetchMock.bodies.length >= 1);
     const seen = new Set<string>();
     fetchMock.bodies.forEach((body, index) => {
       const bytes = new TextEncoder().encode(body).length;
       assert.ok(bytes <= MAX_BODY, `pedido ${index + 1} tem ${bytes} bytes`);
       const payload = posted(body);
-      assert.equal(payload.files.some((file) => file.shortPath === 'l2/m/huge.ts'), false);
-      for (const file of payload.files) seen.add(file.shortPath);
+      assert.equal(payload.action === 'setContentsPart', false);
+      assert.equal(payload.files?.some((file) => file.shortPath === 'l2/m/huge.json'), false);
+      for (const file of payload.files ?? []) seen.add(file.shortPath);
     });
     assert.deepEqual([...seen].sort(), ['l2/m/after.ts', 'l2/m/before.ts']);
     const logged = errors.map((args) => args.join(' ')).join('\n');
-    const match = logged.match(/l2\/m\/huge\.ts is (\d+) bytes and exceeds the (\d+) byte limit/);
-    assert.ok(match);
-    assert.equal(Number(match[2]), MAX_BODY);
-    assert.ok(Number(match[1]) > MAX_BODY);
+    assert.match(logged, /l2\/m\/huge\.json is (\d+) bytes and exceeds the 67108864 byte limit/);
   } finally {
     console.error = previousError;
     fetchMock.restore();
