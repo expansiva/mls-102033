@@ -246,11 +246,27 @@ test('published CRC is the history blob, including a model born later', async ()
     next: 'renamed-body',
     panel: draftLess,
   };
+  const publishedByName: { [name: string]: string } = {
+    changed: publishedTs,
+    prev: 'old-body',
+    panel: publishedLess,
+  };
+  let historyReads = 0;
+  const readHistory = async (ref: string, text: string): Promise<string | null> => {
+    historyReads += 1;
+    return ref === 'main1' ? text : null;
+  };
+  stored[changedKey].getHistoryContent = (ref) => readHistory(ref, publishedTs);
+  stored[prevKey].getHistoryContent = (ref) => readHistory(ref, 'old-body');
+  stored[panelKey].getHistoryContent = (ref) => readHistory(ref, publishedLess);
   host.mls.stor = {
     others: {
       getDefaultDriver: () => ({
-        getContents: async (_project: number, fileInfos: Array<{ shortName: string }>) =>
-          fileInfos.map((info) => ({ fileInfo: info, content: draftByName[info.shortName] ?? null })),
+        getContents: async (_project: number, fileInfos: Array<{ shortName: string }>, ref?: string) =>
+          fileInfos.map((info) => ({
+            fileInfo: info,
+            content: ref ? (publishedByName[info.shortName] ?? null) : (draftByName[info.shortName] ?? null),
+          })),
       }),
     },
   };
@@ -306,6 +322,7 @@ test('published CRC is the history blob, including a model born later', async ()
     const renamedInfo = await stored[nextKey].getValueInfo?.();
     assert.equal(renamedInfo?.originalCRC, draftContentCrc('old-body', '.ts'));
     assert.equal(prevKey in stored, false);
+    assert.equal(historyReads, 0);
     assert.deepEqual(errors, []);
   } finally {
     console.error = previousError;
@@ -338,12 +355,21 @@ test('a rejecting getValueInfo stays resolved and logs the file', async () => {
       },
     },
   };
-  const host = globalThis as { mls?: { editor?: unknown; common?: unknown } };
+  const host = globalThis as { mls?: { editor?: unknown; common?: unknown; stor?: unknown } };
   const previousEditor = host.mls?.editor;
   const previousCommon = host.mls?.common;
+  const previousStor = host.mls?.stor;
   if (!host.mls) host.mls = {};
   host.mls.common = { crc: { crc32: () => 7 } };
   host.mls.editor = { getKeyModel: () => 'k', models: {} };
+  host.mls.stor = {
+    others: {
+      getDefaultDriver: () => ({
+        getContents: async (_project: number, fileInfos: Array<{ shortName: string }>, ref?: string) =>
+          fileInfos.map((info) => ({ fileInfo: info, content: ref ? 'published-body' : 'draft-body' })),
+      }),
+    },
+  };
   const errors: string[] = [];
   const previousError = console.error;
   console.error = (...args: unknown[]) => {
@@ -369,11 +395,12 @@ test('a rejecting getValueInfo stays resolved and logs the file', async () => {
     if (host.mls) {
       host.mls.editor = previousEditor;
       host.mls.common = previousCommon;
+      host.mls.stor = previousStor;
     }
   }
 });
 
-test('applyDraftFiles reads draft content in batches of 100', async () => {
+test('applyDraftFiles reads draft and published content in batches of 100', async () => {
   interface Row {
     versionRef: string;
     inLocalStorage?: boolean;
@@ -396,17 +423,22 @@ test('applyDraftFiles reads draft content in batches of 100', async () => {
     },
   };
   host.mls.editor = { getKeyModel: () => 'k', models: {} };
-  const calls: ContentInfo[][] = [];
+  const calls: Array<{ ref?: string; fileInfos: ContentInfo[] }> = [];
   const bodies = new Map<string, string | null>();
   let contentReads = 0;
+  let historyReads = 0;
   host.mls.stor = {
     others: {
       getDefaultDriver: () => ({
-        getContents: async (_project: number, fileInfos: ContentInfo[]) => {
-          calls.push(fileInfos);
-          if (fileInfos.some((info) => info.project === 53150 && info.shortName === 'n100')) {
+        getContents: async (_project: number, fileInfos: ContentInfo[], ref?: string) => {
+          calls.push({ ref, fileInfos });
+          if (!ref && fileInfos.some((info) => info.project === 53150 && info.shortName === 'n100')) {
             throw new Error('batch failed');
           }
+          if (ref && fileInfos.some((info) => info.project === 53151 && info.shortName === 'n100')) {
+            throw new Error('published batch failed');
+          }
+          if (ref) return fileInfos.map((info) => ({ fileInfo: info, content: 'pub' }));
           return fileInfos.map((info) => ({
             fileInfo: info,
             content: bodies.get(`${info.project}/${info.shortName}`) ?? null,
@@ -415,6 +447,13 @@ test('applyDraftFiles reads draft content in batches of 100', async () => {
       }),
     },
   };
+
+  function history(): () => Promise<string> {
+    return async () => {
+      historyReads += 1;
+      return 'pub';
+    };
+  }
 
   function rowText(text: string | null): () => Promise<string | null> {
     return async () => {
@@ -456,13 +495,13 @@ test('applyDraftFiles reads draft content in batches of 100', async () => {
     bodies.set(`${smallProject}/a`, defsText);
     bodies.set(`${smallProject}/plain`, batchOnly);
     bodies.set(`${smallProject}/missing`, null);
-    stored[fileKey(alpha)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText(alphaText) };
-    stored[fileKey(beta)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText(betaText) };
-    stored[fileKey(panel)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText(panelText) };
-    stored[fileKey(defs)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText(defsText) };
-    stored[fileKey(local)] = { versionRef: 'o', inLocalStorage: true, getHistoryContent: async () => 'pub', getContent: rowText('local-body') };
-    stored[fileKey(missing)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText(null) };
-    stored[fileKey(plain)] = { versionRef: 'o', getHistoryContent: async () => 'pub', getContent: rowText('from-row') };
+    stored[fileKey(alpha)] = { versionRef: 'o', getHistoryContent: history(), getContent: rowText(alphaText) };
+    stored[fileKey(beta)] = { versionRef: 'o', getHistoryContent: history(), getContent: rowText(betaText) };
+    stored[fileKey(panel)] = { versionRef: 'o', getHistoryContent: history(), getContent: rowText(panelText) };
+    stored[fileKey(defs)] = { versionRef: 'o', getHistoryContent: history(), getContent: rowText(defsText) };
+    stored[fileKey(local)] = { versionRef: 'o', inLocalStorage: true, getHistoryContent: history(), getContent: rowText('local-body') };
+    stored[fileKey(missing)] = { versionRef: 'o', getHistoryContent: history(), getContent: rowText(null) };
+    stored[fileKey(plain)] = { versionRef: 'o', getHistoryContent: history(), getContent: rowText('from-row') };
     const oldAlpha = await oldSentCrc(stored[fileKey(alpha)], '.ts');
     const oldBeta = await oldSentCrc(stored[fileKey(beta)], '.ts');
     const oldPanel = await oldSentCrc(stored[fileKey(panel)], '.less');
@@ -492,9 +531,14 @@ test('applyDraftFiles reads draft content in batches of 100', async () => {
       files: () => stored,
     });
     assert.equal(contentReads, 0);
-    assert.equal(calls.length, 1);
-    assert.deepEqual(calls[0].map((info) => info.shortName), ['alpha', 'beta', 'panel', 'a', 'missing', 'plain']);
-    assert.equal(calls[0].some((info) => info.folder === 'src' && info.extension === '.defs.ts' && info.shortName === 'a'), true);
+    assert.equal(historyReads, 0);
+    const publishedOf = (list: Array<{ ref?: string; fileInfos: ContentInfo[] }>) => list.filter((call) => call.ref === 'main1');
+    const draftOf = (list: Array<{ ref?: string; fileInfos: ContentInfo[] }>) => list.filter((call) => call.ref === undefined);
+    assert.equal(publishedOf(calls).length, 1);
+    assert.equal(draftOf(calls).length, 1);
+    assert.deepEqual(publishedOf(calls)[0].fileInfos.map((info) => info.shortName), ['alpha', 'beta', 'panel', 'a', 'local', 'missing', 'plain', 'absent']);
+    assert.deepEqual(draftOf(calls)[0].fileInfos.map((info) => info.shortName), ['alpha', 'beta', 'panel', 'a', 'missing', 'plain']);
+    assert.equal(draftOf(calls)[0].fileInfos.some((info) => info.folder === 'src' && info.extension === '.defs.ts' && info.shortName === 'a'), true);
     assert.equal(sentCrcOf(alpha), oldAlpha);
     assert.equal(sentCrcOf(beta), oldBeta);
     assert.equal(sentCrcOf(panel), oldPanel);
@@ -515,13 +559,14 @@ test('applyDraftFiles reads draft content in batches of 100', async () => {
         bodies.set(`${project}/n${i}`, `body-${project}-${i}`);
         bag[fileKey(ident)] = {
           versionRef: 'o',
-          getHistoryContent: async () => 'pub',
+          getHistoryContent: history(),
           getContent: rowText(`row-${project}-${i}`),
         };
         files.push({ status: 'M', path: `l2/n${i}.ts`, sha: 's' });
       }
       const before = calls.length;
       contentReads = 0;
+      historyReads = 0;
       await applyDraftFiles(project, `team-${project}`, {
         draftDiff: async () => ({ head: 'abc', main: 'main1', files }),
         hasLocalEdit: () => false,
@@ -530,19 +575,27 @@ test('applyDraftFiles reads draft content in batches of 100', async () => {
         files: () => bag,
       });
       assert.equal(contentReads, 0);
+      assert.equal(historyReads, 0);
       const seen = calls.slice(before);
-      assert.equal(seen.length, Math.ceil(count / 100));
+      assert.equal(publishedOf(seen).length, Math.ceil(count / 100));
+      assert.equal(draftOf(seen).length, Math.ceil(count / 100));
       assert.equal(sentCrcOf({ project, level: 2, folder: '', shortName: 'n0', extension: '.ts' }), draftContentCrc(`body-${project}-0`, '.ts'));
       const last = count - 1;
       assert.equal(
         sentCrcOf({ project, level: 2, folder: '', shortName: `n${last}`, extension: '.ts' }),
         draftContentCrc(`body-${project}-${last}`, '.ts'),
       );
-      return seen.map((batch) => batch.length);
+      return {
+        published: publishedOf(seen).map((batch) => batch.fileInfos.length),
+        draft: draftOf(seen).map((batch) => batch.fileInfos.length),
+      };
     }
 
-    assert.deepEqual(await runCount(53078, 78), [78]);
-    assert.deepEqual(await runCount(53457, 457), [100, 100, 100, 100, 57]);
+    assert.deepEqual(await runCount(53078, 78), { published: [78], draft: [78] });
+    assert.deepEqual(await runCount(53457, 457), {
+      published: [100, 100, 100, 100, 57],
+      draft: [100, 100, 100, 100, 57],
+    });
 
     const failedProject = 53150;
     const failedCount = 150;
@@ -553,7 +606,7 @@ test('applyDraftFiles reads draft content in batches of 100', async () => {
       bodies.set(`${failedProject}/n${i}`, `body-${failedProject}-${i}`);
       failedBag[fileKey(ident)] = {
         versionRef: 'o',
-        getHistoryContent: async () => 'pub',
+        getHistoryContent: history(),
         getContent: rowText(`row-${failedProject}-${i}`),
       };
       failedFiles.push({ status: 'M', path: `l2/n${i}.ts`, sha: 's' });
@@ -561,6 +614,7 @@ test('applyDraftFiles reads draft content in batches of 100', async () => {
     const failedBefore = errors.length;
     const callsBefore = calls.length;
     contentReads = 0;
+    historyReads = 0;
     const failedResult = await applyDraftFiles(failedProject, 'team-failed', {
       draftDiff: async () => ({ head: 'abc', main: 'main1', files: failedFiles }),
       hasLocalEdit: () => false,
@@ -570,13 +624,49 @@ test('applyDraftFiles reads draft content in batches of 100', async () => {
     });
     assert.deepEqual(failedResult, { added: 0, changed: failedCount, removed: 0 });
     assert.equal(contentReads, 0);
-    assert.deepEqual(calls.slice(callsBefore).map((batch) => batch.length), [100, 50]);
+    assert.equal(historyReads, 0);
+    const failedCalls = calls.slice(callsBefore);
+    assert.deepEqual(publishedOf(failedCalls).map((batch) => batch.fileInfos.length), [100, 50]);
+    assert.deepEqual(draftOf(failedCalls).map((batch) => batch.fileInfos.length), [100, 50]);
     assert.equal(sentCrcOf({ project: failedProject, level: 2, folder: '', shortName: 'n0', extension: '.ts' }), draftContentCrc(`body-${failedProject}-0`, '.ts'));
     assert.equal(sentCrcOf({ project: failedProject, level: 2, folder: '', shortName: 'n99', extension: '.ts' }), draftContentCrc(`body-${failedProject}-99`, '.ts'));
     assert.equal(sentCrcOf({ project: failedProject, level: 2, folder: '', shortName: 'n100', extension: '.ts' }), undefined);
     assert.equal(sentCrcOf({ project: failedProject, level: 2, folder: '', shortName: 'n149', extension: '.ts' }), undefined);
     const failure = errors.slice(failedBefore).join('\n');
     assert.equal(failure.includes('l2/n100.ts') && failure.includes('l2/n149.ts') && failure.includes('batch failed'), true);
+
+    const publishedFail = 53151;
+    const publishedFiles: DraftDiffFile[] = [];
+    const publishedBag: { [key: string]: Row } = {};
+    for (let i = 0; i < 101; i++) {
+      const ident = { project: publishedFail, level: 2, folder: '', shortName: `n${i}`, extension: '.ts' };
+      bodies.set(`${publishedFail}/n${i}`, `body-${publishedFail}-${i}`);
+      publishedBag[fileKey(ident)] = {
+        versionRef: 'o',
+        getHistoryContent: history(),
+        getContent: rowText(`row-${publishedFail}-${i}`),
+      };
+      publishedFiles.push({ status: 'M', path: `l2/n${i}.ts`, sha: 's' });
+    }
+    const publishedBefore = errors.length;
+    const publishedCallsBefore = calls.length;
+    historyReads = 0;
+    const publishedResult = await applyDraftFiles(publishedFail, 'team-published-failed', {
+      draftDiff: async () => ({ head: 'abc', main: 'main1', files: publishedFiles }),
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async (info) => ({ versionRef: info.versionRef }),
+      fileKey,
+      files: () => publishedBag,
+    });
+    assert.deepEqual(publishedResult, { added: 0, changed: 101, removed: 0 });
+    assert.equal(historyReads, 0);
+    const publishedFailCalls = calls.slice(publishedCallsBefore);
+    assert.deepEqual(publishedOf(publishedFailCalls).map((batch) => batch.fileInfos.length), [100, 1]);
+    assert.deepEqual(draftOf(publishedFailCalls).map((batch) => batch.fileInfos.length), [100]);
+    assert.equal(sentCrcOf({ project: publishedFail, level: 2, folder: '', shortName: 'n0', extension: '.ts' }), draftContentCrc(`body-${publishedFail}-0`, '.ts'));
+    assert.equal(sentCrcOf({ project: publishedFail, level: 2, folder: '', shortName: 'n100', extension: '.ts' }), undefined);
+    const publishedFailure = errors.slice(publishedBefore).join('\n');
+    assert.equal(publishedFailure.includes('l2/n100.ts') && publishedFailure.includes('published batch failed'), true);
   } finally {
     console.error = previousError;
     if (host.mls) {

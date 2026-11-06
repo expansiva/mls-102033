@@ -77,7 +77,6 @@ interface DraftStoredRow {
   versionRef: string;
   status?: string;
   inLocalStorage?: boolean;
-  getHistoryContent?(ref: string): Promise<string | null>;
   getContent?(): Promise<string | Blob | null>;
   getValueInfo?(): Promise<mls.stor.IFileInfoValue | null | undefined>;
 }
@@ -410,8 +409,26 @@ function plantPublishedCrc(project: number, path: string, text: string, deps: Dr
   assignOpenModel(project, loc, crc);
 }
 
-/** One driver getContents call covers at most this many draft paths. */
+/** One driver getContents call covers at most this many paths. */
 const DRAFT_CONTENT_BATCH = 100;
+
+type ContentsReader = (
+  project: number,
+  fileInfos: mls.stor.IFileInfo[],
+  ref?: string,
+) => Promise<mls.stor.IRegGetContents[]>;
+
+/** Draft reads omit `ref`. Published reads pass the commit of main. */
+async function readContents(
+  project: number,
+  fileInfos: mls.stor.IFileInfo[],
+  ref?: string,
+): Promise<mls.stor.IRegGetContents[]> {
+  const driver = await mls.stor.others.getDefaultDriver(project);
+  const read = driver.getContents as ContentsReader;
+  if (ref === undefined) return await read(project, fileInfos);
+  return await read(project, fileInfos, ref);
+}
 
 interface SentCrcTarget {
   path: string;
@@ -452,6 +469,18 @@ function contentRequest(project: number, target: SentCrcTarget): mls.stor.IFileI
   return request as mls.stor.IFileInfo;
 }
 
+function fileRequest(project: number, loc: ParsedDraftFile): mls.stor.IFileInfo {
+  const request: DraftContentRequest = {
+    project,
+    level: loc.level,
+    folder: loc.folder,
+    shortName: loc.shortName,
+    extension: loc.extension,
+    versionRef: '',
+  };
+  return request as mls.stor.IFileInfo;
+}
+
 function rememberLoadedCrc(project: number, target: SentCrcTarget, loaded: string | Blob | null | undefined): void {
   if (typeof loaded !== 'string') {
     console.error(`[studioDraftFiles] ${target.path}: draft text is not a string`);
@@ -472,8 +501,7 @@ async function seedSentCrcs(project: number, targets: SentCrcTarget[]): Promise<
     const fileInfos = batch.map((target) => contentRequest(project, target));
     let loaded: mls.stor.IRegGetContents[];
     try {
-      const driver = await mls.stor.others.getDefaultDriver(project);
-      loaded = await driver.getContents(project, fileInfos);
+      loaded = await readContents(project, fileInfos);
     } catch (err) {
       console.error(`[studioDraftFiles] ${paths}: ${errorText(err)}`);
       continue;
@@ -486,30 +514,58 @@ async function seedSentCrcs(project: number, targets: SentCrcTarget[]): Promise<
   }
 }
 
-async function publishedText(
-  project: number,
-  file: DraftDiffFile,
-  main: string,
-  deps: DraftFilesDeps,
-): Promise<string | null> {
-  const publishedPath = file.status === 'R' && file.from ? file.from : file.path;
-  const row = rowAt(project, publishedPath, deps);
-  const read = row?.getHistoryContent?.bind(row);
-  if (!read) {
-    console.error(`[studioDraftFiles] ${file.path}: no getHistoryContent for the published baseline`);
-    return null;
-  }
-  try {
-    const text = await read(main);
-    if (text === null) {
+interface PublishedRead {
+  file: DraftDiffFile;
+  loc: ParsedDraftFile;
+}
+
+/** M/R files whose published blob is read at `main`. A rename reads `from`. */
+function publishedReads(files: DraftDiffFile[], main: string): PublishedRead[] {
+  const reads: PublishedRead[] = [];
+  for (const file of files) {
+    if (file.status !== 'M' && file.status !== 'R') continue;
+    if (!parseDraftFile(file.path)) continue;
+    const publishedPath = file.status === 'R' && file.from ? file.from : file.path;
+    const loc = parseDraftFile(publishedPath);
+    if (!loc) {
       console.error(`[studioDraftFiles] ${file.path}: published content is missing at ${main}`);
-      return null;
+      continue;
     }
-    return text;
-  } catch (err) {
-    console.error(`[studioDraftFiles] ${file.path}: ${errorText(err)}`);
-    return null;
+    reads.push({ file, loc });
   }
+  return reads;
+}
+
+/** Published text for every M/R, one getContents per batch, before any row is removed. */
+async function loadPublishedTexts(
+  project: number,
+  reads: PublishedRead[],
+  main: string,
+): Promise<Map<DraftDiffFile, string>> {
+  const texts = new Map<DraftDiffFile, string>();
+  for (let start = 0; start < reads.length; start += DRAFT_CONTENT_BATCH) {
+    const batch = reads.slice(start, start + DRAFT_CONTENT_BATCH);
+    const paths = batch.map((read) => read.file.path).join(', ');
+    const fileInfos = batch.map((read) => fileRequest(project, read.loc));
+    let loaded: mls.stor.IRegGetContents[];
+    try {
+      loaded = await readContents(project, fileInfos, main);
+    } catch (err) {
+      console.error(`[studioDraftFiles] ${paths}: ${errorText(err)}`);
+      continue;
+    }
+    const byInfo = new Map<mls.stor.IFileInfo, string | Blob | null>();
+    for (const item of loaded ?? []) byInfo.set(item.fileInfo, item.content);
+    for (let index = 0; index < batch.length; index++) {
+      const text = byInfo.get(fileInfos[index]);
+      if (typeof text !== 'string') {
+        console.error(`[studioDraftFiles] ${batch[index].file.path}: published content is missing at ${main}`);
+        continue;
+      }
+      texts.set(batch[index].file, text);
+    }
+  }
+  return texts;
 }
 
 export async function applyDraftFiles(
@@ -533,6 +589,10 @@ export async function applyDraftFiles(
 
   const counts = { added: 0, changed: 0, removed: 0 };
   const sentTargets: SentCrcTarget[] = [];
+  // Read every published blob first. A rename's applyOp deletes the origin row.
+  const published = diff.main
+    ? await loadPublishedTexts(project, publishedReads(diff.files, diff.main), diff.main)
+    : new Map<DraftDiffFile, string>();
   for (const file of diff.files) {
     let ops: DraftFileOp[];
     try {
@@ -540,16 +600,6 @@ export async function applyDraftFiles(
     } catch (err) {
       console.error(`[studioDraftFiles] ${file.path}: ${errorText(err)}`);
       continue;
-    }
-    // Rename deletes the published path. Read that blob before the row is gone.
-    // A modify that is not in the map yet is read after applyOp creates the row.
-    const wantBaseline = Boolean(diff.main)
-      && (file.status === 'M' || file.status === 'R')
-      && Boolean(parseDraftFile(file.path));
-    const publishedPath = file.status === 'R' && file.from ? file.from : file.path;
-    let published: string | null | undefined;
-    if (wantBaseline && diff.main && (file.status === 'R' || rowAt(project, publishedPath, deps))) {
-      published = await publishedText(project, file, diff.main, deps);
     }
     for (const op of ops) {
       if (deps.hasLocalEdit(project, op.path)) {
@@ -563,11 +613,9 @@ export async function applyDraftFiles(
         console.error(`[studioDraftFiles] ${op.path}: ${errorText(err)}`);
       }
     }
-    if (wantBaseline && published === undefined && diff.main && file.status === 'M') {
-      published = await publishedText(project, file, diff.main, deps);
-    }
-    if (typeof published !== 'string') continue;
-    plantPublishedCrc(project, file.path, published, deps);
+    const text = published.get(file);
+    if (typeof text !== 'string') continue;
+    plantPublishedCrc(project, file.path, text, deps);
     const target = sentCrcTarget(project, file.path, deps);
     if (target) sentTargets.push(target);
   }

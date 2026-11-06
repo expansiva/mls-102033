@@ -179,15 +179,21 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
 
   // ── Implemented ───────────────────────────────────────────────────────────
 
-  public getContents = async (project: number, fileInfos: mls.stor.IFileInfo[]): Promise<mls.stor.IRegGetContents[]> => {
+  public getContents = async (
+    project: number,
+    fileInfos: mls.stor.IFileInfo[],
+    ref?: string,
+  ): Promise<mls.stor.IRegGetContents[]> => {
     if (fileInfos.length === 0) return [];
     // The contract guarantees a single project per call — one request, not one per file.
+    // `ref` reads those paths as of that commit. Without it the body is unchanged.
     const byShortPath = new Map<string, mls.stor.IFileInfo>();
     for (const fileInfo of fileInfos) byShortPath.set(toShortPath(fileInfo), fileInfo);
 
     const rc = await execAction<IVmContentsResponse>('getContents', {
       project,
       shortPaths: [...byShortPath.keys()],
+      ...(typeof ref === 'string' && ref.length > 0 ? { ref } : {}),
     });
     if (rc.statusCode !== 200) throw new Error(`getContents: ${rc.msg || 'error'}`);
 
