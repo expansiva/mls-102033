@@ -162,6 +162,48 @@ interface ISetContentsOversized {
   bytes: number;
 }
 
+interface IOverLimitFile {
+  shortPath: string;
+  bytes: number;
+  limit: number;
+}
+
+/** The draft panel matches this whole sentence. One limit; each file is `path (bytes bytes)`, joined by `, `. */
+function overLimitSentence(files: IOverLimitFile[]): string {
+  const byLimit = new Map<number, IOverLimitFile[]>();
+  for (const file of files) {
+    const group = byLimit.get(file.limit);
+    if (group) group.push(file);
+    else byLimit.set(file.limit, [file]);
+  }
+  const sentences: string[] = [];
+  for (const [limit, group] of byLimit) {
+    const listed = group.map((file) => `${file.shortPath} (${file.bytes} bytes)`).join(', ');
+    sentences.push(`setContents: file exceeds the ${limit} byte limit: ${listed}`);
+  }
+  return sentences.join('; ');
+}
+
+/** Progress for the draft panel. No `window` (tests, agent host): do nothing and do not log. */
+interface ICollabDraftUploadDetail {
+  project: number;
+  shortPath: string;
+  part: number;
+  total: number;
+  done: boolean;
+  failed?: boolean;
+}
+
+function dispatchDraftUpload(detail: ICollabDraftUploadDetail): void {
+  const target = (globalThis as { window?: EventTarget }).window;
+  if (!target || typeof target.dispatchEvent !== 'function') return;
+  try {
+    target.dispatchEvent(new CustomEvent('collabDraftUpload', { detail }));
+  } catch (err) {
+    console.error('[driverVm] collabDraftUpload was not dispatched:', err);
+  }
+}
+
 function setContentsBodyBytes(
   project: number,
   files: IVmFilePayload[],
@@ -183,7 +225,7 @@ interface IVmUploadFile {
 type IPreparedFile =
   | { kind: 'inline'; file: IVmFilePayload }
   | { kind: 'upload'; file: IVmUploadFile }
-  | { kind: 'refuse'; reason: string };
+  | { kind: 'refuse'; shortPath: string; bytes: number; limit: number };
 
 function requestBytes(payload: Record<string, unknown>): number {
   return new TextEncoder().encode(JSON.stringify(payload)).length;
@@ -199,10 +241,7 @@ async function sha256Hex(text: string): Promise<string> {
 }
 
 function refuseOverLimit(shortPath: string, bytes: number, limit: number): IPreparedFile {
-  return {
-    kind: 'refuse',
-    reason: `setContents: ${shortPath} is ${bytes} bytes and exceeds the ${limit} byte limit; not sent`,
-  };
+  return { kind: 'refuse', shortPath, bytes, limit };
 }
 
 /**
@@ -272,6 +311,11 @@ function splitUpload(project: number, uploadId: string, text: string): string[] 
 async function sendUpload(project: number, file: IVmUploadFile, comments: string | null): Promise<string | null> {
   const uploadId = crypto.randomUUID();
   const parts = splitUpload(project, uploadId, file.encoded);
+  const tell = (part: number, total: number, done: boolean, failed = false): void => {
+    const detail: ICollabDraftUploadDetail = { project, shortPath: file.shortPath, part, total, done };
+    if (failed) detail.failed = true;
+    dispatchDraftUpload(detail);
+  };
   if (!parts || parts.length === 0) {
     const reason = `setContents: ${file.shortPath} does not fit in ${MAX_UPLOAD_PARTS} parts under the ${SET_CONTENTS_MAX_BODY_BYTES} byte limit; not sent`;
     console.error(reason);
@@ -289,14 +333,17 @@ async function sendUpload(project: number, file: IVmUploadFile, comments: string
       if (rc.statusCode !== 200) {
         const reason = `setContents: ${file.shortPath} part ${index + 1}/${parts.length} refused: ${rc.msg || 'error'}; not sent`;
         console.error(reason);
+        tell(index + 1, parts.length, true, true);
         return reason;
       }
     } catch (err) {
       const why = err instanceof Error ? err.message : String(err);
       const reason = `setContents: ${file.shortPath} part ${index + 1}/${parts.length} refused: ${why}; not sent`;
       console.error(reason);
+      tell(index + 1, parts.length, true, true);
       return reason;
     }
+    tell(index + 1, parts.length, false);
   }
   try {
     const rc = await execAction<{ statusCode: number; msg?: string }>('setContents', {
@@ -308,14 +355,17 @@ async function sendUpload(project: number, file: IVmUploadFile, comments: string
     if (rc.statusCode !== 200) {
       const reason = `setContents: ${file.shortPath} refused: ${rc.msg || 'error'}; not sent`;
       console.error(reason);
+      tell(parts.length, parts.length, true, true);
       return reason;
     }
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err);
     const reason = `setContents: ${file.shortPath} refused: ${why}; not sent`;
     console.error(reason);
+    tell(parts.length, parts.length, true, true);
     return reason;
   }
+  tell(parts.length, parts.length, true);
   return null;
 }
 
@@ -444,21 +494,23 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     // stops the sequence and is not reported as saved.
     const inline: IVmFilePayload[] = [];
     const uploads: IVmUploadFile[] = [];
+    const overLimit: IOverLimitFile[] = [];
     const refused: string[] = [];
     for (const file of files) {
       const prepared = await prepareSetContentsFile(project, file, comments);
       if (prepared.kind === 'inline') inline.push(prepared.file);
       else if (prepared.kind === 'upload') uploads.push(prepared.file);
       else {
-        console.error(prepared.reason);
-        refused.push(prepared.reason);
+        const item: IOverLimitFile = { shortPath: prepared.shortPath, bytes: prepared.bytes, limit: prepared.limit };
+        console.error(overLimitSentence([item]));
+        overLimit.push(item);
       }
     }
     const plan = planSetContentsBatches(project, inline, deletes, comments);
     for (const file of plan.oversized) {
-      const reason = `setContents: ${file.shortPath} is ${file.bytes} bytes and exceeds the ${SET_CONTENTS_MAX_BODY_BYTES} byte limit; not sent`;
-      console.error(reason);
-      refused.push(reason);
+      const item: IOverLimitFile = { shortPath: file.shortPath, bytes: file.bytes, limit: SET_CONTENTS_MAX_BODY_BYTES };
+      console.error(overLimitSentence([item]));
+      overLimit.push(item);
     }
     const { batches } = plan;
     for (let index = 0; index < batches.length; index++) {
@@ -486,7 +538,10 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
       const reason = await sendUpload(project, file, comments);
       if (reason) refused.push(reason);
     }
-    if (refused.length > 0) throw new Error(refused.join('; '));
+    const messages: string[] = [];
+    if (overLimit.length > 0) messages.push(overLimitSentence(overLimit));
+    messages.push(...refused);
+    if (messages.length > 0) throw new Error(messages.join('; '));
     return true;
   };
 

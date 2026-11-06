@@ -339,8 +339,8 @@ test('st54: acima de 64 MB a recusa traz o motivo e os outros saem', async () =>
       () => new DriverVm().setContents(102047, files, null),
       (err: unknown) => {
         assert.ok(err instanceof Error);
-        assert.match(err.message, /l2\/m\/huge\.json/);
-        assert.match(err.message, /67108864 byte limit/);
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /^setContents: file exceeds the 67108864 byte limit: l2\/m\/huge\.json \(\d+ bytes\)$/);
         return true;
       },
     );
@@ -355,7 +355,7 @@ test('st54: acima de 64 MB a recusa traz o motivo e os outros saem', async () =>
     });
     assert.deepEqual([...seen].sort(), ['l2/m/after.ts', 'l2/m/before.ts']);
     const logged = errors.map((args) => args.join(' ')).join('\n');
-    assert.match(logged, /l2\/m\/huge\.json is (\d+) bytes and exceeds the 67108864 byte limit/);
+    assert.match(logged, /setContents: file exceeds the 67108864 byte limit: l2\/m\/huge\.json \(\d+ bytes\)/);
   } finally {
     console.error = previousError;
     fetchMock.restore();
@@ -389,6 +389,128 @@ test('st54: um JSON de 12 MB vai gzip-base64 num pedido de até 2 MB e a volta �
     assert.equal(await decodeGzipBase64(undo.content), json);
   } finally {
     fetchMock.restore();
+  }
+});
+
+interface IUploadNotice {
+  project: number;
+  shortPath: string;
+  part: number;
+  total: number;
+  done: boolean;
+  failed?: boolean;
+}
+
+/** Same sentence the draft panel matches, then each `path (bytes bytes)`. */
+const OVERSIZED_SAVE = /^setContents: file exceeds the (\d+) byte limit: (.*)$/;
+
+function withUploadWindow(): { events: IUploadNotice[]; restore: () => void } {
+  const events: IUploadNotice[] = [];
+  const host = globalThis as { window?: { dispatchEvent: (event: CustomEvent<IUploadNotice>) => boolean } };
+  const previous = host.window;
+  host.window = {
+    dispatchEvent(event: CustomEvent<IUploadNotice>): boolean {
+      events.push({ ...event.detail });
+      return true;
+    },
+  };
+  return {
+    events,
+    restore() {
+      if (previous === undefined) delete host.window;
+      else host.window = previous;
+    },
+  };
+}
+
+test('st54: cada parte avisa o painel; teto e parte recusada saem no mesmo Error', { timeout: 120_000 }, async () => {
+  const wide = incompressibleText(3 * 1024 * 1024);
+  const windowMock = withUploadWindow();
+  try {
+  const sent = withFetch(() => okResponse());
+  try {
+    const DriverVm = await loadDriver();
+    const saved = await new DriverVm().setContents(102047, [fileOf('huge', wide)], 'save');
+    assert.equal(saved, true);
+    const partCount = sent.bodies.filter((body) => posted(body).action === 'setContentsPart').length;
+    assert.ok(partCount > 1);
+    assert.equal(windowMock.events.length, partCount + 1);
+    windowMock.events.forEach((event, index) => {
+      const last = index === partCount;
+      assert.equal(event.project, 102047);
+      assert.equal(event.shortPath, 'l2/m/huge.ts');
+      assert.equal(event.total, partCount);
+      assert.equal(event.part, last ? partCount : index + 1);
+      assert.equal(event.done, last);
+      assert.equal(event.failed, undefined);
+    });
+  } finally {
+    sent.restore();
+  }
+
+  const over = `{"blob":"${'x'.repeat(64 * 1024 * 1024)}"}`;
+  windowMock.events.length = 0;
+  let refusedPart = false;
+  const refused = withFetch((body) => {
+    const payload = posted(body);
+    if (payload.action === 'setContentsPart' && !refusedPart && (payload.index ?? 0) >= 1) {
+      refusedPart = true;
+      return { ok: false, status: 400, json: async () => ({ statusCode: 400, msg: 'missing part 2' }) } as Response;
+    }
+    return okResponse();
+  });
+  try {
+    const DriverVm = await loadDriver();
+    await assert.rejects(
+      () => new DriverVm().setContents(102047, [
+        fileOf('before', 'x'),
+        fileOf('hugeA', over, 'changed', '.json'),
+        fileOf('hugeB', over, 'changed', '.json'),
+        fileOf('wide', wide),
+        fileOf('after', 'y'),
+      ], null),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        const phrases = err.message.split('; ');
+        const ceiling = phrases[0] ?? '';
+        const match = OVERSIZED_SAVE.exec(ceiling);
+        assert.ok(match?.[1] && match[2]);
+        assert.equal(match[1], '67108864');
+        const files: { path: string; bytes: number }[] = [];
+        for (const piece of match[2].split(', ')) {
+          const file = /^(.*) \((\d+) bytes\)$/.exec(piece);
+          assert.ok(file?.[1] && file[2]);
+          files.push({ path: file[1], bytes: Number(file[2]) });
+        }
+        assert.deepEqual(files.map((file) => file.path), ['l2/m/hugeA.json', 'l2/m/hugeB.json']);
+        assert.ok(files.every((file) => file.bytes > 64 * 1024 * 1024));
+        assert.match(phrases.slice(1).join('; '), /l2\/m\/wide\.ts part \d+\/\d+ refused: .*missing part 2/);
+        return true;
+      },
+    );
+    const wideEvents = windowMock.events.filter((event) => event.shortPath === 'l2/m/wide.ts');
+    assert.ok(wideEvents.length >= 2);
+    assert.equal(wideEvents[0].part, 1);
+    assert.equal(wideEvents[0].done, false);
+    assert.equal(wideEvents[0].failed, undefined);
+    const failed = wideEvents[wideEvents.length - 1];
+    assert.equal(failed.part, 2);
+    assert.equal(failed.total, wideEvents[0].total);
+    assert.equal(failed.done, true);
+    assert.equal(failed.failed, true);
+    assert.equal(windowMock.events.some((event) => event.shortPath !== 'l2/m/wide.ts'), false);
+    const seen = new Set<string>();
+    for (const body of refused.bodies) {
+      const payload = posted(body);
+      if (payload.files?.some((file) => file.uploadId)) assert.fail('setContents do arquivo grande não devia sair');
+      for (const file of payload.files ?? []) seen.add(file.shortPath);
+    }
+    assert.deepEqual([...seen].sort(), ['l2/m/after.ts', 'l2/m/before.ts']);
+  } finally {
+    refused.restore();
+  }
+  } finally {
+    windowMock.restore();
   }
 });
 
