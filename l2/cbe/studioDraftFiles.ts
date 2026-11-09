@@ -102,6 +102,11 @@ interface DraftStoredRow {
   versionRef: string;
   status?: string;
   inLocalStorage?: boolean;
+  project?: number;
+  level?: number;
+  shortName?: string;
+  folder?: string;
+  extension?: string;
   getContent?(): Promise<string | Blob | null>;
   getValueInfo?(): Promise<mls.stor.IFileInfoValue | null | undefined>;
 }
@@ -594,6 +599,116 @@ async function loadPublishedTexts(
   return texts;
 }
 
+interface OutsideLocal {
+  path: string;
+  row: DraftStoredRow;
+}
+
+/** l1/l2/l3 browser copies that are not a side of this draftDiff. */
+function outsideLocals(
+  project: number,
+  rows: { [key: string]: DraftStoredRow },
+  inDiff: Set<string>,
+): OutsideLocal[] {
+  const found: OutsideLocal[] = [];
+  for (const row of Object.values(rows)) {
+    if (!row || row.project !== project || row.inLocalStorage !== true) continue;
+    if (row.level !== 1 && row.level !== 2 && row.level !== 3) continue;
+    if (typeof row.shortName !== 'string' || row.shortName.length === 0 || typeof row.folder !== 'string' || typeof row.extension !== 'string') {
+      console.error('[studioDraftFiles] local copy has no path');
+      continue;
+    }
+    const folder = row.folder.length > 0 ? `${row.folder}/` : '';
+    const path = `l${row.level}/${folder}${row.shortName}${row.extension}`;
+    if (inDiff.has(path)) continue;
+    if (!parseDraftFile(path)) {
+      console.error(`[studioDraftFiles] ${path}: local copy is not an l1/l2/l3 file`);
+      continue;
+    }
+    found.push({ path, row });
+  }
+  found.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return found;
+}
+
+async function localCopyText(path: string, row: DraftStoredRow): Promise<string | undefined> {
+  if (!row.getValueInfo) {
+    console.error(`[studioDraftFiles] ${path}: local copy has no getValueInfo`);
+    return undefined;
+  }
+  try {
+    const info = await row.getValueInfo();
+    if (typeof info?.content !== 'string') {
+      console.error(`[studioDraftFiles] ${path}: local copy is not text`);
+      return undefined;
+    }
+    return info.content;
+  } catch (err) {
+    console.error(`[studioDraftFiles] ${path}: ${errorText(err)}`);
+    return undefined;
+  }
+}
+
+/** IndexedDB row gone, and the file is no longer "edited". */
+async function clearLocalCopy(path: string, row: DraftStoredRow): Promise<void> {
+  const setContent = mls.stor.localStor?.setContent;
+  if (typeof setContent !== 'function') {
+    console.error(`[studioDraftFiles] ${path}: localStor.setContent is missing`);
+    return;
+  }
+  try {
+    const stored = await setContent(row as mls.stor.IFileInfo, { contentType: 'string', content: null });
+    if (stored === false) {
+      console.error(`[studioDraftFiles] ${path}: local copy was not cleared`);
+      return;
+    }
+  } catch (err) {
+    console.error(`[studioDraftFiles] ${path}: ${errorText(err)}`);
+    return;
+  }
+  row.inLocalStorage = false;
+  row.status = 'nochange';
+}
+
+/**
+ * A local copy that matches `main` and is absent from the draft is the published file.
+ * One that is still in the draft stays: undo keeps that copy until the draft comes back.
+ */
+async function dropLocalsEqualToPublished(
+  project: number,
+  files: DraftDiffFile[],
+  main: string,
+  deps: DraftFilesDeps,
+): Promise<void> {
+  const inDiff = new Set<string>();
+  for (const file of files) {
+    inDiff.add(file.path);
+    if (typeof file.from === 'string' && file.from.length > 0) inDiff.add(file.from);
+  }
+  const copies = outsideLocals(project, deps.files(), inDiff);
+  const comparable: OutsideLocal[] = [];
+  const locals = new Map<string, string>();
+  for (const copy of copies) {
+    const text = await localCopyText(copy.path, copy.row);
+    if (text === undefined) continue;
+    locals.set(copy.path, text);
+    comparable.push(copy);
+  }
+  if (comparable.length === 0) return;
+  const asDiff: DraftDiffFile[] = comparable.map((copy) => ({ status: 'M', path: copy.path, sha: null }));
+  const published = await loadPublishedTexts(project, publishedReads(asDiff, main), main);
+  const publishedByPath = new Map<string, string>();
+  for (const file of asDiff) {
+    const text = published.get(file);
+    if (typeof text === 'string') publishedByPath.set(file.path, text);
+  }
+  for (const copy of comparable) {
+    const onMain = publishedByPath.get(copy.path);
+    if (onMain === undefined || onMain !== locals.get(copy.path)) continue;
+    await clearLocalCopy(copy.path, copy.row);
+  }
+}
+
 export async function applyDraftFiles(
   project: number,
   slug: string,
@@ -644,6 +759,9 @@ export async function applyDraftFiles(
     plantPublishedCrc(project, file.path, text, deps);
     const target = sentCrcTarget(project, file.path, deps);
     if (target) sentTargets.push(target);
+  }
+  if (typeof diff.main === 'string' && diff.main.length > 0) {
+    await dropLocalsEqualToPublished(project, diff.files, diff.main, deps);
   }
   await seedSentCrcs(project, sentTargets);
   return counts;

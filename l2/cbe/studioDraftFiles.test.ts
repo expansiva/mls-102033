@@ -726,3 +726,106 @@ test('seeding the sent CRC on Studio entry asks for one unsaved recount', async 
     host.window = previous;
   }
 });
+
+test('Studio entry drops a local copy that matches main and is outside draftDiff', async () => {
+  const project = 102047;
+  const published = 'published-text';
+  const localOnly = 'still-editing';
+  interface Row {
+    project: number;
+    level: number;
+    folder: string;
+    shortName: string;
+    extension: string;
+    versionRef: string;
+    status?: string;
+    inLocalStorage?: boolean;
+    getValueInfo?: () => Promise<{ content: string; contentType: 'string' }>;
+  }
+  function row(shortName: string, text: string): Row {
+    return {
+      project,
+      level: 2,
+      folder: '',
+      shortName,
+      extension: '.ts',
+      versionRef: 'old',
+      status: 'changed',
+      inLocalStorage: true,
+      getValueInfo: async () => ({ content: text, contentType: 'string' }),
+    };
+  }
+  const same = row('same', published);
+  const waiting = row('waiting', published);
+  const edited = row('edited', localOnly);
+  const stored: { [key: string]: Row } = {
+    [fileKey(same)]: same,
+    [fileKey(waiting)]: waiting,
+    [fileKey(edited)]: edited,
+  };
+  const publishedByName: { [name: string]: string } = {
+    same: published,
+    waiting: published,
+    edited: published,
+  };
+  const cleared: string[] = [];
+  const host = globalThis as { mls?: { editor?: unknown; common?: unknown; stor?: unknown }; window?: EventTarget };
+  const previousEditor = host.mls?.editor;
+  const previousCommon = host.mls?.common;
+  const previousStor = host.mls?.stor;
+  const previousWindow = host.window;
+  if (!host.mls) host.mls = {};
+  host.mls.common = { crc: { crc32: () => 1 } };
+  host.mls.editor = { getKeyModel: () => 'k', models: {} };
+  host.mls.stor = {
+    localStor: {
+      setContent: async (file: { shortName: string; inLocalStorage?: boolean }, info: { content: string | null }) => {
+        cleared.push(`l2/${file.shortName}.ts`);
+        file.inLocalStorage = Boolean(info.content);
+        return true;
+      },
+    },
+    others: {
+      getDefaultDriver: () => ({
+        getContents: async (_project: number, fileInfos: Array<{ shortName: string }>, ref?: string) =>
+          fileInfos.map((info) => ({
+            fileInfo: info,
+            content: ref ? publishedByName[info.shortName] ?? null : 'draft-body',
+          })),
+      }),
+    },
+  };
+  host.window = new EventTarget();
+  const errors: string[] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+  try {
+    await applyDraftFiles(project, 'team-102047', {
+      draftDiff: async () => ({
+        head: 'abc',
+        main: 'main1',
+        files: [{ status: 'M', path: 'l2/waiting.ts', sha: 'shaW' }],
+      }),
+      hasLocalEdit: () => true,
+      addOrUpdateFile: async (info) => ({ versionRef: info.versionRef }),
+      fileKey,
+      files: () => stored,
+    });
+    assert.deepEqual(cleared, ['l2/same.ts']);
+    assert.equal(same.inLocalStorage, false);
+    assert.equal(same.status, 'nochange');
+    assert.equal(waiting.inLocalStorage, true);
+    assert.equal(waiting.status, 'changed');
+    assert.equal(edited.inLocalStorage, true);
+    assert.equal(edited.status, 'changed');
+    assert.deepEqual(errors, []);
+  } finally {
+    console.error = previousError;
+    host.window = previousWindow;
+    if (host.mls) {
+      host.mls.editor = previousEditor;
+      host.mls.common = previousCommon;
+      host.mls.stor = previousStor;
+    }
+  }
+});
