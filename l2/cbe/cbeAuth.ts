@@ -13,6 +13,12 @@
 // NOTE: the VM origin (e.g. https://102045.collabcodes.com) must be an allowed
 // returnTo on collab-auth; localhost is accepted for dev.
 
+import {
+  readStudioDefs,
+  removeStudioProvider,
+  writeStudioProviderToken,
+} from '/_102029_/l2/studioDefs.js';
+
 const AUTH_BASE_URL = 'https://auth.collab.codes';
 
 interface AuthSessionResponse {
@@ -22,8 +28,6 @@ interface AuthSessionResponse {
 }
 
 type GitProvider = 'github' | 'gitlab';
-
-const PROVIDER_KEY: Record<GitProvider, string> = { github: 'keyGitHub', gitlab: 'keyGitLab' };
 
 const PROVIDER_TEXT = {
   en: {
@@ -65,15 +69,15 @@ function clearProviderQuery(): void {
 
 /**
  * After collab-auth login has filled `providersConnected`: exchange a GitHub
- * or GitLab code, drop a provider key on disconnect, and mark stored keys as
- * connected. The token stays in localStorage; it is never logged.
+ * or GitLab code, drop that provider from `studio_defs` on disconnect, and
+ * mark a stored token as connected. The token stays in localStorage; it is never logged.
  */
 export async function completeProviderConnection(providersConnected: string[]): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const source = params.get('source');
   if (isGitProvider(source)) {
     if (params.get('function') === 'disconnect') {
-      localStorage.removeItem(PROVIDER_KEY[source]);
+      removeStudioProvider(source);
       clearProviderQuery();
     } else if (params.has('code') || params.has('state')) {
       const code = params.get('code') ?? '';
@@ -94,7 +98,7 @@ export async function completeProviderConnection(providersConnected: string[]): 
           });
           const body = await response.json() as { token?: unknown };
           if (response.ok && typeof body.token === 'string' && body.token) {
-            localStorage.setItem(PROVIDER_KEY[source], body.token);
+            writeStudioProviderToken(source, body.token);
             localStorage.removeItem('pluginCollabLogin');
           } else {
             console.error(`[cbeAuth] provider token exchange failed (HTTP ${response.status})`);
@@ -109,8 +113,9 @@ export async function completeProviderConnection(providersConnected: string[]): 
       }
     }
   }
+  const stored = readStudioDefs();
   for (const provider of ['github', 'gitlab'] as const) {
-    if (localStorage.getItem(PROVIDER_KEY[provider]) && !providersConnected.includes(provider)) {
+    if (stored[provider] && !providersConnected.includes(provider)) {
       providersConnected.push(provider);
     }
   }

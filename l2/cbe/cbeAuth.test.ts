@@ -67,7 +67,8 @@ describe('provider connection on boot', { concurrency: false }, () => {
     } finally {
       console.error = orig;
     }
-    assert.equal(env.storage.get('keyGitHub'), 'token-github');
+    assert.equal(env.storage.has('keyGitHub'), false);
+    assert.equal(JSON.parse(env.storage.get('studio_defs') ?? '{}').github.token, 'token-github');
     assert.equal(env.storage.has('pluginCollabLogin'), false);
     assert.deepEqual(env.replaced, ['/']);
     assert.deepEqual(connected, ['github']);
@@ -85,7 +86,8 @@ describe('provider connection on boot', { concurrency: false }, () => {
     const connected: string[] = [];
     await completeProviderConnection(connected);
     assert.equal(env.fetchCalls.length, 0);
-    assert.equal(env.storage.get('keyGitLab'), 'kept');
+    assert.equal(env.storage.has('keyGitLab'), false);
+    assert.equal(JSON.parse(env.storage.get('studio_defs') ?? '{}').gitlab.token, 'kept');
     assert.equal(env.storage.get('pluginCollabLogin'), 'expected');
     assert.deepEqual(env.replaced, ['/'], 'the code must not stay in the address bar');
     assert.equal(env.notices[0], 'The provider connection could not be confirmed. Start it again from the studio.');
@@ -109,6 +111,7 @@ describe('provider connection on boot', { concurrency: false }, () => {
         const connected: string[] = [];
         await completeProviderConnection(connected);
         assert.equal(env.storage.has('keyGitHub'), false);
+        assert.equal(env.storage.has('studio_defs'), false);
         assert.deepEqual(env.replaced, ['/'], 'a spent code must not be retried on reload');
         assert.equal(env.notices[0], 'The provider connection failed. Start it again from the studio.');
         assert.deepEqual(connected, []);
@@ -124,18 +127,21 @@ describe('provider connection on boot', { concurrency: false }, () => {
 
   test('removes the provider key on disconnect', async () => {
     const env = installBrowser('?source=github&function=disconnect');
+    env.storage.set('studio_defs', JSON.stringify({ github: { token: 'token-github' }, gitlab: { token: 'keep-me' } }));
     env.storage.set('keyGitHub', 'token-github');
-    const connected: string[] = ['github'];
+    const connected: string[] = ['github', 'gitlab'];
     await completeProviderConnection(connected);
     assert.equal(env.storage.has('keyGitHub'), false);
+    assert.equal(JSON.parse(env.storage.get('studio_defs') ?? '{}').github, undefined);
+    assert.equal(JSON.parse(env.storage.get('studio_defs') ?? '{}').gitlab.token, 'keep-me');
     assert.deepEqual(env.replaced, ['/']);
     assert.equal(env.fetchCalls.length, 0);
-    assert.deepEqual(connected, ['github']);
+    assert.deepEqual(connected, ['github', 'gitlab']);
   });
 
   test('adds a provider that already has a stored key', async () => {
     const env = installBrowser('');
-    env.storage.set('keyGitLab', 'token-gitlab');
+    env.storage.set('studio_defs', JSON.stringify({ gitlab: { token: 'token-gitlab' } }));
     const connected: string[] = ['github'];
     await completeProviderConnection(connected);
     assert.deepEqual(connected, ['github', 'gitlab']);
