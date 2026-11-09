@@ -80,6 +80,7 @@ import {
 } from '/_102033_/l2/shared/regionMsize.js';
 import { nextTopBandState, type TopBandState } from '/_102033_/l2/shared/topBandScroll.js';
 import { initialMobilePane, otherMobilePane, type MobilePane } from '/_102033_/l2/shared/mobilePane.js';
+import { createSitesMenuControls } from '/_102033_/l2/cbe/sitesMenu.js';
 import { LitElement, html } from 'lit';
 
 /** Pin number encoded in `mod-<base>#n`. The free tab, including `app`, has none. */
@@ -216,6 +217,8 @@ type AuraSitesControls = {
   setMode?: (mode: CollabRunMode) => Promise<void>;
   getDevice?: () => MasterFrontendDeviceKind;
   setDevice?: (device: MasterFrontendDeviceKind) => Promise<boolean>;
+  getMenu?: () => Promise<unknown[]>;
+  updateMenu?: () => void;
 };
 
 const DEFAULT_REGION_TAGS: Record<Exclude<MasterFrontendRegionName, 'content'>, string> = {
@@ -1382,6 +1385,7 @@ export class CollabAuraShell extends LitElement {
         getDevice: () => this.getContentDevice(),
         setDevice: (device: MasterFrontendDeviceKind) => this.setStudioDevice(device),
       };
+      const menuControls = createSitesMenuControls();
       register({
         getHeader: () => this.getRegionIndex('header'),
         setHeader: (index: number) => this.setRegionByIndex('header', index),
@@ -1393,6 +1397,7 @@ export class CollabAuraShell extends LitElement {
         ...designSystemControls,
         ...modeControls,
         ...deviceControls,
+        ...menuControls,
       });
       // Compatibility with an already-published mls.js that predates the language/DS/mode
       // forwarders. A future mls.js exposes these itself and this branch is skipped.
@@ -1407,6 +1412,8 @@ export class CollabAuraShell extends LitElement {
         sites.setMode ??= modeControls.setMode;
         sites.getDevice ??= deviceControls.getDevice;
         sites.setDevice ??= deviceControls.setDevice;
+        sites.getMenu ??= menuControls.getMenu;
+        sites.updateMenu ??= menuControls.updateMenu;
       }
       return;
     }
