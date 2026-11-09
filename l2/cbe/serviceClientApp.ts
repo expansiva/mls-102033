@@ -38,28 +38,89 @@ export interface IPreviewCoverInput {
   studio: boolean;
   level: number;
   count: number;
+  /** Files Save refuses. The cover stays up when these are the only ones left. */
+  blocked?: number;
+  /** Save failed and refused no file. Keeps the cover up so the message is visible. */
+  failure?: string;
 }
 
-/** Studio, with unsaved work, and not the page level (editing happens on the preview). */
+export interface IPreviewCoverBlockedInput {
+  count: number;
+  blocked?: number;
+}
+
+export interface IPreviewCoverBlockedDecision {
+  /** Cover stays when something is still unsaved or still refused. */
+  show: boolean;
+  /** Files named on the second line. Null hides that line. */
+  line: number | null;
+}
+
+/**
+ * Count is every unsaved file. Blocked is the subset Save refuses.
+ * A refused save with nothing else pending still covers the preview.
+ */
+export function previewCoverBlockedDecision(input: IPreviewCoverBlockedInput): IPreviewCoverBlockedDecision {
+  const blocked = typeof input.blocked === 'number' && input.blocked > 0 ? input.blocked : 0;
+  const count = input.count > 0 ? input.count : 0;
+  return { show: count > 0 || blocked > 0, line: blocked > 0 ? blocked : null };
+}
+
+/** `{n}` is the only placeholder. The catalog owns the sentence. */
+export function previewCoverBlockedText(template: string, line: number): string {
+  return template.split('{n}').join(String(line));
+}
+
+export interface IPreviewCoverLineInput {
+  count: number;
+  blocked?: number;
+  failure?: string;
+}
+
+/**
+ * Second line of the cover. Refused files own it. A save that failed without refusing a file
+ * shows that message instead. Anything else leaves the line off.
+ */
+export function previewCoverSecondLine(input: IPreviewCoverLineInput, blockedTemplate: string): string | null {
+  const blocked = typeof input.blocked === 'number' && input.blocked > 0 ? input.blocked : 0;
+  if (blocked > 0) return previewCoverBlockedText(blockedTemplate, blocked);
+  if (typeof input.failure === 'string' && input.failure.length > 0) return input.failure;
+  return null;
+}
+
+/** Studio, with unsaved or refused work, and not the page level (editing happens on the preview). */
 export function previewCoverVisible(input: IPreviewCoverInput): boolean {
-  return input.studio === true && input.level !== EDIT_LEVEL && input.count > 0;
+  return input.studio === true
+    && input.level !== EDIT_LEVEL
+    && (previewCoverBlockedDecision(input).show || previewCoverSecondLine(input, '{n}') !== null);
 }
 // preview-cover-decision:end
 
 /** Window events. The studio plugin publishes them; this service does not import it. */
 const COLLAB_DRAFT_PENDING = 'collabDraftPending';
 const COLLAB_DRAFT_SAVE_REQUEST = 'collabDraftSaveRequest';
+const COLLAB_DRAFT_SAVE_RESULT = 'collabDraftSaveResult';
 const COLLAB_DRAFT_SAVED = 'collabDraftSaved';
 
 interface IDraftPendingDetail {
   project: number;
   count: number;
+  blocked: number;
+}
+
+interface IDraftSaveResultDetail {
+  project: number;
+  saved: boolean;
+  blocked: number;
+  message?: string;
 }
 
 interface IPreviewCoverCopy {
   before: string;
   save: string;
   after: string;
+  /** Template with `{n}`, or the finished line after substitution. */
+  blocked: string;
 }
 
 const PREVIEW_COVER_COPY: Record<'en' | 'pt' | 'es', IPreviewCoverCopy> = {
@@ -67,16 +128,19 @@ const PREVIEW_COVER_COPY: Record<'en' | 'pt' | 'es', IPreviewCoverCopy> = {
     before: 'There are unsaved draft changes. Use ',
     save: 'Save',
     after: ' to update this preview.',
+    blocked: '{n} file(s) with errors were not saved: fix them.',
   },
   pt: {
     before: 'Há alterações no rascunho. Use ',
     save: 'Salvar',
     after: ' para atualizar este preview.',
+    blocked: '{n} arquivo(s) com erro não foram salvos: corrija-os.',
   },
   es: {
     before: 'Hay cambios en el borrador. Use ',
     save: 'Guardar',
     after: ' para actualizar esta vista previa.',
+    blocked: '{n} archivo(s) con error no se guardaron: corríjalos.',
   },
 };
 
@@ -95,10 +159,16 @@ export interface IPreviewCoverButton {
   textContent: string | null;
 }
 
+export interface IPreviewCoverBreak {
+  hidden: boolean;
+}
+
 export interface IPreviewCoverNodes {
   before?: IPreviewCoverText;
   after?: IPreviewCoverText;
   button?: IPreviewCoverButton;
+  blocked?: IPreviewCoverText;
+  blockedBreak?: IPreviewCoverBreak;
 }
 
 // preview-cover-paint:start
@@ -106,6 +176,9 @@ export function applyPreviewCoverCopy(nodes: IPreviewCoverNodes, copy: IPreviewC
   if (nodes.before) nodes.before.data = copy.before;
   if (nodes.after) nodes.after.data = copy.after;
   if (nodes.button) nodes.button.textContent = copy.save;
+  const blocked = typeof copy.blocked === 'string' ? copy.blocked : '';
+  if (nodes.blocked) nodes.blocked.data = blocked;
+  if (nodes.blockedBreak) nodes.blockedBreak.hidden = blocked.length === 0;
 }
 
 /** First show: the nodes exist only after create. Paint before that leaves the cover empty. */
@@ -116,12 +189,31 @@ export function fillPreviewCoverOnFirstSync(create: () => IPreviewCoverNodes, co
 }
 // preview-cover-paint:end
 
+function readNonNegative(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  return value;
+}
+
 function readPendingDetail(value: unknown): IDraftPendingDetail | null {
   if (!value || typeof value !== 'object') return null;
-  const record = value as { project?: unknown; count?: unknown };
+  const record = value as { project?: unknown; count?: unknown; blocked?: unknown };
   if (typeof record.project !== 'number' || !Number.isInteger(record.project) || record.project <= 0) return null;
-  if (typeof record.count !== 'number' || !Number.isFinite(record.count) || record.count < 0) return null;
-  return { project: record.project, count: record.count };
+  const count = readNonNegative(record.count);
+  const blocked = readNonNegative(record.blocked);
+  if (count === null || blocked === null) return null;
+  return { project: record.project, count, blocked };
+}
+
+function readSaveResult(value: unknown): IDraftSaveResultDetail | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as { project?: unknown; saved?: unknown; blocked?: unknown; message?: unknown };
+  if (typeof record.project !== 'number' || !Number.isInteger(record.project) || record.project <= 0) return null;
+  if (typeof record.saved !== 'boolean') return null;
+  const blocked = readNonNegative(record.blocked);
+  if (blocked === null) return null;
+  const detail: IDraftSaveResultDetail = { project: record.project, saved: record.saved, blocked };
+  if (typeof record.message === 'string' && record.message.length > 0) detail.message = record.message;
+  return detail;
 }
 
 function readSavedProject(value: unknown): number | null {
@@ -172,12 +264,17 @@ export class ServiceClientApp extends ServiceBase {
   private studioModeObserver?: MutationObserver;
   private draftWatchOn = false;
   private pendingCount = 0;
+  private pendingBlocked = 0;
+  /** Last save failure shown when no file was refused. A new pending count, or a result that saved or has no message, clears it. */
+  private saveFailure = '';
   private reportedMissingProject = false;
   private reportedMissingRegion = false;
   private coverEl?: HTMLElement;
   private coverBefore?: Text;
   private coverAfter?: Text;
   private coverButton?: HTMLButtonElement;
+  private coverBlocked?: Text;
+  private coverBlockedBreak?: HTMLBRElement;
   /** Stable reference: mls.events removes a subscriber by identity. */
   private readonly onToolBarSelected = () => { this.publishEditState(); };
   private levelSubscribed = false;
@@ -235,6 +332,7 @@ export class ServiceClientApp extends ServiceBase {
     this.levelSubscribed = false;
     if (this.draftWatchOn) {
       window.removeEventListener(COLLAB_DRAFT_PENDING, this.onPendingEvent);
+      window.removeEventListener(COLLAB_DRAFT_SAVE_RESULT, this.onSaveResult);
       window.removeEventListener(COLLAB_DRAFT_SAVED, this.onDraftSaved);
       this.draftWatchOn = false;
     }
@@ -398,10 +496,13 @@ export class ServiceClientApp extends ServiceBase {
    * and is moved to the end on every sync, because adopting the region appends it.
    */
   private syncPreviewCover(): void {
+    const pending = { count: this.pendingCount, blocked: this.pendingBlocked, failure: this.saveFailure };
     const show = previewCoverVisible({
       studio: this.isStudioMode(),
       level: this.level,
-      count: this.pendingCount,
+      count: pending.count,
+      blocked: pending.blocked,
+      failure: pending.failure,
     });
     if (!show) {
       this.dropCover();
@@ -415,11 +516,23 @@ export class ServiceClientApp extends ServiceBase {
       this.reportedMissingRegion = true;
       console.error('[preview] draft cover has no content region');
     }
+    const phrase = previewCoverCopy(document.documentElement?.lang || 'en');
+    const line = previewCoverSecondLine(pending, phrase.blocked);
+    const copy: IPreviewCoverCopy = {
+      ...phrase,
+      blocked: line === null ? '' : line,
+    };
     const cover = fillPreviewCoverOnFirstSync(() => {
       this.ensureCover();
-      return { before: this.coverBefore, after: this.coverAfter, button: this.coverButton };
-    }, previewCoverCopy(document.documentElement?.lang || 'en'));
-    if (!cover.before || !cover.button) {
+      return {
+        before: this.coverBefore,
+        after: this.coverAfter,
+        button: this.coverButton,
+        blocked: this.coverBlocked,
+        blockedBreak: this.coverBlockedBreak,
+      };
+    }, copy);
+    if (!cover.before || !cover.button || !cover.blocked) {
       console.error('[preview] draft cover was created without its text nodes');
     }
     if (this.coverEl) this.append(this.coverEl);
@@ -438,13 +551,18 @@ export class ServiceClientApp extends ServiceBase {
     button.className = 'preview-draft-cover-save';
     button.addEventListener('click', this.onCoverSave);
     const after = document.createTextNode('');
+    const blockedBreak = document.createElement('br');
+    blockedBreak.hidden = true;
+    const blocked = document.createTextNode('');
     const line = document.createElement('p');
-    line.append(before, button, after);
+    line.append(before, button, after, blockedBreak, blocked);
     cover.append(line);
     this.coverEl = cover;
     this.coverBefore = before;
     this.coverAfter = after;
     this.coverButton = button;
+    this.coverBlocked = blocked;
+    this.coverBlockedBreak = blockedBreak;
     return cover;
   }
 
@@ -454,6 +572,8 @@ export class ServiceClientApp extends ServiceBase {
     this.coverBefore = undefined;
     this.coverAfter = undefined;
     this.coverButton = undefined;
+    this.coverBlocked = undefined;
+    this.coverBlockedBreak = undefined;
     this.classList.remove('preview-draft-locked');
     const region = this.querySelector('main[data-region="content"]');
     if (region instanceof HTMLElement) region.removeAttribute('inert');
@@ -476,6 +596,7 @@ export class ServiceClientApp extends ServiceBase {
       return;
     }
     window.addEventListener(COLLAB_DRAFT_PENDING, this.onPendingEvent);
+    window.addEventListener(COLLAB_DRAFT_SAVE_RESULT, this.onSaveResult);
     window.addEventListener(COLLAB_DRAFT_SAVED, this.onDraftSaved);
     this.draftWatchOn = true;
     if (latestPending) this.applyPending(latestPending);
@@ -494,8 +615,28 @@ export class ServiceClientApp extends ServiceBase {
     const project = this.siteProject();
     if (project === null || detail.project !== project) return;
     this.pendingCount = detail.count;
+    this.pendingBlocked = detail.blocked;
+    this.saveFailure = '';
     this.syncPreviewCover();
   }
+
+  private readonly onSaveResult = (event: Event): void => {
+    const detail = readSaveResult((event as CustomEvent<unknown>).detail);
+    if (!detail) {
+      console.error('[preview] collabDraftSaveResult detail is invalid; cover was not updated');
+      return;
+    }
+    const project = this.siteProject();
+    if (project === null || detail.project !== project || !this.isStudioMode()) return;
+    if (!detail.saved && detail.blocked <= 0) {
+      console.error('[preview] collabDraftSaveResult refused the save', detail.message ?? '(no message)');
+      this.saveFailure = detail.message ?? '';
+    } else {
+      this.saveFailure = '';
+    }
+    this.pendingBlocked = detail.blocked;
+    this.syncPreviewCover();
+  };
 
   private readonly onDraftSaved = (event: Event): void => {
     const project = readSavedProject((event as CustomEvent<unknown>).detail);
