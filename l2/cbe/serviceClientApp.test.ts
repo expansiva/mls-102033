@@ -24,6 +24,28 @@ function loadPreviewCoverVisible(): (input: { studio: boolean; level: number; co
 
 const previewCoverVisible = loadPreviewCoverVisible();
 
+function loadFillPreviewCoverOnFirstSync(): (
+  create: () => { before?: { data: string }; after?: { data: string }; button?: { textContent: string | null } },
+  copy: { before: string; save: string; after: string },
+) => { before?: { data: string }; after?: { data: string }; button?: { textContent: string | null } } {
+  const source = readFileSync(new URL('./serviceClientApp.ts', import.meta.url), 'utf8');
+  const start = source.indexOf('// preview-cover-paint:start');
+  const end = source.indexOf('// preview-cover-paint:end');
+  if (start < 0 || end < 0) throw new Error('preview cover paint block is missing');
+  const chunk = source.slice(start, end)
+    .replace(/: \(\) => IPreviewCoverNodes/gu, '')
+    .replace(/: IPreviewCoverNodes/gu, '')
+    .replace(/: IPreviewCoverCopy/gu, '')
+    .replace(/: void/gu, '')
+    .replace(/export /gu, '');
+  return new Function(`${chunk}\nreturn fillPreviewCoverOnFirstSync;`)() as (
+    create: () => { before?: { data: string }; after?: { data: string }; button?: { textContent: string | null } },
+    copy: { before: string; save: string; after: string },
+  ) => { before?: { data: string }; after?: { data: string }; button?: { textContent: string | null } };
+}
+
+const fillPreviewCoverOnFirstSync = loadFillPreviewCoverOnFirstSync();
+
 test('preview cover: studio level 4 with unsaved work shows', () => {
   assert.equal(previewCoverVisible({ studio: true, level: 4, count: 2 }), true);
 });
@@ -38,4 +60,20 @@ test('preview cover: studio with nothing to save stays open', () => {
 
 test('preview cover: outside studio stays open', () => {
   assert.equal(previewCoverVisible({ studio: false, level: 5, count: 5 }), false);
+});
+
+test('preview cover: first sync paints the text and the save button', () => {
+  const copy = {
+    before: 'There are unsaved draft changes. Use ',
+    save: 'Save',
+    after: ' to update this preview.',
+  };
+  const nodes = fillPreviewCoverOnFirstSync(() => ({
+    before: { data: '' },
+    after: { data: '' },
+    button: { textContent: '' },
+  }), copy);
+  assert.equal(nodes.before?.data, copy.before);
+  assert.equal(nodes.button?.textContent, copy.save);
+  assert.equal(nodes.after?.data, copy.after);
 });

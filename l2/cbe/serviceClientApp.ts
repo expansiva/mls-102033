@@ -1,4 +1,4 @@
-/// <mls fileReference="_102033_/l2/cbe/serviceClientApp.ts" enhancement="_blank" />
+/// <mls fileReference="_102033_/l2/cbe/serviceClientApp.ts" enhancement="_102027_/l2/enhancementLit" />
 // Runtime service that hosts the CLIENT APP inside the right collab-nav-3 —
 // the unified on.collab.codes structure (see nav3_unificado_plano.md). The
 // nav3 instances this element when its data-service points at
@@ -86,6 +86,35 @@ function previewCoverCopy(language: string): IPreviewCoverCopy {
   if (code.startsWith('es')) return PREVIEW_COVER_COPY.es;
   return PREVIEW_COVER_COPY.en;
 }
+
+export interface IPreviewCoverText {
+  data: string;
+}
+
+export interface IPreviewCoverButton {
+  textContent: string | null;
+}
+
+export interface IPreviewCoverNodes {
+  before?: IPreviewCoverText;
+  after?: IPreviewCoverText;
+  button?: IPreviewCoverButton;
+}
+
+// preview-cover-paint:start
+export function applyPreviewCoverCopy(nodes: IPreviewCoverNodes, copy: IPreviewCoverCopy): void {
+  if (nodes.before) nodes.before.data = copy.before;
+  if (nodes.after) nodes.after.data = copy.after;
+  if (nodes.button) nodes.button.textContent = copy.save;
+}
+
+/** First show: the nodes exist only after create. Paint before that leaves the cover empty. */
+export function fillPreviewCoverOnFirstSync(create: () => IPreviewCoverNodes, copy: IPreviewCoverCopy): IPreviewCoverNodes {
+  const nodes = create();
+  applyPreviewCoverCopy(nodes, copy);
+  return nodes;
+}
+// preview-cover-paint:end
 
 function readPendingDetail(value: unknown): IDraftPendingDetail | null {
   if (!value || typeof value !== 'object') return null;
@@ -386,8 +415,14 @@ export class ServiceClientApp extends ServiceBase {
       this.reportedMissingRegion = true;
       console.error('[preview] draft cover has no content region');
     }
-    this.paintCoverCopy();
-    this.append(this.ensureCover());
+    const cover = fillPreviewCoverOnFirstSync(() => {
+      this.ensureCover();
+      return { before: this.coverBefore, after: this.coverAfter, button: this.coverButton };
+    }, previewCoverCopy(document.documentElement?.lang || 'en'));
+    if (!cover.before || !cover.button) {
+      console.error('[preview] draft cover was created without its text nodes');
+    }
+    if (this.coverEl) this.append(this.coverEl);
   }
 
   private ensureCover(): HTMLElement {
@@ -411,13 +446,6 @@ export class ServiceClientApp extends ServiceBase {
     this.coverAfter = after;
     this.coverButton = button;
     return cover;
-  }
-
-  private paintCoverCopy(): void {
-    const copy = previewCoverCopy(document.documentElement?.lang || 'en');
-    if (this.coverBefore) this.coverBefore.data = copy.before;
-    if (this.coverAfter) this.coverAfter.data = copy.after;
-    if (this.coverButton) this.coverButton.textContent = copy.save;
   }
 
   private dropCover(): void {
