@@ -64,6 +64,37 @@ function loadFillPreviewCoverOnFirstSync(): (
 
 const fillPreviewCoverOnFirstSync = loadFillPreviewCoverOnFirstSync();
 
+interface IPreviewReloadState {
+  studio: boolean;
+  site: number | null;
+  hold: number | null;
+  reloads: number;
+}
+
+type PreviewDraftNotice =
+  | { kind: 'saved'; project: number | null }
+  | { kind: 'hold'; project: number | null; hold: boolean }
+  | { kind: 'discarded'; project: number | null };
+
+function loadApplyPreviewDraftNotice(): (state: IPreviewReloadState, notice: PreviewDraftNotice) => IPreviewReloadState {
+  const source = readFileSync(new URL('./serviceClientApp.ts', import.meta.url), 'utf8');
+  const start = source.indexOf('// preview-reload-decision:start');
+  const end = source.indexOf('// preview-reload-decision:end');
+  if (start < 0 || end < 0) throw new Error('preview reload decision block is missing');
+  const chunk = source.slice(start, end)
+    .replace(/export interface[\s\S]*?\n\}\n/u, '')
+    .replace(/export type[\s\S]*?;\n/u, '')
+    .replace(/export /gu, '')
+    .replace(/: IPreviewReloadState/gu, '')
+    .replace(/: PreviewDraftNotice/gu, '');
+  return new Function(`${chunk}\nreturn applyPreviewDraftNotice;`)() as (
+    state: IPreviewReloadState,
+    notice: PreviewDraftNotice,
+  ) => IPreviewReloadState;
+}
+
+const applyPreviewDraftNotice = loadApplyPreviewDraftNotice();
+
 test('preview cover: studio level 4 with unsaved work shows', () => {
   assert.equal(previewCoverVisible({ studio: true, level: 4, count: 2 }), true);
 });
@@ -122,6 +153,39 @@ test('preview cover: blocked files own the second line', () => {
 
 test('preview cover: nothing to report leaves the second line off', () => {
   assert.equal(previewCoverSecondLine({ count: 0, blocked: 0 }, BLOCKED_LINE), null);
+});
+
+test('st62 s2: an accepted discard reloads the preview once; a failed discard does not', () => {
+  const open = { studio: true, site: 102047, hold: null, reloads: 0 };
+  const failed = applyPreviewDraftNotice(
+    applyPreviewDraftNotice(
+      applyPreviewDraftNotice(open, { kind: 'hold', project: 102047, hold: true }),
+      { kind: 'saved', project: 102047 },
+    ),
+    { kind: 'hold', project: 102047, hold: false },
+  );
+  assert.equal(failed.reloads, 0);
+  assert.equal(failed.hold, null);
+
+  const accepted = applyPreviewDraftNotice(
+    applyPreviewDraftNotice(
+      applyPreviewDraftNotice(open, { kind: 'hold', project: 102047, hold: true }),
+      { kind: 'saved', project: 102047 },
+    ),
+    { kind: 'discarded', project: 102047 },
+  );
+  assert.equal(accepted.reloads, 1);
+  assert.equal(accepted.hold, null);
+
+  const again = applyPreviewDraftNotice(accepted, { kind: 'saved', project: 102047 });
+  assert.equal(again.reloads, 2);
+  const otherProject = applyPreviewDraftNotice(open, { kind: 'discarded', project: 102099 });
+  assert.equal(otherProject.reloads, 0);
+  const outside = applyPreviewDraftNotice(
+    { studio: false, site: 102047, hold: null, reloads: 0 },
+    { kind: 'discarded', project: 102047 },
+  );
+  assert.equal(outside.reloads, 0);
 });
 
 test('preview cover: first sync paints the text and the save button', () => {

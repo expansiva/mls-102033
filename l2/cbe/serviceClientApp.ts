@@ -96,11 +96,46 @@ export function previewCoverVisible(input: IPreviewCoverInput): boolean {
 }
 // preview-cover-decision:end
 
+// preview-reload-decision:start
+export interface IPreviewReloadState {
+  studio: boolean;
+  site: number | null;
+  /** Project whose Discard is inside `saveL5File`. A save for it does not reload. */
+  hold: number | null;
+  reloads: number;
+}
+
+export type PreviewDraftNotice =
+  | { kind: 'saved'; project: number | null }
+  | { kind: 'hold'; project: number | null; hold: boolean }
+  | { kind: 'discarded'; project: number | null };
+
+/**
+ * One reload when Discard was accepted. A save while that discard holds does not reload.
+ * A failed discard never sends `discarded`, so the count stays. Reloading does not discard again.
+ */
+export function applyPreviewDraftNotice(state: IPreviewReloadState, notice: PreviewDraftNotice): IPreviewReloadState {
+  if (notice.kind === 'hold') {
+    if (notice.project === null || state.site === null || notice.project !== state.site) return state;
+    const hold = notice.hold ? notice.project : (state.hold === notice.project ? null : state.hold);
+    return { studio: state.studio, site: state.site, hold, reloads: state.reloads };
+  }
+  if (!state.studio || state.site === null || notice.project === null || notice.project !== state.site) return state;
+  if (notice.kind === 'saved') {
+    if (state.hold === state.site) return state;
+    return { studio: state.studio, site: state.site, hold: state.hold, reloads: state.reloads + 1 };
+  }
+  return { studio: state.studio, site: state.site, hold: null, reloads: state.reloads + 1 };
+}
+// preview-reload-decision:end
+
 /** Window events. The studio plugin publishes them; this service does not import it. */
 const COLLAB_DRAFT_PENDING = 'collabDraftPending';
 const COLLAB_DRAFT_SAVE_REQUEST = 'collabDraftSaveRequest';
 const COLLAB_DRAFT_SAVE_RESULT = 'collabDraftSaveResult';
 const COLLAB_DRAFT_SAVED = 'collabDraftSaved';
+const COLLAB_DRAFT_DISCARDED = 'collabDraftDiscarded';
+const COLLAB_DRAFT_DISCARD_HOLD = 'collabDraftDiscardHold';
 
 interface IDraftPendingDetail {
   project: number;
@@ -223,6 +258,14 @@ function readSavedProject(value: unknown): number | null {
   return project;
 }
 
+function readDiscardHold(value: unknown): { project: number; hold: boolean } | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as { project?: unknown; hold?: unknown };
+  const project = readSavedProject(record);
+  if (project === null || typeof record.hold !== 'boolean') return null;
+  return { project, hold: record.hold };
+}
+
 function blockPreviewScroll(event: Event): void {
   event.preventDefault();
 }
@@ -263,6 +306,8 @@ export class ServiceClientApp extends ServiceBase {
   private panelVisible = true;
   private studioModeObserver?: MutationObserver;
   private draftWatchOn = false;
+  /** Set while Discard is inside `saveL5File` for the site project. */
+  private discardHold: number | null = null;
   private pendingCount = 0;
   private pendingBlocked = 0;
   /** Last save failure shown when no file was refused. A new pending count, or a result that saved or has no message, clears it. */
@@ -334,6 +379,8 @@ export class ServiceClientApp extends ServiceBase {
       window.removeEventListener(COLLAB_DRAFT_PENDING, this.onPendingEvent);
       window.removeEventListener(COLLAB_DRAFT_SAVE_RESULT, this.onSaveResult);
       window.removeEventListener(COLLAB_DRAFT_SAVED, this.onDraftSaved);
+      window.removeEventListener(COLLAB_DRAFT_DISCARDED, this.onDraftDiscarded);
+      window.removeEventListener(COLLAB_DRAFT_DISCARD_HOLD, this.onDiscardHold);
       this.draftWatchOn = false;
     }
     this.dropCover();
@@ -598,6 +645,8 @@ export class ServiceClientApp extends ServiceBase {
     window.addEventListener(COLLAB_DRAFT_PENDING, this.onPendingEvent);
     window.addEventListener(COLLAB_DRAFT_SAVE_RESULT, this.onSaveResult);
     window.addEventListener(COLLAB_DRAFT_SAVED, this.onDraftSaved);
+    window.addEventListener(COLLAB_DRAFT_DISCARDED, this.onDraftDiscarded);
+    window.addEventListener(COLLAB_DRAFT_DISCARD_HOLD, this.onDiscardHold);
     this.draftWatchOn = true;
     if (latestPending) this.applyPending(latestPending);
   }
@@ -644,15 +693,43 @@ export class ServiceClientApp extends ServiceBase {
       console.error('[preview] collabDraftSaved detail is invalid; preview was not reloaded');
       return;
     }
-    const site = this.siteProject();
-    if (!this.isStudioMode() || site === null || project !== site) return;
-    this.reloadPreview();
+    if (this.applyDraftNotice({ kind: 'saved', project }) > 0) this.reloadPreview('collabDraftSaved');
   };
 
-  /** `collabRuntimeNav3` has no per-tab reload, so a saved draft reloads the open page. */
-  private reloadPreview(): void {
+  private readonly onDiscardHold = (event: Event): void => {
+    const detail = readDiscardHold((event as CustomEvent<unknown>).detail);
+    if (!detail) {
+      console.error('[preview] collabDraftDiscardHold detail is invalid; discard hold was not changed');
+      return;
+    }
+    this.applyDraftNotice({ kind: 'hold', project: detail.project, hold: detail.hold });
+  };
+
+  private readonly onDraftDiscarded = (event: Event): void => {
+    const project = readSavedProject((event as CustomEvent<unknown>).detail);
+    if (project === null) {
+      console.error('[preview] collabDraftDiscarded detail is invalid; preview was not reloaded');
+      return;
+    }
+    if (this.applyDraftNotice({ kind: 'discarded', project }) > 0) this.reloadPreview('collabDraftDiscarded');
+  };
+
+  /** Applies one notice and keeps the hold. Returns how many preview reloads that notice asked for. */
+  private applyDraftNotice(notice: PreviewDraftNotice): number {
+    const next = applyPreviewDraftNotice({
+      studio: this.isStudioMode(),
+      site: this.siteProject(),
+      hold: this.discardHold,
+      reloads: 0,
+    }, notice);
+    this.discardHold = next.hold;
+    return next.reloads;
+  }
+
+  /** `collabRuntimeNav3` has no per-tab reload, so a saved or discarded draft reloads the open page. */
+  private reloadPreview(reason: 'collabDraftSaved' | 'collabDraftDiscarded'): void {
     if (typeof window.location?.reload !== 'function') {
-      console.error('[preview] collabDraftSaved: location.reload is missing; preview was not reloaded');
+      console.error(`[preview] ${reason}: location.reload is missing; preview was not reloaded`);
       return;
     }
     window.location.reload();
