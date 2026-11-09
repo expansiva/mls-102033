@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   applyDraftFiles,
+  COLLAB_DRAFT_RECOUNT,
   draftContentCrc,
   draftFileOps,
   draftPublishedCommit,
@@ -60,6 +61,9 @@ test('applyDraftFiles keeps a local edit and continues after one failure', async
   const infos: string[] = [];
   const previousError = console.error;
   const previousInfo = console.info;
+  const windowHost = globalThis as { window?: EventTarget };
+  const previousWindow = windowHost.window;
+  windowHost.window = new EventTarget();
   console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
   console.info = (...args: unknown[]) => { infos.push(args.map(String).join(' ')); };
   const files: DraftDiffFile[] = [
@@ -101,6 +105,7 @@ test('applyDraftFiles keeps a local edit and continues after one failure', async
   } finally {
     console.error = previousError;
     console.info = previousInfo;
+    windowHost.window = previousWindow;
   }
 });
 
@@ -277,6 +282,9 @@ test('published CRC is the history blob, including a model born later', async ()
   };
   const errors: string[] = [];
   const previousError = console.error;
+  const windowHost = globalThis as { window?: EventTarget };
+  const previousWindow = windowHost.window;
+  windowHost.window = new EventTarget();
   console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
   try {
     await applyDraftFiles(project, 'team-102047', {
@@ -326,6 +334,7 @@ test('published CRC is the history blob, including a model born later', async ()
     assert.deepEqual(errors, []);
   } finally {
     console.error = previousError;
+    windowHost.window = previousWindow;
     if (host.mls) {
       host.mls.editor = previousEditor;
       host.mls.common = previousCommon;
@@ -675,5 +684,45 @@ test('applyDraftFiles reads draft and published content in batches of 100', asyn
       host.mls.common = previousCommon;
       host.mls.stor = previousStor;
     }
+  }
+});
+
+test('seeding the sent CRC on Studio entry asks for one unsaved recount', async () => {
+  const project = 102047;
+  const host = globalThis as { window?: EventTarget };
+  const previous = host.window;
+  const windowEvents = new EventTarget();
+  const projects: number[] = [];
+  windowEvents.addEventListener(COLLAB_DRAFT_RECOUNT, (ev) => {
+    projects.push((ev as CustomEvent<{ project: number }>).detail.project);
+  });
+  host.window = windowEvents;
+  const errors: string[] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+  try {
+    await applyDraftFiles(project, 'team-102047', {
+      draftDiff: async () => ({ head: 'abc', main: 'main1', files: [] }),
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async (info) => ({ versionRef: info.versionRef }),
+      fileKey,
+      files: () => ({}),
+    });
+    assert.deepEqual(projects, [project]);
+    assert.deepEqual(errors, []);
+    projects.length = 0;
+    host.window = undefined;
+    await applyDraftFiles(project, 'team-102047', {
+      draftDiff: async () => { throw new Error('diff down'); },
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async () => ({}),
+      fileKey,
+      files: () => ({}),
+    });
+    assert.deepEqual(projects, []);
+    assert.equal(errors.some((line) => line.includes('draftDiff')), true);
+  } finally {
+    console.error = previousError;
+    host.window = previous;
   }
 });

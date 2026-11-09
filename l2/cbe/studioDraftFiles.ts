@@ -73,6 +73,31 @@ export function sentCrcOf(file: DraftFileIdentity): string | undefined {
   return sentCrc.get(sentCrcKey(file));
 }
 
+/** Window event: the unsaved count may have changed, and no file event fired. 102033 does not import the listener. */
+export const COLLAB_DRAFT_RECOUNT = 'collabDraftRecount';
+
+export interface ICollabDraftRecountDetail {
+  project: number;
+}
+
+export function requestDraftRecount(project: number): void {
+  if (typeof project !== 'number' || project <= 0) {
+    console.error('[studioDraftFiles] collabDraftRecount was not dispatched: project is missing');
+    return;
+  }
+  const target = (globalThis as { window?: EventTarget }).window;
+  if (!target || typeof target.dispatchEvent !== 'function') {
+    console.error('[studioDraftFiles] collabDraftRecount was not dispatched: window is missing');
+    return;
+  }
+  const detail: ICollabDraftRecountDetail = { project };
+  try {
+    target.dispatchEvent(new CustomEvent(COLLAB_DRAFT_RECOUNT, { detail }));
+  } catch (err) {
+    console.error('[studioDraftFiles] collabDraftRecount was not dispatched:', err);
+  }
+}
+
 interface DraftStoredRow {
   versionRef: string;
   status?: string;
@@ -512,6 +537,7 @@ async function seedSentCrcs(project: number, targets: SentCrcTarget[]): Promise<
       rememberLoadedCrc(project, batch[index], byInfo.get(fileInfos[index]));
     }
   }
+  requestDraftRecount(project);
 }
 
 interface PublishedRead {
