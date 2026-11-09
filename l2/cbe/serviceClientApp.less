@@ -1,0 +1,54 @@
+/// <mls fileReference="_102033_/l2/cbe/serviceClientApp.less" enhancement="enhancementStyle"/>
+
+cbe--service-client-app-102033 {
+  position: relative;
+
+  &.preview-draft-locked {
+    overflow: hidden;
+
+    main[data-region="content"] {
+      overflow: hidden;
+      pointer-events: none;
+    }
+  }
+
+  .preview-draft-cover {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    overflow: hidden;
+    text-align: center;
+    color: @text-primary-color;
+    touch-action: none;
+    overscroll-behavior: none;
+
+    &::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: @bg-primary-color;
+      opacity: 0.82;
+    }
+
+    p {
+      position: relative;
+      z-index: 1;
+      max-width: 36rem;
+      margin: 0;
+    }
+
+    button {
+      margin: 0 0.25rem;
+      padding: 0.35rem 0.8rem;
+      border: 1px solid @text-primary-color;
+      border-radius: 0.25rem;
+      background: @text-primary-color;
+      color: @bg-primary-color;
+      cursor: pointer;
+    }
+  }
+}

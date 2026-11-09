@@ -16,6 +16,7 @@ import { parseMsizeHeight } from '/_102033_/l2/shared/regionMsize.js';
 import { publishEditHost } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { loadStudioTools } from '/_102033_/l2/cbe/studioServices.js';
 import { tabPinLabel } from '/_102033_/l2/shared/moduleTab.js';
+import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 
 function pinMenuText(): string {
   const nav = window.collabRuntimeNav3;
@@ -30,7 +31,96 @@ function pinMenuText(): string {
  * already — L3 is the page level of the aura flow — so a separate toggle was one more state to keep in
  * sync with it.
  */
+// preview-cover-decision:start
 const EDIT_LEVEL = 3;
+
+export interface IPreviewCoverInput {
+  studio: boolean;
+  level: number;
+  count: number;
+}
+
+/** Studio, with unsaved work, and not the page level (editing happens on the preview). */
+export function previewCoverVisible(input: IPreviewCoverInput): boolean {
+  return input.studio === true && input.level !== EDIT_LEVEL && input.count > 0;
+}
+// preview-cover-decision:end
+
+/** Window events. The studio plugin publishes them; this service does not import it. */
+const COLLAB_DRAFT_PENDING = 'collabDraftPending';
+const COLLAB_DRAFT_SAVE_REQUEST = 'collabDraftSaveRequest';
+const COLLAB_DRAFT_SAVED = 'collabDraftSaved';
+
+interface IDraftPendingDetail {
+  project: number;
+  count: number;
+}
+
+interface IPreviewCoverCopy {
+  before: string;
+  save: string;
+  after: string;
+}
+
+const PREVIEW_COVER_COPY: Record<'en' | 'pt' | 'es', IPreviewCoverCopy> = {
+  en: {
+    before: 'There are unsaved draft changes. Use ',
+    save: 'Save',
+    after: ' to update this preview.',
+  },
+  pt: {
+    before: 'Há alterações no rascunho. Use ',
+    save: 'Salvar',
+    after: ' para atualizar este preview.',
+  },
+  es: {
+    before: 'Hay cambios en el borrador. Use ',
+    save: 'Guardar',
+    after: ' para actualizar esta vista previa.',
+  },
+};
+
+function previewCoverCopy(language: string): IPreviewCoverCopy {
+  const code = language.trim().toLowerCase();
+  if (code.startsWith('pt')) return PREVIEW_COVER_COPY.pt;
+  if (code.startsWith('es')) return PREVIEW_COVER_COPY.es;
+  return PREVIEW_COVER_COPY.en;
+}
+
+function readPendingDetail(value: unknown): IDraftPendingDetail | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as { project?: unknown; count?: unknown };
+  if (typeof record.project !== 'number' || !Number.isInteger(record.project) || record.project <= 0) return null;
+  if (typeof record.count !== 'number' || !Number.isFinite(record.count) || record.count < 0) return null;
+  return { project: record.project, count: record.count };
+}
+
+function readSavedProject(value: unknown): number | null {
+  if (!value || typeof value !== 'object') return null;
+  const project = (value as { project?: unknown }).project;
+  if (typeof project !== 'number' || !Number.isInteger(project) || project <= 0) return null;
+  return project;
+}
+
+function blockPreviewScroll(event: Event): void {
+  event.preventDefault();
+}
+
+/** Last count seen, including one that arrived before this service connected. */
+let latestPending: IDraftPendingDetail | null = null;
+
+function rememberPending(event: Event): void {
+  const detail = readPendingDetail((event as CustomEvent<unknown>).detail);
+  if (detail) latestPending = detail;
+}
+
+function armPendingLatch(): void {
+  const target = (globalThis as { window?: EventTarget }).window;
+  if (!target || typeof target.addEventListener !== 'function') return;
+  target.addEventListener(COLLAB_DRAFT_PENDING, rememberPending);
+}
+
+armPendingLatch();
 
 export class ServiceClientApp extends ServiceBase {
   public details: IService = {
@@ -51,6 +141,14 @@ export class ServiceClientApp extends ServiceBase {
   private toolsRequested = false;
   private panelVisible = true;
   private studioModeObserver?: MutationObserver;
+  private draftWatchOn = false;
+  private pendingCount = 0;
+  private reportedMissingProject = false;
+  private reportedMissingRegion = false;
+  private coverEl?: HTMLElement;
+  private coverBefore?: Text;
+  private coverAfter?: Text;
+  private coverButton?: HTMLButtonElement;
   /** Stable reference: mls.events removes a subscriber by identity. */
   private readonly onToolBarSelected = () => { this.publishEditState(); };
   private levelSubscribed = false;
@@ -95,6 +193,7 @@ export class ServiceClientApp extends ServiceBase {
     this.adoptAppHost();
     this.watchStudioMode();
     this.watchLevel();
+    this.watchDraft();
     this.publishEditState();
   }
 
@@ -105,6 +204,12 @@ export class ServiceClientApp extends ServiceBase {
     // undefined/undefined removes the subscriber from every level and type it was added to.
     mls?.events?.removeEventListener(undefined, undefined, this.onToolBarSelected);
     this.levelSubscribed = false;
+    if (this.draftWatchOn) {
+      window.removeEventListener(COLLAB_DRAFT_PENDING, this.onPendingEvent);
+      window.removeEventListener(COLLAB_DRAFT_SAVED, this.onDraftSaved);
+      this.draftWatchOn = false;
+    }
+    this.dropCover();
     // Whoever plugged in tears itself down: the app region is going away.
     publishEditHost(null);
   }
@@ -186,6 +291,7 @@ export class ServiceClientApp extends ServiceBase {
    * file editor never arms the overlay, and the hot swap must still reach the running page).
    */
   private publishEditState(): void {
+    this.syncPreviewCover();
     const host = this.regionHost();
     if (!host || !this.isStudioMode()) {
       publishEditHost(null);
@@ -255,6 +361,146 @@ export class ServiceClientApp extends ServiceBase {
     const region = this.querySelector('main[data-region="content"]') as HTMLElement | null;
     if (!region) return;
     region.style.height = height != null ? `${height}px` : '100%';
+  }
+
+  /**
+   * The preview stays on the last saved copy until Save. The cover sits beside the adopted
+   * region (never inside it: the shell remounts when the region host's first child changes)
+   * and is moved to the end on every sync, because adopting the region appends it.
+   */
+  private syncPreviewCover(): void {
+    const show = previewCoverVisible({
+      studio: this.isStudioMode(),
+      level: this.level,
+      count: this.pendingCount,
+    });
+    if (!show) {
+      this.dropCover();
+      return;
+    }
+    this.classList.add('preview-draft-locked');
+    const region = this.querySelector('main[data-region="content"]');
+    if (region instanceof HTMLElement) {
+      region.setAttribute('inert', '');
+    } else if (!this.reportedMissingRegion) {
+      this.reportedMissingRegion = true;
+      console.error('[preview] draft cover has no content region');
+    }
+    this.paintCoverCopy();
+    this.append(this.ensureCover());
+  }
+
+  private ensureCover(): HTMLElement {
+    if (this.coverEl) return this.coverEl;
+    const cover = document.createElement('div');
+    cover.className = 'preview-draft-cover';
+    cover.setAttribute('role', 'status');
+    cover.addEventListener('wheel', blockPreviewScroll, { passive: false });
+    cover.addEventListener('touchmove', blockPreviewScroll, { passive: false });
+    const before = document.createTextNode('');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'preview-draft-cover-save';
+    button.addEventListener('click', this.onCoverSave);
+    const after = document.createTextNode('');
+    const line = document.createElement('p');
+    line.append(before, button, after);
+    cover.append(line);
+    this.coverEl = cover;
+    this.coverBefore = before;
+    this.coverAfter = after;
+    this.coverButton = button;
+    return cover;
+  }
+
+  private paintCoverCopy(): void {
+    const copy = previewCoverCopy(document.documentElement?.lang || 'en');
+    if (this.coverBefore) this.coverBefore.data = copy.before;
+    if (this.coverAfter) this.coverAfter.data = copy.after;
+    if (this.coverButton) this.coverButton.textContent = copy.save;
+  }
+
+  private dropCover(): void {
+    this.coverEl?.remove();
+    this.coverEl = undefined;
+    this.coverBefore = undefined;
+    this.coverAfter = undefined;
+    this.coverButton = undefined;
+    this.classList.remove('preview-draft-locked');
+    const region = this.querySelector('main[data-region="content"]');
+    if (region instanceof HTMLElement) region.removeAttribute('inert');
+  }
+
+  private readonly onCoverSave = (): void => {
+    const project = this.siteProject();
+    if (project === null) {
+      console.error('[preview] collabDraftSaveRequest was not sent: site project is missing');
+      return;
+    }
+    const detail: { project: number } = { project };
+    window.dispatchEvent(new CustomEvent(COLLAB_DRAFT_SAVE_REQUEST, { detail }));
+  };
+
+  private watchDraft(): void {
+    if (this.draftWatchOn) return;
+    if (typeof window.addEventListener !== 'function') {
+      console.error('[preview] draft cover was not armed: window is missing');
+      return;
+    }
+    window.addEventListener(COLLAB_DRAFT_PENDING, this.onPendingEvent);
+    window.addEventListener(COLLAB_DRAFT_SAVED, this.onDraftSaved);
+    this.draftWatchOn = true;
+    if (latestPending) this.applyPending(latestPending);
+  }
+
+  private readonly onPendingEvent = (event: Event): void => {
+    const detail = readPendingDetail((event as CustomEvent<unknown>).detail);
+    if (!detail) {
+      console.error('[preview] collabDraftPending detail is invalid; cover was not updated');
+      return;
+    }
+    this.applyPending(detail);
+  };
+
+  private applyPending(detail: IDraftPendingDetail): void {
+    const project = this.siteProject();
+    if (project === null || detail.project !== project) return;
+    this.pendingCount = detail.count;
+    this.syncPreviewCover();
+  }
+
+  private readonly onDraftSaved = (event: Event): void => {
+    const project = readSavedProject((event as CustomEvent<unknown>).detail);
+    if (project === null) {
+      console.error('[preview] collabDraftSaved detail is invalid; preview was not reloaded');
+      return;
+    }
+    const site = this.siteProject();
+    if (!this.isStudioMode() || site === null || project !== site) return;
+    this.reloadPreview();
+  };
+
+  /** `collabRuntimeNav3` has no per-tab reload, so a saved draft reloads the open page. */
+  private reloadPreview(): void {
+    if (typeof window.location?.reload !== 'function') {
+      console.error('[preview] collabDraftSaved: location.reload is missing; preview was not reloaded');
+      return;
+    }
+    window.location.reload();
+  }
+
+  /** The site project. `mls.actualProject` only when the boot config has no client id. */
+  private siteProject(): number | null {
+    const boot = (window as { collabBoot?: { projectId?: string | number; clientProjectId?: string | number } }).collabBoot;
+    const fromBoot = siteProjectFromBoot(boot);
+    if (fromBoot > 0) return fromBoot;
+    const actual = mls?.actualProject;
+    if (typeof actual === 'number' && Number.isInteger(actual) && actual > 0) return actual;
+    if (!this.reportedMissingProject) {
+      this.reportedMissingProject = true;
+      console.error('[preview] site project is missing; draft cover stays off');
+    }
+    return null;
   }
 
   render() {
