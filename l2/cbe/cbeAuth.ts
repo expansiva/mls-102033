@@ -63,9 +63,42 @@ function showProviderNotice(message: string): void {
   if (!notice.isConnected) document.body.appendChild(notice);
 }
 
-function clearProviderQuery(): void {
-  history.replaceState(null, '', window.location.pathname);
+interface ProviderCallback {
+  source: string | null;
+  code: string | null;
+  state: string | null;
+  action: string | null;
+  hasCode: boolean;
+  hasState: boolean;
 }
+
+const CALLBACK_PARAMS = ['source', 'code', 'state', 'function'] as const;
+
+/**
+ * Read at import. The shell's replaceState drops this query during boot,
+ * before `completeProviderConnection` runs, and the code is single-use.
+ * Only these four parameters leave the address bar; the rest of the URL stays.
+ */
+function captureProviderCallback(): ProviderCallback | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const params = new URLSearchParams(window.location.search);
+  if (!CALLBACK_PARAMS.some((key) => params.has(key))) return undefined;
+  const captured: ProviderCallback = {
+    source: params.get('source'),
+    code: params.get('code'),
+    state: params.get('state'),
+    action: params.get('function'),
+    hasCode: params.has('code'),
+    hasState: params.has('state'),
+  };
+  for (const key of CALLBACK_PARAMS) params.delete(key);
+  const query = params.toString();
+  const hash = window.location.hash ?? '';
+  history.replaceState(null, '', `${window.location.pathname}${query.length > 0 ? `?${query}` : ''}${hash}`);
+  return captured;
+}
+
+const providerCallback = captureProviderCallback();
 
 /**
  * After collab-auth login has filled `providersConnected`: exchange a GitHub
@@ -73,20 +106,20 @@ function clearProviderQuery(): void {
  * mark a stored token as connected. The token stays in localStorage; it is never logged.
  */
 export async function completeProviderConnection(providersConnected: string[]): Promise<void> {
-  const params = new URLSearchParams(window.location.search);
-  const source = params.get('source');
-  if (isGitProvider(source)) {
-    if (params.get('function') === 'disconnect') {
+  const callback = providerCallback;
+  const source = callback?.source ?? null;
+  if (callback && !isGitProvider(source)) {
+    console.error('[cbeAuth] provider callback unused (not a git provider)');
+  } else if (callback && isGitProvider(source)) {
+    if (callback.action === 'disconnect') {
       removeStudioProvider(source);
-      clearProviderQuery();
-    } else if (params.has('code') || params.has('state')) {
-      const code = params.get('code') ?? '';
-      const state = params.get('state') ?? '';
+    } else if (callback.hasCode || callback.hasState) {
+      const code = callback.code ?? '';
+      const state = callback.state ?? '';
       const expected = localStorage.getItem('pluginCollabLogin');
       if (!code || !state || !expected || expected !== state) {
-        console.error('[cbeAuth] provider callback rejected');
+        console.error(`[cbeAuth] provider callback ${source}: rejected (state)`);
         showProviderNotice(providerMessage('stateRejected'));
-        clearProviderQuery(); // a code is single-use: never leave it in the address bar or the history
       } else {
         const redirectUri = `${window.location.origin}?source=${source}`;
         try {
@@ -100,17 +133,19 @@ export async function completeProviderConnection(providersConnected: string[]): 
           if (response.ok && typeof body.token === 'string' && body.token) {
             writeStudioProviderToken(source, body.token);
             localStorage.removeItem('pluginCollabLogin');
+            console.info(`[cbeAuth] provider callback ${source}: connected`);
           } else {
-            console.error(`[cbeAuth] provider token exchange failed (HTTP ${response.status})`);
+            console.error(`[cbeAuth] provider callback ${source}: exchange failed (HTTP ${response.status})`);
             showProviderNotice(providerMessage('exchangeFailed'));
           }
         } catch (error) {
           // Name only: the message of a failed request must not reach the console.
-          console.error(`[cbeAuth] provider token exchange failed (${error instanceof Error ? error.name : 'unknown'})`);
+          console.error(`[cbeAuth] provider callback ${source}: exchange failed (${error instanceof Error ? error.name : 'unknown'})`);
           showProviderNotice(providerMessage('exchangeFailed'));
         }
-        clearProviderQuery();
       }
+    } else {
+      console.error(`[cbeAuth] provider callback ${source}: unused (no code, state or disconnect)`);
     }
   }
   const stored = readStudioDefs();
