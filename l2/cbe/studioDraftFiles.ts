@@ -444,7 +444,7 @@ interface DraftContentRequest extends DraftFileIdentity {
 function sentCrcTarget(project: number, path: string, deps: DraftFilesDeps): SentCrcTarget | undefined {
   const loc = parseDraftFile(path);
   const row = rowAt(project, path, deps);
-  if (!loc || !row || row.inLocalStorage === true || !row.getContent) return undefined;
+  if (!loc || !row || !row.getContent) return undefined;
   return { path, loc, row };
 }
 

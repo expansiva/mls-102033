@@ -494,6 +494,7 @@ test('applyDraftFiles reads draft and published content in batches of 100', asyn
     bodies.set(`${smallProject}/panel`, panelText);
     bodies.set(`${smallProject}/a`, defsText);
     bodies.set(`${smallProject}/plain`, batchOnly);
+    bodies.set(`${smallProject}/local`, 'local-body');
     bodies.set(`${smallProject}/missing`, null);
     stored[fileKey(alpha)] = { versionRef: 'o', getHistoryContent: history(), getContent: rowText(alphaText) };
     stored[fileKey(beta)] = { versionRef: 'o', getHistoryContent: history(), getContent: rowText(betaText) };
@@ -537,7 +538,7 @@ test('applyDraftFiles reads draft and published content in batches of 100', asyn
     assert.equal(publishedOf(calls).length, 1);
     assert.equal(draftOf(calls).length, 1);
     assert.deepEqual(publishedOf(calls)[0].fileInfos.map((info) => info.shortName), ['alpha', 'beta', 'panel', 'a', 'local', 'missing', 'plain', 'absent']);
-    assert.deepEqual(draftOf(calls)[0].fileInfos.map((info) => info.shortName), ['alpha', 'beta', 'panel', 'a', 'missing', 'plain']);
+    assert.deepEqual(draftOf(calls)[0].fileInfos.map((info) => info.shortName), ['alpha', 'beta', 'panel', 'a', 'local', 'missing', 'plain']);
     assert.equal(draftOf(calls)[0].fileInfos.some((info) => info.folder === 'src' && info.extension === '.defs.ts' && info.shortName === 'a'), true);
     assert.equal(sentCrcOf(alpha), oldAlpha);
     assert.equal(sentCrcOf(beta), oldBeta);
@@ -546,7 +547,7 @@ test('applyDraftFiles reads draft and published content in batches of 100', asyn
     assert.equal(oldMissing, undefined);
     assert.equal(sentCrcOf(missing), undefined);
     assert.equal(oldLocal, undefined);
-    assert.equal(sentCrcOf(local), undefined);
+    assert.equal(sentCrcOf(local), draftContentCrc('local-body', '.ts'));
     assert.equal(sentCrcOf(plain), draftContentCrc(batchOnly, '.ts'));
     assert.notEqual(sentCrcOf(plain), draftContentCrc('from-row', '.ts'));
     assert.equal(errors.some((line) => line.includes('l2/missing.ts') && line.includes('draft text is not a string')), true);
