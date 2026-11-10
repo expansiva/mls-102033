@@ -5,8 +5,8 @@
 // arriving late means that tag is out of the live update for the whole session. Import order is
 // evaluation order, so anything moved above this line takes its own defines out of reach. The two
 // module scripts the shell templates load before this one (telemetry.js, cbeMiniCfe.js) register no
-// custom element, which is what makes the first line here early enough. Inert without the studio
-// flag: a client session keeps the native `define`.
+// custom element, which is what makes the first line here early enough. It arms on every boot
+// (st66 s3): the stand-in only redirects construction, and nothing swaps an implementation outside Studio.
 import '/_102033_/l2/shared/elementSwapRegistry.js';
 import '/_102033_/l2/shared/shell.js';
 // brings the global Window.collabBoot declaration into every program that compiles this file

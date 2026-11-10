@@ -36,8 +36,8 @@
 // without `InvalidStateError`; and Lit's `finalize()` writes own statics on the stand-in that shadow
 // every future impl unless they are removed on each relink (see `stripForeignStatics`).
 //
-// STUDIO ONLY. An anonymous visitor keeps the native `define`. A logged-in person, or a browser that
-// already remembers the flag, installs the stand-in at import.
+// EVERY BOOT. The stand-in is installed at import, before any tag is defined, including for an
+// anonymous visitor. Nothing swaps the implementation until Studio calls `swapElementImpl`.
 
 /** The subset of `CustomElementRegistry` used here — narrow so a Node test can pass a fake. */
 export interface IElementRegistry {
@@ -49,17 +49,6 @@ export interface IElementRegistry {
 interface ILitLikeConstructor extends CustomElementConstructor {
   finalize?: () => void;
 }
-
-/**
- * localStorage key that arms the swap on the next boot.
- *
- * The stand-in only exists if it is installed BEFORE the first `define` of a tag, which happens
- * while the app boots — long before anyone can press Ctrl+Alt+S. Entering studio mode writes this
- * flag (`rememberElementSwapForNextBoot`, called from shell.ts) so the boot after that arms.
- * A person already logged in (`loginUser` cookie, not `anonymous`) arms on this same boot, read
- * here at import. An anonymous visitor keeps the native `define`.
- */
-export const STUDIO_ELEMENT_SWAP_FLAG = 'collabStudioElementSwap';
 
 const LIFECYCLE_CALLBACKS = [
   'connectedCallback',
@@ -285,49 +274,6 @@ export async function captureDefines<T>(fn: () => Promise<T>, onDefine: DefineLi
   }
 }
 
-/** Writes the flag read at the next boot. Called when studio mode turns on (shell.ts). */
-export function rememberElementSwapForNextBoot(): void {
-  try {
-    localStorage.setItem(STUDIO_ELEMENT_SWAP_FLAG, '1');
-  } catch {
-    // Private mode / blocked storage: the swap simply never arms, and the mode says so.
-  }
-}
-
-export function isElementSwapRemembered(): boolean {
-  try {
-    return localStorage.getItem(STUDIO_ELEMENT_SWAP_FLAG) === '1';
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Same rule as `getLoginUser` in cbeAuth: a `loginUser` cookie other than `anonymous`.
- * Read here, not imported — this module is evaluated before cbeAuth and must not pull a `define`
- * ahead of the stand-in (bootstrap.ts).
- */
-function loggedInOnThisBoot(): boolean {
-  if (typeof document === 'undefined') return false;
-  let raw = '';
-  try {
-    raw = typeof document.cookie === 'string' ? document.cookie : '';
-  } catch (error) {
-    console.error('elementSwapRegistry: could not read the loginUser cookie', error);
-    return false;
-  }
-  const match = /(?:^|;\s*)loginUser=([^;]*)/u.exec(raw);
-  if (!match) return false;
-  let value = '';
-  try {
-    value = decodeURIComponent(match[1]);
-  } catch (error) {
-    console.error('elementSwapRegistry: loginUser cookie is not valid percent-encoding', error);
-    return false;
-  }
-  return value !== '' && value !== 'anonymous';
-}
-
 /**
  * Nodes minted by the live-update remount. A WeakSet so the mark dies with the node and never
  * becomes an attribute that `carryOver` would copy onto the next replacement.
@@ -348,9 +294,10 @@ export function wasRebuiltByStudio(el: Element): boolean {
   return rebuiltByStudio.has(el);
 }
 
-// Arm at import, before any tag is defined. A logged-in person arms on this boot (the login cookie
-// is already there). The remembered flag arms the boot after studio was entered. An anonymous
-// visitor, with neither, keeps the native `define`.
-if (typeof customElements !== 'undefined' && (isElementSwapRemembered() || loggedInOnThisBoot())) {
+// Arm at import, before any tag is defined. The define of the app happens before anyone can know
+// the mode, so a visitor arms too. The stand-in only redirects construction. `HTMLElement` has to
+// exist: the stand-in is `class extends HTMLElement`. A harness that only stubs `customElements`
+// keeps the native define.
+if (typeof customElements !== 'undefined' && typeof HTMLElement === 'function') {
   armElementSwap();
 }

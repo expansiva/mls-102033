@@ -358,28 +358,61 @@ test('T17: wasRebuiltByStudio is true for a node marked as a studio rebuild', as
   assert.equal(mod.wasRebuiltByStudio(element), true);
 });
 
-// T18 — a logged-in person arms on this boot, at import, without the remembered flag.
-test('T18: import arms when loginUser is an email', () => {
+// T18 — the import arms with no flag and no cookie. The define happens before the mode is known.
+test('T18: import arms with no flag and no cookie', () => {
+  assert.equal(armOnImport({ ARM_COOKIE: '', ARM_FLAG: '0' }), 'ARMED');
+});
+
+// T19 — a logged-in person and an anonymous visitor arm the same way.
+test('T19: import arms for a logged-in person and for anonymous', () => {
   assert.equal(armOnImport({ ARM_COOKIE: 'loginUser=ada@example.com', ARM_FLAG: '0' }), 'ARMED');
+  assert.equal(armOnImport({ ARM_COOKIE: 'loginUser=anonymous', ARM_FLAG: '0' }), 'ARMED');
 });
 
-// T19 — anonymous, and no cookie at all, keep the native define.
-test('T19: import stays native for anonymous or no login cookie', () => {
-  assert.equal(armOnImport({ ARM_COOKIE: 'loginUser=anonymous', ARM_FLAG: '0' }), 'NATIVE');
-  assert.equal(armOnImport({ ARM_COOKIE: '', ARM_FLAG: '0' }), 'NATIVE');
-});
-
-// T20 — the flag written for the next boot still arms, with no logged-in cookie.
-test('T20: import still arms when the remembered flag is set', () => {
+// T20 — a leftover flag does not change the arm. The flag is not the gate.
+test('T20: import arms when the old flag is set and when it is not', () => {
   assert.equal(armOnImport({ ARM_COOKIE: '', ARM_FLAG: '1' }), 'ARMED');
 });
 
-// T13 — the flag is what gates everything, and the shell is what writes it.
-test('T13: the shell arms the next boot when studio mode turns on', () => {
+// T13 — the shell used to write the flag so the next boot would arm. The import arms for everyone,
+// so the shell must not call that flag. The old text looked for `studioModeOn = !this.studioModeOn`
+// followed by `rememberElementSwapForNextBoot()`; `applyStudioInterface` assigns `studioOn` and
+// does not write the flag.
+test('T13: the shell does not arm the element swap', () => {
   const shell = readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), 'shell.ts'),
     'utf8',
   );
-  assert.match(shell, /import \{ rememberElementSwapForNextBoot \} from '\/_102033_\/l2\/shared\/elementSwapRegistry\.js';/u);
-  assert.match(shell, /this\.studioModeOn = !this\.studioModeOn;[\s\S]{0,800}?rememberElementSwapForNextBoot\(\);/u);
+  assert.doesNotMatch(shell, /rememberElementSwapForNextBoot/u);
+});
+
+class PageOutside extends (FakeHTMLElement as unknown as { new (): HTMLElement }) {
+  public static get observedAttributes(): string[] {
+    return ['hue'];
+  }
+  public connectedCallback(): void { log.push('connected:real'); }
+  public attributeChangedCallback(name: string, _oldValue: string | null, value: string | null): void {
+    log.push(`attr:${name}:${value ?? ''}`);
+  }
+}
+
+// T21 — outside Studio nobody calls swapElementImpl. The stand-in still builds the defined class.
+test('T21: without a swap, lifecycle, observedAttributes and instanceof stay the defined class', async () => {
+  const mod = await armed();
+  registry.define('t21-page', PageOutside as unknown as CustomElementConstructor);
+  const registered = registry.get('t21-page');
+  assert.ok(registered);
+  assert.notEqual(registered, PageOutside);
+  assert.deepEqual((registered as { observedAttributes?: string[] }).observedAttributes, ['hue']);
+  const element = new registered();
+  assert.equal(element instanceof (PageOutside as unknown as new () => unknown), true);
+  const prototype = registered.prototype as {
+    connectedCallback(this: HTMLElement): void;
+    attributeChangedCallback(this: HTMLElement, name: string, oldValue: string | null, value: string | null): void;
+  };
+  log.length = 0;
+  prototype.connectedCallback.call(element);
+  prototype.attributeChangedCallback.call(element, 'hue', null, 'blue');
+  assert.deepEqual(log, ['connected:real', 'attr:hue:blue']);
+  assert.equal(mod.isElementSwapArmed('t21-page'), true);
 });

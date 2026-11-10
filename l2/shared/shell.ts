@@ -57,7 +57,6 @@ import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 import { MOBILE_BREAKPOINT_PX } from '/_102033_/l2/shared/breakpoints.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
 import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
-import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
 import { NAV3_TAB_CHANGE_EVENT, activeTabHost, tabChanged, type IAnnouncedTab, type INav3TabChange } from '/_102033_/l2/shared/nav3ActiveTab.js';
 import { onStudioExit, readCollabReleaseId, rememberRelease } from '/_102033_/l2/cbe/studioExitReload.js';
 import { enterStudioTheme, leaveStudioTheme } from '/_102033_/l2/cbe/studioTheme.js';
@@ -819,11 +818,6 @@ export class CollabAuraShell extends LitElement {
       this.syncStructureSplit(false);
       return;
     }
-    // Arms the live update of edited elements — on the NEXT boot, not this one. The stand-in
-    // has to be installed before the first `define`, which is long past by the time anyone can
-    // press this. So the first studio session on a browser costs one reload; from then on it
-    // is already armed.
-    rememberElementSwapForNextBoot();
     enterStudioTheme();
     const rememberedDevice = readStudioDevice();
     if (rememberedDevice) void this.setStudioDevice(rememberedDevice);
