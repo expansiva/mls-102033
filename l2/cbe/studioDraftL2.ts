@@ -6,8 +6,10 @@
 const DRAFT_SLUG = /^(team|user)-[a-z0-9_.-]{1,64}$/;
 const L2_STATUS = new Set(['A', 'M', 'R']);
 const L2_IMPORT = /^\/?_(\d+)_\/l2\/(.+?)(\.js)?$/;
-/** `getUrlLocalWithVersion` (`mls.js:5148`) plus a 17-digit `cacheVersion` (`mls.js:3087`). */
-const COMPILED_L2_URL = /^\/local\/_(\d+)_(.+)\.js\?v=(\d{17})$/;
+/** One cache since st32. The draft copy is the same name with `~<slug>` before `?v=`. */
+const DRAFT_CACHE_NAME = 'mls-v2';
+/** `/local/_<project>_<path>.js~<slug>?v=<17 digits or sha>`. Production has no `~`. */
+const DRAFT_COMPILED_L2_URL = /^\/local\/_(\d+)_(.+)\.js~([^?]+)\?v=([^&]+)$/;
 
 export interface DraftDiffName {
   status: string;
@@ -288,8 +290,8 @@ async function postDraftAdd(message: DraftWorkerAdd): Promise<unknown> {
   });
 }
 
-/** `/local/_<project>_….js?v=<17 digits>` → `l2/….ts`. Release versions and other projects → undefined. */
-function compiledL2Source(project: number, url: string): string | undefined {
+/** `/local/_<project>_….js~<slug>?v=…` of this draft → `l2/….ts`. Production, another slug, another project → undefined. */
+function compiledDraftL2Source(project: number, slug: string, url: string): string | undefined {
   let path = url;
   if (!path.startsWith('/')) {
     try {
@@ -300,8 +302,8 @@ function compiledL2Source(project: number, url: string): string | undefined {
       return undefined;
     }
   }
-  const match = COMPILED_L2_URL.exec(path);
-  if (!match || Number(match[1]) !== project) return undefined;
+  const match = DRAFT_COMPILED_L2_URL.exec(path);
+  if (!match || Number(match[1]) !== project || match[3] !== slug || match[4].length === 0) return undefined;
   return `l2/${match[2]}.ts`;
 }
 
@@ -309,7 +311,7 @@ function browserCaches(): StaleCacheStorage | undefined {
   return (globalThis.caches as StaleCacheStorage | undefined) ?? undefined;
 }
 
-/** Drop browser-compiled l2 entries (17-digit version) that are no longer in `keep` or a local edit. */
+/** Drop `~<slug>` l2 entries in `mls-v2` that are no longer in `keep` or a local edit. Production keys stay. */
 export async function forgetStaleDraftL2(
   project: number,
   slug: string,
@@ -330,7 +332,6 @@ async function deleteStaleCompiled(
   caches: StaleCacheStorage,
   hasLocalEdit: (project: number, path: string) => boolean,
 ): Promise<number> {
-  const suffix = `-d${slug}`;
   let names: string[];
   try {
     names = await caches.keys();
@@ -338,39 +339,37 @@ async function deleteStaleCompiled(
     console.warn(`[studioDraftL2] forget stale caches: ${errorText(err)}`);
     return 0;
   }
+  if (!names.includes(DRAFT_CACHE_NAME)) return 0;
+  let cache: StaleCache;
+  try {
+    cache = await caches.open(DRAFT_CACHE_NAME);
+  } catch (err) {
+    console.warn(`[studioDraftL2] forget stale ${DRAFT_CACHE_NAME}: ${errorText(err)}`);
+    return 0;
+  }
+  let requests: Iterable<StaleCacheRequest>;
+  try {
+    requests = await cache.keys();
+  } catch (err) {
+    console.warn(`[studioDraftL2] forget stale ${DRAFT_CACHE_NAME}: ${errorText(err)}`);
+    return 0;
+  }
   let count = 0;
-  for (const name of names) {
-    if (!name.endsWith(suffix)) continue;
-    let cache: StaleCache;
+  for (const request of requests) {
+    const source = compiledDraftL2Source(project, slug, request.url);
+    if (!source || keep.has(source)) continue;
+    let local = false;
     try {
-      cache = await caches.open(name);
+      local = hasLocalEdit(project, source);
     } catch (err) {
-      console.warn(`[studioDraftL2] forget stale ${name}: ${errorText(err)}`);
+      console.error(`[studioDraftL2] ${source}: ${errorText(err)}`);
       continue;
     }
-    let requests: Iterable<StaleCacheRequest>;
+    if (local) continue;
     try {
-      requests = await cache.keys();
+      if (await cache.delete(request)) count += 1;
     } catch (err) {
-      console.warn(`[studioDraftL2] forget stale ${name}: ${errorText(err)}`);
-      continue;
-    }
-    for (const request of requests) {
-      const source = compiledL2Source(project, request.url);
-      if (!source || keep.has(source)) continue;
-      let local = false;
-      try {
-        local = hasLocalEdit(project, source);
-      } catch (err) {
-        console.error(`[studioDraftL2] ${source}: ${errorText(err)}`);
-        continue;
-      }
-      if (local) continue;
-      try {
-        if (await cache.delete(request)) count += 1;
-      } catch (err) {
-        console.error(`[studioDraftL2] ${request.url}: ${errorText(err)}`);
-      }
+      console.error(`[studioDraftL2] ${request.url}: ${errorText(err)}`);
     }
   }
   return count;

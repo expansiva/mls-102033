@@ -24,39 +24,48 @@ test('importToL2File reads an l2 import and rejects the rest', () => {
 const COMPILED = '20261019123456789';
 const RELEASE = '20261019090059';
 
-test('forgetStaleDraftL2 drops only compiled l2 that left the diff', async () => {
-  const dropped = `/local/_102047_inicio.js?v=${COMPILED}`;
-  const absolute = `https://app.example/local/_102047_panel.js?v=${COMPILED}`;
+test('forgetStaleDraftL2 drops draft keys that left the diff and leaves production', async () => {
+  const slug = 'user-st26';
+  const dropped = `/local/_102047_inicio.js~${slug}?v=${COMPILED}`;
+  const droppedSha = `/local/_102047_panel.js~${slug}?v=sha-old`;
+  const absolute = `https://app.example/local/_102047_panel.js~${slug}?v=${COMPILED}`;
   const entries = [
-    { url: `/local/_102047_a.js?v=${COMPILED}` },
+    { url: `/local/_102047_a.js~${slug}?v=${COMPILED}` },
     { url: dropped },
+    { url: droppedSha },
+    { url: `/local/_102047_inicio.js?v=${COMPILED}` },
     { url: `/local/_102047_z.js?v=${RELEASE}` },
-    { url: `/local/_999_inicio.js?v=${COMPILED}` },
-    { url: `/local/_102047_local.js?v=${COMPILED}` },
+    { url: `/local/_102047_inicio.js~user-other?v=${COMPILED}` },
+    { url: `/local/_999_inicio.js~${slug}?v=${COMPILED}` },
+    { url: `/local/_102047_local.js~${slug}?v=${COMPILED}` },
     { url: absolute },
   ];
-  const untouched = { url: `/local/_102047_inicio.js?v=${COMPILED}` };
   const deleted: string[] = [];
+  const opened: string[] = [];
   const infos: string[] = [];
   const previous = console.info;
   console.info = (...args: unknown[]) => { infos.push(args.map(String).join(' ')); };
   try {
-    const count = await forgetStaleDraftL2(102047, 'user-st26', new Set(['l2/a.ts']), {
+    const count = await forgetStaleDraftL2(102047, slug, new Set(['l2/a.ts']), {
       hasLocalEdit: (_project, path) => path === 'l2/local.ts',
       caches: {
-        keys: async () => ['app-duser-st26', 'app', 'app-dother'],
-        open: async (name) => ({
-          keys: async () => (name === 'app-duser-st26' ? entries : [untouched]),
-          delete: async (request) => {
-            deleted.push(request.url);
-            return true;
-          },
-        }),
+        keys: async () => ['mls-v2', 'mls-v2-duser-st26', 'app'],
+        open: async (name) => {
+          opened.push(name);
+          return {
+            keys: async () => entries,
+            delete: async (request) => {
+              deleted.push(request.url);
+              return true;
+            },
+          };
+        },
       },
     });
-    assert.equal(count, 2);
-    assert.deepEqual(deleted, [dropped, absolute]);
-    assert.deepEqual(infos, ['[studioDraftL2] forgot 2 compiled l2 entries']);
+    assert.equal(count, 3);
+    assert.deepEqual(opened, ['mls-v2']);
+    assert.deepEqual(deleted, [dropped, droppedSha, absolute]);
+    assert.deepEqual(infos, ['[studioDraftL2] forgot 3 compiled l2 entries']);
   } finally {
     console.info = previous;
   }
