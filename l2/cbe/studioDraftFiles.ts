@@ -98,6 +98,25 @@ export function requestDraftRecount(project: number): void {
   }
 }
 
+/** Studio entry has asked for the diff and has not finished seeding. Born false: no draft, no hold. */
+let entrySeedOpen = false;
+
+/** Only `enterStudioDraft` opens the hold, before its diff. Other `requestDraftDiff` callers (discard module) never do. */
+export function beginDraftEntrySeed(): void {
+  entrySeedOpen = true;
+}
+
+export function draftEntrySeedPending(): boolean {
+  return entrySeedOpen;
+}
+
+/** Seeding finished, saved or failed. The recount is what publishes the cover, once. */
+export function completeDraftEntrySeed(project: number): void {
+  if (!entrySeedOpen) return;
+  entrySeedOpen = false;
+  requestDraftRecount(project);
+}
+
 /** Window event after a draft restore was accepted. Same name the panel already emits. */
 export const COLLAB_DRAFT_DISCARDED = 'collabDraftDiscarded';
 
@@ -691,7 +710,7 @@ async function seedSentCrcs(project: number, targets: SentCrcTarget[]): Promise<
       rememberLoadedCrc(project, batch[index], byInfo.get(fileInfos[index]));
     }
   }
-  requestDraftRecount(project);
+  if (!draftEntrySeedPending()) requestDraftRecount(project);
 }
 
 interface PublishedRead {
@@ -862,6 +881,22 @@ export async function applyDraftFiles(
   project: number,
   slug: string,
   deps: DraftFilesDeps = defaultDeps,
+  known?: DraftDiffResult,
+): Promise<{ added: number; changed: number; removed: number }> {
+  try {
+    return await applyDraftFilesNow(project, slug, deps, known);
+  } catch (err) {
+    console.error(`[studioDraftFiles] draft seed failed: ${errorText(err)}`);
+    throw err;
+  } finally {
+    if (draftEntrySeedPending()) completeDraftEntrySeed(project);
+  }
+}
+
+async function applyDraftFilesNow(
+  project: number,
+  slug: string,
+  deps: DraftFilesDeps,
   known?: DraftDiffResult,
 ): Promise<{ added: number; changed: number; removed: number }> {
   let diff: DraftDiffResult;

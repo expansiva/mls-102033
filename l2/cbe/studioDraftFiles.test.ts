@@ -3,14 +3,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   applyDraftFiles,
+  beginDraftEntrySeed,
   COLLAB_DRAFT_DISCARDED,
   COLLAB_DRAFT_RECOUNT,
   draftContentCrc,
+  draftEntrySeedPending,
   draftFileOps,
   draftPathIsSaved,
   draftPublishedCommit,
   forgetDraftPaths,
   rememberDraftMain,
+  requestDraftDiff,
   sentCrcOf,
   undoDraftPaths,
   type DraftDiffFile,
@@ -884,6 +887,128 @@ test('st67 s2: undoDraftPaths sends every path once and leaves the browser alone
     assert.equal(draftPathIsSaved(project, 'l2/orders/old.ts'), true);
   } finally {
     forgetDraftPaths(project, ['l2/orders/a.ts', 'l2/orders/old.ts', ...paths]);
+    host.window = previousWindow;
+  }
+});
+
+test('st65 s6: only the entry opens the hold, before draftDiff, and the recount sees the sent CRC', async () => {
+  const project = 102066;
+  const ident = { project, level: 2, folder: '', shortName: 'inicio', extension: '.ts' };
+  const key = fileKey(ident);
+  const draftText = 'saved-inicio';
+  const stored: { [key: string]: { versionRef: string; getContent?: () => Promise<string> } } = {
+    [key]: { versionRef: 'old', getContent: async () => draftText },
+  };
+  const host = globalThis as { mls?: { editor?: unknown; common?: unknown; stor?: unknown }; window?: EventTarget };
+  const previousEditor = host.mls?.editor;
+  const previousCommon = host.mls?.common;
+  const previousStor = host.mls?.stor;
+  const previousWindow = host.window;
+  const previousFetch = globalThis.fetch;
+  if (!host.mls) host.mls = {};
+  host.mls.common = {
+    crc: {
+      crc32: (value: string) => {
+        let hash = 0;
+        for (const ch of value) hash = (hash * 33 + ch.charCodeAt(0)) >>> 0;
+        return hash;
+      },
+    },
+  };
+  host.mls.editor = undefined;
+  host.mls.stor = {
+    others: {
+      getDefaultDriver: () => ({
+        getContents: async (_project: number, fileInfos: Array<{ shortName: string }>, ref?: string) =>
+          fileInfos.map((info) => ({ fileInfo: info, content: ref ? 'published-inicio' : draftText })),
+      }),
+    },
+  };
+  const windowEvents = new EventTarget();
+  const recounts: number[] = [];
+  let crcAtRecount: string | undefined;
+  windowEvents.addEventListener(COLLAB_DRAFT_RECOUNT, (ev) => {
+    recounts.push((ev as CustomEvent<{ project: number }>).detail.project);
+    crcAtRecount = sentCrcOf(ident);
+  });
+  host.window = windowEvents;
+  let openDuringDiff = false;
+  globalThis.fetch = async () => {
+    openDuringDiff = draftEntrySeedPending();
+    return {
+      ok: true,
+      json: async () => ({
+        status: 'files',
+        head: 'hhh',
+        main: 'main1',
+        files: [{ status: 'M', path: 'l2/inicio.ts', sha: 'shaM' }],
+      }),
+    } as Response;
+  };
+  const errors: string[] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+  try {
+    assert.equal(draftEntrySeedPending(), false);
+    // A diff asked by another caller (discard module) never holds the cover.
+    await requestDraftDiff(project, 'team-102066');
+    assert.equal(draftEntrySeedPending(), false);
+    beginDraftEntrySeed();
+    const diff = await requestDraftDiff(project, 'team-102066');
+    assert.equal(openDuringDiff, true);
+    assert.equal(draftEntrySeedPending(), true);
+    await applyDraftFiles(project, 'team-102066', {
+      draftDiff: async () => { throw new Error('the known diff must be reused'); },
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async (info) => ({ versionRef: info.versionRef }),
+      fileKey,
+      files: () => stored,
+    }, diff);
+    assert.equal(draftEntrySeedPending(), false);
+    assert.deepEqual(recounts, [project]);
+    assert.equal(crcAtRecount, draftContentCrc(draftText, '.ts'));
+    assert.deepEqual(errors, []);
+  } finally {
+    console.error = previousError;
+    globalThis.fetch = previousFetch;
+    host.window = previousWindow;
+    if (host.mls) {
+      host.mls.editor = previousEditor;
+      host.mls.common = previousCommon;
+      host.mls.stor = previousStor;
+    }
+  }
+});
+
+test('st65 s6: a failed entry seed releases the hold and logs the cause', async () => {
+  const project = 102066;
+  const host = globalThis as { window?: EventTarget };
+  const previousWindow = host.window;
+  const windowEvents = new EventTarget();
+  const recounts: number[] = [];
+  windowEvents.addEventListener(COLLAB_DRAFT_RECOUNT, (ev) => {
+    recounts.push((ev as CustomEvent<{ project: number }>).detail.project);
+  });
+  host.window = windowEvents;
+  const errors: string[] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+  beginDraftEntrySeed();
+  try {
+    assert.equal(draftEntrySeedPending(), true);
+    const result = await applyDraftFiles(project, 'team-102066', {
+      draftDiff: async () => { throw new Error('seed broke'); },
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async () => ({ versionRef: '0' }),
+      fileKey: () => 'k',
+      files: () => ({}),
+    });
+    assert.deepEqual(result, { added: 0, changed: 0, removed: 0 });
+    assert.equal(draftEntrySeedPending(), false);
+    assert.deepEqual(recounts, [project]);
+    assert.equal(errors.some((line) => line.includes('draftDiff') && line.includes('seed broke')), true);
+  } finally {
+    console.error = previousError;
     host.window = previousWindow;
   }
 });

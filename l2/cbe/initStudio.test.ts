@@ -1,7 +1,7 @@
 /// <mls fileReference="_102033_/l2/cbe/initStudio.test.ts" enhancement="_blank" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyDraftFiles, rememberDraftMain } from '/_102033_/l2/cbe/studioDraftFiles.js';
+import { applyDraftFiles, draftEntrySeedPending, rememberDraftMain } from '/_102033_/l2/cbe/studioDraftFiles.js';
 import { publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
 import {
   enterStudioDraft,
@@ -359,6 +359,32 @@ test('enterStudioDraft lists the draft and publishes l2 without reload', async (
     assert.deepEqual(calls, ['apply', 'publish']);
   } finally {
     (globalThis as { location?: { reload?: () => void } }).location = previous;
+  }
+});
+
+test('st65 s6: enterStudioDraft holds the cover count while it seeds and always releases it', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousError = console.error;
+  console.error = () => undefined;
+  globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => ({}) }) as Response;
+  try {
+    let heldWhileApplying = false;
+    await enterStudioDraft(102047, 'team-102047', {
+      applyFiles: async () => { heldWhileApplying = draftEntrySeedPending(); },
+      publishL2: async () => undefined,
+    });
+    assert.equal(heldWhileApplying, true, 'the hold is open while the entry seeds, even when draftDiff failed');
+    assert.equal(draftEntrySeedPending(), false, 'a failed draftDiff does not leave the hold open');
+    await assert.rejects(enterStudioDraft(102047, 'team-102047', {
+      applyFiles: async () => { throw new Error('seed failed'); },
+      publishL2: async () => undefined,
+    }), /seed failed/);
+    assert.equal(draftEntrySeedPending(), false, 'a failed seed does not leave the hold open');
+    await enterStudioDraft(102047, undefined, { applyFiles: async () => undefined, publishL2: async () => undefined });
+    assert.equal(draftEntrySeedPending(), false, 'no draft, no hold');
+  } finally {
+    globalThis.fetch = previousFetch;
+    console.error = previousError;
   }
 });
 

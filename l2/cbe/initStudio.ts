@@ -10,7 +10,7 @@
 
 import type { StudioMls } from './global.js';
 import { activeDraft, readCollabModeNotice } from '/_102033_/l2/cbe/studioDraft.js';
-import { applyDraftFiles, draftPublishedCommit, requestDraftDiff, type DraftDiffResult } from '/_102033_/l2/cbe/studioDraftFiles.js';
+import { applyDraftFiles, beginDraftEntrySeed, completeDraftEntrySeed, draftPublishedCommit, requestDraftDiff, type DraftDiffResult } from '/_102033_/l2/cbe/studioDraftFiles.js';
 import { swapVisibleScreen } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { draftL2Targets, publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
 import type { DriverVm } from '/_102033_/l2/cbe/driverVm.js';
@@ -539,17 +539,26 @@ export async function enterStudioDraft(
     return;
   }
   let diff: DraftDiffResult | undefined;
+  // The cover must not publish a count before the sent CRCs are seeded. Always released, saved or failed.
+  beginDraftEntrySeed();
   try {
-    diff = await requestDraftDiff(project, slug);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[initStudio] draftDiff: ${message}`);
+    try {
+      diff = await requestDraftDiff(project, slug);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[initStudio] draftDiff: ${message}`);
+    }
+    if (diff) {
+      await deps.applyFiles(project, slug, diff);
+    } else {
+      await deps.applyFiles(project, slug);
+    }
+  } finally {
+    completeDraftEntrySeed(project);
   }
   if (diff) {
-    await deps.applyFiles(project, slug, diff);
     await deps.publishL2(project, slug, diff);
   } else {
-    await deps.applyFiles(project, slug);
     await deps.publishL2(project, slug);
   }
   if (!deps.changedTs || !deps.applyChanged) return;
