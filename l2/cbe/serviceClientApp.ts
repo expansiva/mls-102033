@@ -17,11 +17,18 @@ import { publishEditHost } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { loadStudioTools } from '/_102033_/l2/cbe/studioServices.js';
 import { tabPinLabel } from '/_102033_/l2/shared/moduleTab.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
+// Installs the bug collectors and Ctrl+Shift+B at load; the panel itself loads only when opened.
+import { captureAndOpenReportBug } from '/_102033_/l2/cbe/reportBug/reportBugCore.js';
 
 function pinMenuText(): string {
   const nav = window.collabRuntimeNav3;
   const pinned = Boolean(nav?.isPinned?.(nav.activeTab?.() ?? 'app'));
   return tabPinLabel(pinned, document.documentElement?.lang || 'en');
+}
+
+/** Same text the report tab shows as its title (reportBug.ts), kept here to not load the panel for a label. */
+function reportBugMenuText(): string {
+  return (document.documentElement?.lang || 'en').toLowerCase().startsWith('pt') ? 'Reportar bug' : 'Report bug';
 }
 
 /**
@@ -330,10 +337,18 @@ export class ServiceClientApp extends ServiceBase {
       pin: {
         get text() { return pinMenuText(); },
       },
+      reportBug: {
+        get text() { return reportBugMenuText(); },
+      },
     },
     tabs: undefined,
     tools: {},
     onClickMain: (value: string) => {
+      if (value === 'reportBug') {
+        // Screenshot first (the screen still shows the bug), then the report opens in its own tab.
+        void captureAndOpenReportBug();
+        return;
+      }
       if (value !== 'pin') return;
       const nav = window.collabRuntimeNav3;
       if (!nav?.togglePin || !nav.activeTab) return;

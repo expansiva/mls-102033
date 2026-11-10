@@ -14,9 +14,10 @@ export const SERVICE_APP = '_102033_/l2/cbe/serviceClientApp';
 // The runtime DECLARES the studio widgets it uses. It does not ask 100554's
 // plugin index what exists: that is what brought 16 services (411 KB never
 // mounted) into a client app.
+// The bug report is not here: it moved to 102033 (cbe/reportBug), opened from serviceClientApp's menu
+// or Ctrl+Shift+B in a nav3 tab. Keeping _100554_serviceReportBug too would install a second shortcut.
 export const RUNTIME_STUDIO_SERVICES = [
   '_100554_serviceDetail',
-  '_100554_serviceReportBug',
 ] as const;
 
 // serviceSource/serviceUnit (level 2, both sides) and serviceSourceL1 (level 1, both sides) sit on

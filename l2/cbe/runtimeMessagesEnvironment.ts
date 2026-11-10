@@ -133,7 +133,7 @@ export async function buildProgramMenu(): Promise<CollabProgramMenu[]> {
 // nav3 — if some OTHER right-side service is active (e.g. a studio panel
 // selected via the header's own nav2), the region is there but hidden behind
 // it. Opening/activating an app must bring serviceClientApp back to front.
-function ensureAppServiceVisible(): void {
+export function ensureAppServiceVisible(): void {
   const nav3Right = document.querySelector('collab-nav-3[toolbarposition="right"]');
   if (nav3Right && nav3Right.getAttribute('data-service') !== '_102033_/l2/cbe/serviceClientApp') {
     nav3Right.setAttribute('data-service', '_102033_/l2/cbe/serviceClientApp');
