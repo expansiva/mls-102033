@@ -98,6 +98,155 @@ export function requestDraftRecount(project: number): void {
   }
 }
 
+/** Window event after a draft restore was accepted. Same name the panel already emits. */
+export const COLLAB_DRAFT_DISCARDED = 'collabDraftDiscarded';
+
+export interface ICollabDraftDiscardedDetail {
+  project: number;
+}
+
+/** Paths last seen in this tab's draft. Undo of a local copy uses this to tell a saved file from a browser-only one. */
+const draftPaths = new Set<string>();
+
+function draftPathKey(project: number, path: string): string {
+  return `${project}\u0000${path}`;
+}
+
+export function rememberDraftPaths(project: number, paths: readonly string[]): void {
+  for (const path of paths) {
+    if (path.length === 0) continue;
+    draftPaths.add(draftPathKey(project, path));
+  }
+}
+
+export function forgetDraftPaths(project: number, paths: readonly string[]): void {
+  for (const path of paths) draftPaths.delete(draftPathKey(project, path));
+}
+
+export function draftPathIsSaved(project: number, path: string): boolean {
+  return draftPaths.has(draftPathKey(project, path));
+}
+
+let browserOnlyUndo = 0;
+
+/** True while Discard module is clearing local copies. Those undos must not call the server again. */
+export function draftUndoBrowserOnly(): boolean {
+  return browserOnlyUndo > 0;
+}
+
+export async function withDraftUndoBrowserOnly<T>(body: () => Promise<T>): Promise<T> {
+  browserOnlyUndo += 1;
+  try {
+    return await body();
+  } finally {
+    browserOnlyUndo -= 1;
+  }
+}
+
+export interface IDraftUndoFetchResponse {
+  status: number;
+  json: () => Promise<unknown>;
+}
+
+export type DraftUndoFetch = (
+  input: string,
+  init: {
+    method: 'POST';
+    credentials: 'same-origin';
+    headers: { 'Content-Type': 'application/json' };
+    body: string;
+  },
+) => Promise<IDraftUndoFetchResponse>;
+
+const DRAFT_SLUG_RE = /^(team|user)-([a-z0-9_.-]{1,64})$/;
+
+function dispatchDraftDiscarded(project: number): void {
+  const target = (globalThis as { window?: EventTarget }).window;
+  if (!target || typeof target.dispatchEvent !== 'function') {
+    console.error('[studioDraftFiles] collabDraftDiscarded was not dispatched: window is missing');
+    return;
+  }
+  const detail: ICollabDraftDiscardedDetail = { project };
+  try {
+    target.dispatchEvent(new CustomEvent(COLLAB_DRAFT_DISCARDED, { detail }));
+  } catch (err) {
+    console.error('[studioDraftFiles] collabDraftDiscarded was not dispatched:', err);
+  }
+}
+
+/**
+ * One `draftRestorePaths` for every path, then the browser copy, one recount, one preview reload.
+ * A server refusal throws before `afterRestore`, so the browser stays as it was.
+ */
+export async function undoDraftPaths(
+  project: number,
+  slug: string,
+  paths: readonly string[],
+  afterRestore: () => Promise<void>,
+  fetchImpl?: DraftUndoFetch,
+): Promise<void> {
+  if (paths.length === 0 || paths.some((path) => path.trim() === '')) {
+    console.error('[studioDraftFiles] undo path is empty');
+    throw new Error('undo path is empty');
+  }
+  if (!DRAFT_SLUG_RE.test(slug)) {
+    console.error(`[studioDraftFiles] undo draft slug is invalid: ${slug}`);
+    throw new Error(`undo draft slug is invalid: ${slug}`);
+  }
+  const fetchFn: DraftUndoFetch = fetchImpl ?? ((input, init) => fetch(input, init));
+  let response: IDraftUndoFetchResponse;
+  try {
+    response = await fetchFn('/exec', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'draftRestorePaths',
+        project,
+        draft: slug,
+        ref: 'main',
+        paths: [...paths],
+      }),
+    });
+  } catch (err) {
+    const message = errorText(err);
+    console.error(`[studioDraftFiles] draftRestorePaths: ${message}`);
+    throw new Error(message);
+  }
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch (err) {
+    const message = errorText(err);
+    console.error(`[studioDraftFiles] draftRestorePaths: ${message}`);
+    throw new Error(message);
+  }
+  if (!isRecord(parsed)) {
+    console.error('[studioDraftFiles] draftRestorePaths response was not a JSON object');
+    throw new Error('response was not a JSON object');
+  }
+  if (typeof parsed.code === 'string') {
+    const message = typeof parsed.msg === 'string' ? parsed.msg : parsed.code;
+    console.error(`[studioDraftFiles] draftRestorePaths: ${message}`);
+    throw new Error(message);
+  }
+  if (parsed.status !== 'restored' && parsed.status !== 'unchanged') {
+    const message = typeof parsed.status === 'string' ? parsed.status : 'draftRestorePaths failed';
+    console.error(`[studioDraftFiles] draftRestorePaths: ${message}`);
+    throw new Error(message);
+  }
+  try {
+    await afterRestore();
+  } catch (err) {
+    const message = errorText(err);
+    console.error(`[studioDraftFiles] draftRestorePaths accepted but the browser copy stayed: ${message}`);
+    throw err instanceof Error ? err : new Error(message);
+  }
+  forgetDraftPaths(project, paths);
+  requestDraftRecount(project);
+  dispatchDraftDiscarded(project);
+}
+
 interface DraftStoredRow {
   versionRef: string;
   status?: string;
@@ -727,6 +876,12 @@ export async function applyDraftFiles(
     }
   }
   if (typeof diff.main === 'string') rememberDraftMain(diff.main);
+  const noted: string[] = [];
+  for (const file of diff.files) {
+    noted.push(file.path);
+    if (typeof file.from === 'string' && file.from.length > 0) noted.push(file.from);
+  }
+  rememberDraftPaths(project, noted);
 
   const counts = { added: 0, changed: 0, removed: 0 };
   const sentTargets: SentCrcTarget[] = [];

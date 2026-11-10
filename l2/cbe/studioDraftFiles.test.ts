@@ -3,12 +3,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   applyDraftFiles,
+  COLLAB_DRAFT_DISCARDED,
   COLLAB_DRAFT_RECOUNT,
   draftContentCrc,
   draftFileOps,
+  draftPathIsSaved,
   draftPublishedCommit,
+  forgetDraftPaths,
   rememberDraftMain,
   sentCrcOf,
+  undoDraftPaths,
   type DraftDiffFile,
   type DraftFileIdentity,
   type DraftFilesDeps,
@@ -827,5 +831,59 @@ test('Studio entry drops a local copy that matches main and is outside draftDiff
       host.mls.common = previousCommon;
       host.mls.stor = previousStor;
     }
+  }
+});
+
+test('st67 s2: undoDraftPaths sends every path once and leaves the browser alone when the server refuses', async () => {
+  const project = 102067;
+  const paths = ['l2/orders/a.ts', 'l2/orders/b.ts', 'l2/orders/c.ts'];
+  const host = globalThis as { window?: EventTarget };
+  const previousWindow = host.window;
+  const windowEvents = new EventTarget();
+  const notices: string[] = [];
+  windowEvents.addEventListener(COLLAB_DRAFT_RECOUNT, () => { notices.push('recount'); });
+  windowEvents.addEventListener(COLLAB_DRAFT_DISCARDED, () => { notices.push('discarded'); });
+  host.window = windowEvents;
+  const bodies: { paths: string[]; ref: string }[] = [];
+  let cleared = 0;
+  try {
+    await assert.rejects(
+      () => undoDraftPaths(project, 'team-102067', paths, async () => { cleared += 1; }, async (_input, init) => {
+        bodies.push(JSON.parse(init.body) as { paths: string[]; ref: string });
+        return { status: 400, json: async () => ({ statusCode: 400, code: 'NOT_OWNER', msg: 'draft.not_owner' }) };
+      }),
+      /draft\.not_owner/,
+    );
+    assert.equal(cleared, 0);
+    assert.deepEqual(notices, []);
+    assert.equal(bodies.length, 1);
+
+    bodies.length = 0;
+    await undoDraftPaths(project, 'team-102067', paths, async () => { cleared += 1; }, async (_input, init) => {
+      bodies.push(JSON.parse(init.body) as { paths: string[]; ref: string });
+      return { status: 200, json: async () => ({ statusCode: 200, status: 'restored' }) };
+    });
+    assert.equal(cleared, 1);
+    assert.deepEqual(bodies[0].paths, paths);
+    assert.equal(bodies[0].ref, 'main');
+    assert.deepEqual(notices, ['recount', 'discarded']);
+    assert.equal(draftPathIsSaved(project, paths[0]), false);
+
+    const deps: DraftFilesDeps = {
+      draftDiff: async () => ({
+        head: 'abc',
+        files: [{ status: 'M', path: 'l2/orders/a.ts', sha: 'sha', from: 'l2/orders/old.ts' }],
+      }),
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async (info) => ({ versionRef: info.versionRef }),
+      fileKey: () => 'missing',
+      files: () => ({}),
+    };
+    await applyDraftFiles(project, 'team-102067', deps);
+    assert.equal(draftPathIsSaved(project, 'l2/orders/a.ts'), true);
+    assert.equal(draftPathIsSaved(project, 'l2/orders/old.ts'), true);
+  } finally {
+    forgetDraftPaths(project, ['l2/orders/a.ts', 'l2/orders/old.ts', ...paths]);
+    host.window = previousWindow;
   }
 });
