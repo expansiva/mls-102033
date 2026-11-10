@@ -19,6 +19,7 @@ import { tabPinLabel } from '/_102033_/l2/shared/moduleTab.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 // Installs the bug collectors and Ctrl+Shift+B at load; the panel itself loads only when opened.
 import { captureAndOpenReportBug } from '/_102033_/l2/cbe/reportBug/reportBugCore.js';
+import { NAV3_TAB_CHANGE_EVENT } from '/_102033_/l2/shared/nav3ActiveTab.js';
 
 function pinMenuText(): string {
   const nav = window.collabRuntimeNav3;
@@ -304,7 +305,7 @@ export class ServiceClientApp extends ServiceBase {
     level: [0, 1, 2, 3, 4, 5, 6, 7],
   };
 
-  // ─── Studio edit tools (TASK-102033-app-como-preview, -studio-to-102020) ───
+  // ─── Studio edit tools ───
   // The DECISION belongs to this service on purpose: it is the one that shows the app, and the whole
   // point of the flow is editing the page you are navigating. The TOOLS do not: they are authoring,
   // they live in the Studio plugin, and they plug in through the slot (studioEditSlot). This service
@@ -329,6 +330,8 @@ export class ServiceClientApp extends ServiceBase {
   private coverBlockedBreak?: HTMLBRElement;
   /** Stable reference: mls.events removes a subscriber by identity. */
   private readonly onToolBarSelected = () => { this.publishEditState(); };
+  /** Another nav3 tab on screen: the tools move to the page it hosts. */
+  private readonly onTabChange = () => { this.publishEditState(); };
   private levelSubscribed = false;
 
   public menu: IServiceMenu = {
@@ -380,6 +383,7 @@ export class ServiceClientApp extends ServiceBase {
     this.watchStudioMode();
     this.watchLevel();
     this.watchDraft();
+    window.addEventListener(NAV3_TAB_CHANGE_EVENT, this.onTabChange);
     this.publishEditState();
   }
 
@@ -399,6 +403,7 @@ export class ServiceClientApp extends ServiceBase {
       this.draftWatchOn = false;
     }
     this.dropCover();
+    window.removeEventListener(NAV3_TAB_CHANGE_EVENT, this.onTabChange);
     // Whoever plugged in tears itself down: the app region is going away.
     publishEditHost(null);
   }
@@ -458,13 +463,18 @@ export class ServiceClientApp extends ServiceBase {
   }
 
   /**
-   * The region host a tool binds to.
+   * The host a tool binds to: the one of the nav3 tab on screen — the app region host on the `app` tab, the element
+   * a module tab renders its page into otherwise. Both have the page as their direct child.
    *
    * NOT the page element and NOT a wrapper around it: `mountRegion` reuses the mounted element by
    * comparing `host.firstElementChild.tagName` with the route tag, so anything inserted in between
    * makes the shell remount the screen on its next render.
+   *
+   * Falls back to the app region host while the tab's element is not there yet: a null host would tear the tools down.
    */
   private regionHost(): HTMLElement | null {
+    const active = window.collabRuntimeNav3?.activeTabElement?.();
+    if (active instanceof HTMLElement) return active;
     return this.querySelector('[data-region-host="content"]');
   }
 

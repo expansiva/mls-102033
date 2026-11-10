@@ -58,6 +58,7 @@ import { MOBILE_BREAKPOINT_PX } from '/_102033_/l2/shared/breakpoints.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
 import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
 import { rememberElementSwapForNextBoot } from '/_102033_/l2/shared/elementSwapRegistry.js';
+import { NAV3_TAB_CHANGE_EVENT, activeTabHost, tabChanged, type IAnnouncedTab, type INav3TabChange } from '/_102033_/l2/shared/nav3ActiveTab.js';
 import { onStudioExit, readCollabReleaseId, rememberRelease } from '/_102033_/l2/cbe/studioExitReload.js';
 import { enterStudioTheme, leaveStudioTheme } from '/_102033_/l2/cbe/studioTheme.js';
 import { contentDevice, isStudioDevice, readStudioDevice, rememberStudioDevice, type StudioDevice } from '/_102033_/l2/cbe/studioDevice.js';
@@ -276,6 +277,8 @@ export class CollabAuraShell extends LitElement {
   declare contentTabs: Array<{ id: string; title: string; element: HTMLElement; closable: boolean }>;
   declare activeContentTabId: string;
   appTabOpen = true;
+  /** The tab on screen as last announced with NAV3_TAB_CHANGE_EVENT. */
+  private announcedTab: IAnnouncedTab<HTMLElement> | null = null;
   // ── Progressive upgrade to the on.collab.codes structure (option C final):
   // after first paint, the shell mounts collab-page>nav1+spliter[nav2+nav3 × 2]
   // in background and the runtime services adopt the aside/content panels.
@@ -377,6 +380,7 @@ export class CollabAuraShell extends LitElement {
         ...this.contentTabs.map((tab) => tab.id),
       ],
       activeTab: () => this.activeContentTabId,
+      activeTabElement: () => this.activeContentTabElement(),
       togglePin: this.toggleContentTabPin,
       isPinned: (id) => isTabPinned(
         id,
@@ -818,7 +822,7 @@ export class CollabAuraShell extends LitElement {
     // Arms the live update of edited elements — on the NEXT boot, not this one. The stand-in
     // has to be installed before the first `define`, which is long past by the time anyone can
     // press this. So the first studio session on a browser costs one reload; from then on it
-    // is already armed (TASK-102020-live-update-stand-in).
+    // is already armed.
     rememberElementSwapForNextBoot();
     enterStudioTheme();
     const rememberedDevice = readStudioDevice();
@@ -1568,6 +1572,23 @@ export class CollabAuraShell extends LitElement {
     }
   }
 
+  /** The element the tab on screen hosts (the app region host for `app`). */
+  private activeContentTabElement(): HTMLElement | null {
+    const appHost = this.querySelector('.nav3-panel-app > [data-region-host="content"]') as HTMLElement | null;
+    return activeTabHost(this.activeContentTabId, appHost, this.contentTabs);
+  }
+
+  /**
+   * After render, so the element is already in its panel: tells whoever follows the page on screen (the Studio edit
+   * tools, through serviceClientApp) that the tab, or the element it hosts, changed.
+   */
+  private announceActiveTab(): void {
+    const next = { id: this.activeContentTabId, element: this.activeContentTabElement() };
+    if (!tabChanged(this.announcedTab, next)) return;
+    this.announcedTab = next;
+    window.dispatchEvent(new CustomEvent<INav3TabChange>(NAV3_TAB_CHANGE_EVENT, { detail: { id: next.id } }));
+  }
+
   // After render: make sure each tab panel contains its element (imperative —
   // the elements are caller-owned and must not be re-created by lit).
   private syncContentTabPanels(): void {
@@ -1996,6 +2017,7 @@ export class CollabAuraShell extends LitElement {
     this.syncStructureLayout();
     this.scheduleRegionMsizeSync();
     this.syncContentTabPanels();
+    this.announceActiveTab();
     // Redundant trigger: the connectedCallback timer can be lost across early
     // shell remounts (observed on some boots) — the attempted/mls guards make
     // this re-check free once the upgrade ran or started.
