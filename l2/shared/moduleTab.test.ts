@@ -22,7 +22,9 @@ pinnedTabRoute,
   moduleNameFromId,
   openModuleTab,
   previewTabSlots,
+  registerShellMainPage,
   readShellRoute,
+  shellMainPageSlot,
   replaceTabPage,
   restorePinnedModuleTabs,
   revealModuleTabForLocation,
@@ -1151,6 +1153,60 @@ describe('preview tab refresh', { concurrency: false }, () => {
       globalThis.window = previousWindow;
       globalThis.document = previousDocument;
       globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('the shell main page is a slot beside the module tabs', () => {
+    const host = { isConnected: true } as HTMLElement;
+    registerShellMainPage({ page: '/_102033_/l2/main.js', tag: 'main-page', host });
+    try {
+      const slot = shellMainPageSlot();
+      assert.ok(slot);
+      assert.equal(slot.page, '/_102033_/l2/main.js');
+      assert.equal(slot.tag, 'main-page');
+      assert.equal(slot.host, host);
+      const previousWindow = globalThis.window;
+      globalThis.window = { collabRuntimeNav3: { listTabs: () => [] } } as unknown as Window & typeof globalThis;
+      try {
+        assert.equal(previewTabSlots().some((item) => item.page === '/_102033_/l2/main.js'), false);
+      } finally {
+        globalThis.window = previousWindow;
+      }
+      const gone = { isConnected: false } as HTMLElement;
+      registerShellMainPage({ page: '/_102033_/l2/gone.js', tag: 'gone-page', host: gone });
+      assert.equal(shellMainPageSlot(), null);
+    } finally {
+      registerShellMainPage(null);
+    }
+  });
+
+  test('the main page slot follows a remount by tag: the replaced element is found again', () => {
+    class FakeElement {
+      isConnected: boolean;
+      constructor(connected: boolean) { this.isConnected = connected; }
+    }
+    const previousElement = (globalThis as { HTMLElement?: unknown }).HTMLElement;
+    const previousDocument = (globalThis as { document?: unknown }).document;
+    (globalThis as { HTMLElement: unknown }).HTMLElement = FakeElement;
+    const fresh = new FakeElement(true);
+    const queries: string[] = [];
+    (globalThis as { document: unknown }).document = {
+      querySelector: (selector: string) => { queries.push(selector); return fresh; },
+    };
+    try {
+      const old = new FakeElement(false) as unknown as HTMLElement;
+      registerShellMainPage({ page: '/_102033_/l2/main.js', tag: 'main-page', host: old });
+      const slot = shellMainPageSlot();
+      assert.ok(slot);
+      assert.equal(slot.host as unknown, fresh);
+      assert.deepEqual(queries, ['main[data-region="content"] main-page']);
+      // The next Save finds the same slot without another lookup.
+      assert.equal(shellMainPageSlot()?.host as unknown, fresh);
+      assert.equal(queries.length, 1);
+    } finally {
+      registerShellMainPage(null);
+      (globalThis as { HTMLElement?: unknown }).HTMLElement = previousElement;
+      (globalThis as { document?: unknown }).document = previousDocument;
     }
   });
 });

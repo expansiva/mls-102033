@@ -25,6 +25,13 @@ export interface PreviewTabSlot {
   tag: string;
 }
 
+/** The shell's main content page. `host` is the element inside `main[data-region="content"]`. */
+export interface ShellMainPage {
+  page: string;
+  tag: string;
+  host: HTMLElement;
+}
+
 interface RenderedRoute {
   title: string;
   tag: string;
@@ -186,6 +193,35 @@ export function previewTabSlots(): PreviewTabSlot[] {
     slots.push({ div: host.div, page: host.pageSpecifier, tag: host.pageTag });
   }
   return slots;
+}
+
+let shellMainPage: ShellMainPage | null = null;
+
+/** The shell writes this when it mounts or clears the content region. `null` clears it. */
+export function registerShellMainPage(page: ShellMainPage | null): void {
+  shellMainPage = page;
+}
+
+/**
+ * The main page on screen, beside the module tabs.
+ * A host that left the document is dropped: a detached node is not an open page.
+ */
+export function shellMainPageSlot(): ShellMainPage | null {
+  if (!shellMainPage) return null;
+  if (shellMainPage.host.isConnected === false) {
+    // A remount by tag replaces the page element: the registered node is gone, the page is not.
+    const current = typeof document === 'undefined' || typeof document.querySelector !== 'function'
+      ? null
+      : document.querySelector(`main[data-region="content"] ${shellMainPage.tag}`);
+    if (typeof HTMLElement === 'function' && current instanceof HTMLElement && current.isConnected) {
+      shellMainPage = { page: shellMainPage.page, tag: shellMainPage.tag, host: current };
+      return shellMainPage;
+    }
+    console.info(`[moduleTab] main page ${shellMainPage.page} is not in the document`);
+    shellMainPage = null;
+    return null;
+  }
+  return shellMainPage;
 }
 
 function currentHref(): string {

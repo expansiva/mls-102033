@@ -46,6 +46,7 @@ import {
   moduleTabOpenActivates,
   mountModuleTabOnActivate,
   pinBasePathForTab,
+  registerShellMainPage,
   rememberShellRoute,
   restorePinnedModuleTabs,
   revealModuleTabForLocation,
@@ -1890,27 +1891,32 @@ export class CollabAuraShell extends LitElement {
 
   private mountRegion(region: MasterFrontendRegionName) {
     if (!this.bootConfig) {
+      if (region === 'content') registerShellMainPage(null);
       return;
     }
 
     const host = this.querySelector(`[data-region-host="${region}"]`);
     if (!host) {
+      if (region === 'content') registerShellMainPage(null);
       return;
     }
 
     if (!this.getBaseRegionVisibility(region)) {
       host.replaceChildren();
+      if (region === 'content') registerShellMainPage(null);
       return;
     }
 
     if (region === 'content' && !this.activeRoute) {
       host.replaceChildren();
+      registerShellMainPage(null);
       return;
     }
 
     const renderer = this.getRenderer(region);
     if (!renderer) {
       host.replaceChildren();
+      if (region === 'content') registerShellMainPage(null);
       return;
     }
 
@@ -1926,6 +1932,7 @@ export class CollabAuraShell extends LitElement {
         currentElement.regionProps = this.getRegionProps(region);
       }
       if (region === 'aside') this.flushAsideNavigation('mode');
+      if (region === 'content') this.publishMainPage(host);
       return;
     }
 
@@ -1938,6 +1945,18 @@ export class CollabAuraShell extends LitElement {
     element.regionProps = this.getRegionProps(region);
     host.replaceChildren(element);
     if (region === 'aside') this.flushAsideNavigation('mode');
+    if (region === 'content') this.publishMainPage(host);
+  }
+
+  /** The content page is not a module tab. Save reads this slot to remount it by tag. */
+  private publishMainPage(host: Element): void {
+    const pageElement = host.firstElementChild as AuraRegionElement | null;
+    const renderer = this.getActiveContentRenderer();
+    if (!pageElement || !renderer?.entrypoint || !renderer.tag || pageElement.tagName.toLowerCase() !== renderer.tag) {
+      registerShellMainPage(null);
+      return;
+    }
+    registerShellMainPage({ page: renderer.entrypoint, tag: renderer.tag, host: pageElement });
   }
 
   /** The panel dispatches `collabDraftSaved` after a successful send. Listen for the life of this shell. */
