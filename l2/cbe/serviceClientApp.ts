@@ -880,8 +880,15 @@ export class ServiceClientApp extends ServiceBase {
       return;
     }
     const phrase = previewCoverCopy(document.documentElement?.lang || 'en').updateFailed;
-    this.saveFailure = previewUpdateFailureText(phrase, cause);
+    const text = previewUpdateFailureText(phrase, cause);
+    this.saveFailure = text;
     this.syncPreviewCover();
+    const failDetail: { project: number; message: string } = { project, message: text };
+    try {
+      window.dispatchEvent(new CustomEvent('collabPreviewUpdateFailed', { detail: failDetail }));
+    } catch (err) {
+      console.error('[preview] collabPreviewUpdateFailed was not dispatched:', err);
+    }
   }
 
   /** The site project. `mls.actualProject` only when the boot config has no client id. */

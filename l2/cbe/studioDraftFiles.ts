@@ -122,6 +122,10 @@ export const COLLAB_DRAFT_DISCARDED = 'collabDraftDiscarded';
 
 export interface ICollabDraftDiscardedDetail {
   project: number;
+  /** Paths restored by this undo. */
+  before: string[];
+  /** Nothing stays in the diff for those paths. */
+  after: string[];
 }
 
 /** Paths last seen in this tab's draft. Undo of a local copy uses this to tell a saved file from a browser-only one. */
@@ -179,13 +183,13 @@ export type DraftUndoFetch = (
 
 const DRAFT_SLUG_RE = /^(team|user)-([a-z0-9_.-]{1,64})$/;
 
-function dispatchDraftDiscarded(project: number): void {
+function dispatchDraftDiscarded(project: number, paths: readonly string[]): void {
   const target = (globalThis as { window?: EventTarget }).window;
   if (!target || typeof target.dispatchEvent !== 'function') {
     console.error('[studioDraftFiles] collabDraftDiscarded was not dispatched: window is missing');
     return;
   }
-  const detail: ICollabDraftDiscardedDetail = { project };
+  const detail: ICollabDraftDiscardedDetail = { project, before: [...paths], after: [] };
   try {
     target.dispatchEvent(new CustomEvent(COLLAB_DRAFT_DISCARDED, { detail }));
   } catch (err) {
@@ -263,7 +267,7 @@ export async function undoDraftPaths(
   }
   forgetDraftPaths(project, paths);
   requestDraftRecount(project);
-  dispatchDraftDiscarded(project);
+  dispatchDraftDiscarded(project, paths);
 }
 
 interface DraftStoredRow {

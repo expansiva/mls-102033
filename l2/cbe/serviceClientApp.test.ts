@@ -319,6 +319,7 @@ test('st66 s4: a failed tab update is the footer line and the page is not reload
   assert.match(source, /askPreviewTabsUpdate/);
   assert.match(source, /detail\.before/);
   assert.match(source, /detail\.after/);
+  assert.match(source, /collabPreviewUpdateFailed/);
 });
 
 test('st65 s3b: a visible footer does not lock the preview', () => {

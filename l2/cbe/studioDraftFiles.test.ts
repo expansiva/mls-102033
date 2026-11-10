@@ -845,7 +845,11 @@ test('st67 s2: undoDraftPaths sends every path once and leaves the browser alone
   const windowEvents = new EventTarget();
   const notices: string[] = [];
   windowEvents.addEventListener(COLLAB_DRAFT_RECOUNT, () => { notices.push('recount'); });
-  windowEvents.addEventListener(COLLAB_DRAFT_DISCARDED, () => { notices.push('discarded'); });
+  const discarded: { before: string[]; after: string[] }[] = [];
+  windowEvents.addEventListener(COLLAB_DRAFT_DISCARDED, (ev) => {
+    notices.push('discarded');
+    discarded.push((ev as CustomEvent<{ before: string[]; after: string[] }>).detail);
+  });
   host.window = windowEvents;
   const bodies: { paths: string[]; ref: string }[] = [];
   let cleared = 0;
@@ -870,6 +874,7 @@ test('st67 s2: undoDraftPaths sends every path once and leaves the browser alone
     assert.deepEqual(bodies[0].paths, paths);
     assert.equal(bodies[0].ref, 'main');
     assert.deepEqual(notices, ['recount', 'discarded']);
+    assert.deepEqual(discarded, [{ project, before: paths, after: [] }]);
     assert.equal(draftPathIsSaved(project, paths[0]), false);
 
     const deps: DraftFilesDeps = {
