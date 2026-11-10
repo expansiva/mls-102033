@@ -117,12 +117,37 @@ export async function swapVisibleScreen(ref: IVisibleScreenRef): Promise<void> {
   await visibleSwap(ref);
 }
 
+/**
+ * Updates the open preview tabs for these changed paths.
+ * Same direction as `registerVisibleScreenSwap`: this project never names the Studio plugin.
+ * A save or a discard does not wait: with no tool, the caller shows the failure.
+ */
+export type PreviewTabsUpdate = (project: number, files: readonly string[]) => Promise<void>;
+
+let previewTabsUpdate: PreviewTabsUpdate | null = null;
+
+export function registerPreviewTabsUpdate(update: PreviewTabsUpdate): () => void {
+  previewTabsUpdate = update;
+  return () => {
+    if (previewTabsUpdate === update) previewTabsUpdate = null;
+  };
+}
+
+export async function askPreviewTabsUpdate(project: number, files: readonly string[]): Promise<void> {
+  if (!previewTabsUpdate) {
+    console.error('[studioEditSlot] preview tabs were not updated: no tool registered');
+    throw new Error('preview tabs update is not registered');
+  }
+  await previewTabsUpdate(project, files);
+}
+
 /** Only for tests: forget every tool, the last state and the swap. */
 export function resetStudioEditSlot(): void {
   tools.clear();
   current = null;
   visibleSwap = null;
   waitingSwaps.clear();
+  previewTabsUpdate = null;
 }
 
 /**

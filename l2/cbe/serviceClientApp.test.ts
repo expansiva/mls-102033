@@ -114,7 +114,7 @@ interface IPreviewReloadState {
   studio: boolean;
   site: number | null;
   hold: number | null;
-  reloads: number;
+  updates: number;
 }
 
 type PreviewDraftNotice =
@@ -140,6 +140,35 @@ function loadApplyPreviewDraftNotice(): (state: IPreviewReloadState, notice: Pre
 }
 
 const applyPreviewDraftNotice = loadApplyPreviewDraftNotice();
+
+interface IPreviewUpdatePlan {
+  previewChangedFiles: (kind: string, saved: readonly string[], before: readonly string[], after: readonly string[]) => string[];
+  previewUpdateFailureText: (phrase: string, cause: string) => string;
+  deliverPreviewUpdate: (
+    ask: (project: number, files: readonly string[]) => Promise<void>,
+    project: number,
+    files: readonly string[],
+  ) => Promise<string | null>;
+}
+
+function loadPreviewUpdatePlan(): IPreviewUpdatePlan {
+  const source = readFileSync(new URL('./serviceClientApp.ts', import.meta.url), 'utf8');
+  const start = source.indexOf('// preview-update-plan:start');
+  const end = source.indexOf('// preview-update-plan:end');
+  if (start < 0 || end < 0) throw new Error('preview update plan block is missing');
+  const chunk = source.slice(start, end)
+    .replace(/: \(project: number, files: readonly string\[\]\) => Promise<void>/gu, '')
+    .replace(/: Promise<string \| null>/gu, '')
+    .replace(/: readonly string\[\]/gu, '')
+    .replace(/: string\[\]/gu, '')
+    .replace(/export /gu, '')
+    .replace(/: string/gu, '')
+    .replace(/: number/gu, '');
+  return new Function(`${chunk}\nreturn { previewChangedFiles, previewUpdateFailureText, deliverPreviewUpdate };`)() as IPreviewUpdatePlan;
+}
+
+const { previewChangedFiles, previewUpdateFailureText, deliverPreviewUpdate } = loadPreviewUpdatePlan();
+const UPDATE_FAILED = 'The open preview could not be updated.';
 
 test('preview cover: studio level 4 with unsaved work shows', () => {
   assert.equal(previewCoverVisible({ studio: true, level: 4, count: 2 }), true);
@@ -201,8 +230,8 @@ test('preview cover: nothing to report leaves the second line off', () => {
   assert.equal(previewCoverSecondLine({ count: 0, blocked: 0 }, BLOCKED_LINE), null);
 });
 
-test('st62 s2: an accepted discard reloads the preview once; a failed discard does not', () => {
-  const open = { studio: true, site: 102047, hold: null, reloads: 0 };
+test('st62 s2: an accepted discard updates the preview once; a failed discard does not', () => {
+  const open = { studio: true, site: 102047, hold: null, updates: 0 };
   const failed = applyPreviewDraftNotice(
     applyPreviewDraftNotice(
       applyPreviewDraftNotice(open, { kind: 'hold', project: 102047, hold: true }),
@@ -210,7 +239,7 @@ test('st62 s2: an accepted discard reloads the preview once; a failed discard do
     ),
     { kind: 'hold', project: 102047, hold: false },
   );
-  assert.equal(failed.reloads, 0);
+  assert.equal(failed.updates, 0);
   assert.equal(failed.hold, null);
 
   const accepted = applyPreviewDraftNotice(
@@ -220,18 +249,76 @@ test('st62 s2: an accepted discard reloads the preview once; a failed discard do
     ),
     { kind: 'discarded', project: 102047 },
   );
-  assert.equal(accepted.reloads, 1);
+  assert.equal(accepted.updates, 1);
   assert.equal(accepted.hold, null);
 
   const again = applyPreviewDraftNotice(accepted, { kind: 'saved', project: 102047 });
-  assert.equal(again.reloads, 2);
+  assert.equal(again.updates, 2);
   const otherProject = applyPreviewDraftNotice(open, { kind: 'discarded', project: 102099 });
-  assert.equal(otherProject.reloads, 0);
+  assert.equal(otherProject.updates, 0);
   const outside = applyPreviewDraftNotice(
-    { studio: false, site: 102047, hold: null, reloads: 0 },
+    { studio: false, site: 102047, hold: null, updates: 0 },
     { kind: 'discarded', project: 102047 },
   );
-  assert.equal(outside.reloads, 0);
+  assert.equal(outside.updates, 0);
+});
+
+test('st66 s4: Save asks for an update with the saved paths', async () => {
+  const open = { studio: true, site: 102047, hold: null, updates: 0 };
+  const saved = applyPreviewDraftNotice(open, { kind: 'saved', project: 102047 });
+  assert.equal(saved.updates, 1);
+  const files = previewChangedFiles('saved', ['l2/agenda/page.ts', 'l2/agenda/page.ts'], [], []);
+  assert.deepEqual(files, ['l2/agenda/page.ts']);
+  const seen: string[][] = [];
+  const cause = await deliverPreviewUpdate(async (_project, next) => { seen.push([...next]); }, 102047, files);
+  assert.equal(cause, null);
+  assert.deepEqual(seen, [['l2/agenda/page.ts']]);
+});
+
+test('st66 s4: Discard all asks for an update with the diff before and after', () => {
+  const open = { studio: true, site: 102047, hold: null, updates: 0 };
+  const discarded = applyPreviewDraftNotice(open, { kind: 'discarded', project: 102047 });
+  assert.equal(discarded.updates, 1);
+  assert.equal(discarded.hold, null);
+  assert.deepEqual(
+    previewChangedFiles('discarded', [], ['l2/a.ts', 'l2/b.ts'], []),
+    ['l2/a.ts', 'l2/b.ts'],
+  );
+});
+
+test('st66 s4: Discard module keeps the hold and then updates with that module diff', () => {
+  const open = { studio: true, site: 102047, hold: null, updates: 0 };
+  const held = applyPreviewDraftNotice(open, { kind: 'hold', project: 102047, hold: true });
+  const during = applyPreviewDraftNotice(held, { kind: 'saved', project: 102047 });
+  assert.equal(during.updates, 0);
+  assert.equal(during.hold, 102047);
+  const released = applyPreviewDraftNotice(during, { kind: 'hold', project: 102047, hold: false });
+  const discarded = applyPreviewDraftNotice(released, { kind: 'discarded', project: 102047 });
+  assert.equal(discarded.updates, 1);
+  assert.equal(discarded.hold, null);
+  assert.deepEqual(
+    previewChangedFiles('discarded', [], ['l2/mod/page.ts', 'l5/config.json'], ['l5/config.json']),
+    ['l2/mod/page.ts', 'l5/config.json'],
+  );
+});
+
+test('st66 s4: a failed tab update is the footer line and the page is not reloaded', async () => {
+  const errors: unknown[][] = [];
+  const previous = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args); };
+  try {
+    const cause = await deliverPreviewUpdate(async () => { throw new Error('the file was not compiled'); }, 102047, ['l2/a.ts']);
+    assert.equal(cause, 'the file was not compiled');
+  } finally {
+    console.error = previous;
+  }
+  const line = previewUpdateFailureText(UPDATE_FAILED, 'the file was not compiled');
+  assert.equal(previewCoverSecondLine({ count: 0, blocked: 0, failure: line }, BLOCKED_LINE), line);
+  const source = readFileSync(new URL('./serviceClientApp.ts', import.meta.url), 'utf8');
+  assert.equal(source.includes('location.reload'), false);
+  assert.match(source, /askPreviewTabsUpdate/);
+  assert.match(source, /detail\.before/);
+  assert.match(source, /detail\.after/);
 });
 
 test('st65 s3b: a visible footer does not lock the preview', () => {

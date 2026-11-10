@@ -13,7 +13,7 @@ import { html } from 'lit';
 import { ServiceBase, type IService, type IServiceMenu, type IToolbarContent } from '/_102027_/l2/serviceBase.js';
 import { moveConnectedRegion } from '/_102033_/l2/shared/connectedRegionMove.js';
 import { parseMsizeHeight } from '/_102033_/l2/shared/regionMsize.js';
-import { publishEditHost } from '/_102033_/l2/cbe/studioEditSlot.js';
+import { askPreviewTabsUpdate, publishEditHost } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { loadStudioTools } from '/_102033_/l2/cbe/studioServices.js';
 import { tabPinLabel } from '/_102033_/l2/shared/moduleTab.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
@@ -107,9 +107,9 @@ export function previewCoverVisible(input: IPreviewCoverInput): boolean {
 export interface IPreviewReloadState {
   studio: boolean;
   site: number | null;
-  /** Project whose Discard is inside `saveL5File`. A save for it does not reload. */
+  /** Project whose Discard is inside `saveL5File`. A save for it does not update the tabs. */
   hold: number | null;
-  reloads: number;
+  updates: number;
 }
 
 export type PreviewDraftNotice =
@@ -118,21 +118,21 @@ export type PreviewDraftNotice =
   | { kind: 'discarded'; project: number | null };
 
 /**
- * One reload when Discard was accepted. A save while that discard holds does not reload.
- * A failed discard never sends `discarded`, so the count stays. Reloading does not discard again.
+ * One update when Discard was accepted. A save while that discard holds does not update.
+ * A failed discard never sends `discarded`, so the count stays. Updating does not discard again.
  */
 export function applyPreviewDraftNotice(state: IPreviewReloadState, notice: PreviewDraftNotice): IPreviewReloadState {
   if (notice.kind === 'hold') {
     if (notice.project === null || state.site === null || notice.project !== state.site) return state;
     const hold = notice.hold ? notice.project : (state.hold === notice.project ? null : state.hold);
-    return { studio: state.studio, site: state.site, hold, reloads: state.reloads };
+    return { studio: state.studio, site: state.site, hold, updates: state.updates };
   }
   if (!state.studio || state.site === null || notice.project === null || notice.project !== state.site) return state;
   if (notice.kind === 'saved') {
     if (state.hold === state.site) return state;
-    return { studio: state.studio, site: state.site, hold: state.hold, reloads: state.reloads + 1 };
+    return { studio: state.studio, site: state.site, hold: state.hold, updates: state.updates + 1 };
   }
-  return { studio: state.studio, site: state.site, hold: null, reloads: state.reloads + 1 };
+  return { studio: state.studio, site: state.site, hold: null, updates: state.updates + 1 };
 }
 // preview-reload-decision:end
 
@@ -163,6 +163,8 @@ interface IPreviewCoverCopy {
   after: string;
   /** Template with `{n}`, or the finished line after substitution. */
   blocked: string;
+  /** Shown when the open tabs could not be updated. */
+  updateFailed: string;
 }
 
 const PREVIEW_COVER_COPY: Record<'en' | 'pt' | 'es', IPreviewCoverCopy> = {
@@ -171,18 +173,21 @@ const PREVIEW_COVER_COPY: Record<'en' | 'pt' | 'es', IPreviewCoverCopy> = {
     save: 'Save',
     after: '',
     blocked: '{n} file(s) with errors were not saved: fix them.',
+    updateFailed: 'The open preview could not be updated.',
   },
   pt: {
     before: 'Esta página pode estar desatualizada: há alterações não salvas. ',
     save: 'Salvar',
     after: '',
     blocked: '{n} arquivo(s) com erro não foram salvos: corrija-os.',
+    updateFailed: 'Não foi possível atualizar o preview aberto.',
   },
   es: {
     before: 'Esta página puede estar desactualizada: hay cambios sin guardar. ',
     save: 'Guardar',
     after: '',
     blocked: '{n} archivo(s) con error no se guardaron: corríjalos.',
+    updateFailed: 'No se pudo actualizar la vista previa abierta.',
   },
 };
 
@@ -309,6 +314,72 @@ function readSavedProject(value: unknown): number | null {
   const project = (value as { project?: unknown }).project;
   if (typeof project !== 'number' || !Number.isInteger(project) || project <= 0) return null;
   return project;
+}
+
+// preview-update-plan:start
+function uniquePreviewPaths(paths: readonly string[]): string[] {
+  const seen = new Set();
+  const out: string[] = [];
+  for (const path of paths) {
+    if (typeof path !== 'string' || path.length === 0 || seen.has(path)) continue;
+    seen.add(path);
+    out.push(path);
+  }
+  return out;
+}
+
+/** Save sends the saved paths. Discard sends the diff before and the diff after. */
+export function previewChangedFiles(kind: string, saved: readonly string[], before: readonly string[], after: readonly string[]): string[] {
+  if (kind === 'saved') return uniquePreviewPaths(saved);
+  return uniquePreviewPaths([...before, ...after]);
+}
+
+/** Phrase first, then the cause. The cover shows this on the second line. */
+export function previewUpdateFailureText(phrase: string, cause: string): string {
+  if (cause.length === 0) return phrase;
+  return `${phrase} ${cause}`;
+}
+
+export async function deliverPreviewUpdate(
+  ask: (project: number, files: readonly string[]) => Promise<void>,
+  project: number,
+  files: readonly string[],
+): Promise<string | null> {
+  try {
+    await ask(project, files);
+    return null;
+  } catch (err) {
+    const cause = err instanceof Error && err.message ? err.message : String(err);
+    console.error(`[preview] preview tabs were not updated: ${cause}`);
+    return cause;
+  }
+}
+// preview-update-plan:end
+
+function readPathList(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  for (const item of value) {
+    if (typeof item !== 'string') return null;
+  }
+  return value as string[];
+}
+
+function readSavedDetail(value: unknown): { project: number; paths: string[] } | null {
+  const project = readSavedProject(value);
+  if (project === null || !value || typeof value !== 'object') return null;
+  const paths = readPathList((value as { paths?: unknown }).paths);
+  if (!paths) return null;
+  return { project, paths };
+}
+
+function readDiscardedDetail(value: unknown): { project: number; before: string[]; after: string[] } | null {
+  const project = readSavedProject(value);
+  if (project === null || !value || typeof value !== 'object') return null;
+  const record = value as { before?: unknown; after?: unknown };
+  const before = readPathList(record.before);
+  const after = readPathList(record.after);
+  if (!before || !after) return null;
+  return { project, before, after };
 }
 
 function readDiscardHold(value: unknown): { project: number; hold: boolean } | null {
@@ -751,12 +822,14 @@ export class ServiceClientApp extends ServiceBase {
   };
 
   private readonly onDraftSaved = (event: Event): void => {
-    const project = readSavedProject((event as CustomEvent<unknown>).detail);
-    if (project === null) {
-      console.error('[preview] collabDraftSaved detail is invalid; preview was not reloaded');
+    const detail = readSavedDetail((event as CustomEvent<unknown>).detail);
+    if (!detail) {
+      console.error('[preview] collabDraftSaved detail is invalid; preview was not updated');
       return;
     }
-    if (this.applyDraftNotice({ kind: 'saved', project }) > 0) this.reloadPreview('collabDraftSaved');
+    if (this.applyDraftNotice({ kind: 'saved', project: detail.project }) === 0) return;
+    const files = previewChangedFiles('saved', detail.paths, [], []);
+    void this.pushPreviewUpdate(detail.project, files);
   };
 
   private readonly onDiscardHold = (event: Event): void => {
@@ -769,33 +842,46 @@ export class ServiceClientApp extends ServiceBase {
   };
 
   private readonly onDraftDiscarded = (event: Event): void => {
-    const project = readSavedProject((event as CustomEvent<unknown>).detail);
-    if (project === null) {
-      console.error('[preview] collabDraftDiscarded detail is invalid; preview was not reloaded');
+    const detail = readDiscardedDetail((event as CustomEvent<unknown>).detail);
+    if (!detail) {
+      console.error('[preview] collabDraftDiscarded detail is invalid; preview was not updated');
       return;
     }
-    if (this.applyDraftNotice({ kind: 'discarded', project }) > 0) this.reloadPreview('collabDraftDiscarded');
+    if (this.applyDraftNotice({ kind: 'discarded', project: detail.project }) === 0) return;
+    const files = previewChangedFiles('discarded', [], detail.before, detail.after);
+    void this.pushPreviewUpdate(detail.project, files);
   };
 
-  /** Applies one notice and keeps the hold. Returns how many preview reloads that notice asked for. */
+  /** Applies one notice and keeps the hold. Returns how many tab updates that notice asked for. */
   private applyDraftNotice(notice: PreviewDraftNotice): number {
     const next = applyPreviewDraftNotice({
       studio: this.isStudioMode(),
       site: this.siteProject(),
       hold: this.discardHold,
-      reloads: 0,
+      updates: 0,
     }, notice);
     this.discardHold = next.hold;
-    return next.reloads;
+    return next.updates;
   }
 
-  /** `collabRuntimeNav3` has no per-tab reload, so a saved or discarded draft reloads the open page. */
-  private reloadPreview(reason: 'collabDraftSaved' | 'collabDraftDiscarded'): void {
-    if (typeof window.location?.reload !== 'function') {
-      console.error(`[preview] ${reason}: location.reload is missing; preview was not reloaded`);
+  /** Asks the slot to rebuild the open tabs. A failure stays on the footer strip. */
+  private async pushPreviewUpdate(project: number, files: readonly string[]): Promise<void> {
+    if (files.length === 0) return;
+    const cause = await deliverPreviewUpdate(
+      (nextProject, nextFiles) => askPreviewTabsUpdate(nextProject, nextFiles),
+      project,
+      files,
+    );
+    if (cause === null) {
+      if (this.saveFailure.length > 0) {
+        this.saveFailure = '';
+        this.syncPreviewCover();
+      }
       return;
     }
-    window.location.reload();
+    const phrase = previewCoverCopy(document.documentElement?.lang || 'en').updateFailed;
+    this.saveFailure = previewUpdateFailureText(phrase, cause);
+    this.syncPreviewCover();
   }
 
   /** The site project. `mls.actualProject` only when the boot config has no client id. */
