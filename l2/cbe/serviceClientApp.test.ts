@@ -64,6 +64,52 @@ function loadFillPreviewCoverOnFirstSync(): (
 
 const fillPreviewCoverOnFirstSync = loadFillPreviewCoverOnFirstSync();
 
+interface IPreviewCoverChrome {
+  inert: boolean;
+  blockScroll: boolean;
+  pointerEvents: string;
+  reservedPx: number;
+}
+
+interface IPreviewCoverRegionEl {
+  removeAttribute(name: string): void;
+  setAttribute(name: string, value: string): void;
+  style: { pointerEvents: string; height: string };
+}
+
+function loadPreviewCoverFooter(): {
+  previewCoverChrome: (stripPx: number) => IPreviewCoverChrome;
+  applyPreviewCoverChrome: (
+    region: IPreviewCoverRegionEl,
+    chrome: IPreviewCoverChrome | null,
+    heightPx: number | null,
+  ) => void;
+} {
+  const source = readFileSync(new URL('./serviceClientApp.ts', import.meta.url), 'utf8');
+  const start = source.indexOf('// preview-cover-footer:start');
+  const end = source.indexOf('// preview-cover-footer:end');
+  if (start < 0 || end < 0) throw new Error('preview cover footer block is missing');
+  const chunk = source.slice(start, end)
+    .replace(/export interface[\s\S]*?\n\}\n/gu, '')
+    .replace(/: IPreviewCoverRegionEl/gu, '')
+    .replace(/: IPreviewCoverChrome \| null/gu, '')
+    .replace(/: IPreviewCoverChrome/gu, '')
+    .replace(/: number \| null/gu, '')
+    .replace(/: number/gu, '')
+    .replace(/: void/gu, '')
+    .replace(/export /gu, '');
+  return new Function(`${chunk}\nreturn { previewCoverChrome, applyPreviewCoverChrome };`)() as {
+    previewCoverChrome: (stripPx: number) => IPreviewCoverChrome;
+    applyPreviewCoverChrome: (
+      region: IPreviewCoverRegionEl,
+      chrome: IPreviewCoverChrome | null,
+      heightPx: number | null,
+    ) => void;
+  };
+}
+
+const { previewCoverChrome, applyPreviewCoverChrome } = loadPreviewCoverFooter();
+
 interface IPreviewReloadState {
   studio: boolean;
   site: number | null;
@@ -99,8 +145,8 @@ test('preview cover: studio level 4 with unsaved work shows', () => {
   assert.equal(previewCoverVisible({ studio: true, level: 4, count: 2 }), true);
 });
 
-test('preview cover: studio page level stays open', () => {
-  assert.equal(previewCoverVisible({ studio: true, level: 3, count: 2 }), false);
+test('preview cover: studio page level shows the footer', () => {
+  assert.equal(previewCoverVisible({ studio: true, level: 3, count: 2 }), true);
 });
 
 test('preview cover: studio with nothing to save stays open', () => {
@@ -186,6 +232,54 @@ test('st62 s2: an accepted discard reloads the preview once; a failed discard do
     { kind: 'discarded', project: 102047 },
   );
   assert.equal(outside.reloads, 0);
+});
+
+test('st65 s3b: a visible footer does not lock the preview', () => {
+  assert.equal(previewCoverVisible({ studio: true, level: 4, count: 2 }), true);
+  assert.equal(previewCoverVisible({ studio: true, level: 3, count: 2 }), true);
+  const chrome = previewCoverChrome(36);
+  assert.equal(chrome.inert, false);
+  assert.equal(chrome.blockScroll, false);
+  assert.equal(chrome.pointerEvents, 'auto');
+  assert.equal(chrome.reservedPx, 36);
+  const style = { pointerEvents: 'none', height: '400px' };
+  let inert = true;
+  const region: IPreviewCoverRegionEl = {
+    removeAttribute(name: string) { if (name === 'inert') inert = false; },
+    setAttribute(name: string) { if (name === 'inert') inert = true; },
+    style,
+  };
+  applyPreviewCoverChrome(region, chrome, 400);
+  assert.equal(inert, false);
+  assert.equal(style.pointerEvents, 'auto');
+  assert.equal(style.height, '364px');
+
+  const hidden = { pointerEvents: 'none', height: '400px' };
+  let hiddenInert = true;
+  applyPreviewCoverChrome({
+    removeAttribute(name: string) { if (name === 'inert') hiddenInert = false; },
+    setAttribute(name: string) { if (name === 'inert') hiddenInert = true; },
+    style: hidden,
+  }, null, 400);
+  assert.equal(hiddenInert, false);
+  assert.equal(hidden.pointerEvents, '');
+  assert.equal(hidden.height, '400px');
+
+  const source = readFileSync(new URL('./serviceClientApp.ts', import.meta.url), 'utf8');
+  assert.equal(source.includes('blockPreviewScroll'), false);
+  assert.equal(source.includes("addEventListener('wheel'"), false);
+  assert.equal(source.includes("addEventListener('touchmove'"), false);
+  const less = readFileSync(new URL('./serviceClientApp.less', import.meta.url), 'utf8');
+  assert.equal(/pointer-events\s*:\s*none/.test(less), false);
+  assert.equal(/overflow\s*:\s*hidden/.test(less), false);
+  assert.equal(/position\s*:\s*absolute/.test(less), false);
+  assert.equal(/z-index/.test(less), false);
+  assert.equal(/inset\s*:\s*0/.test(less), false);
+  assert.match(less, /position:\s*static/);
+  assert.match(less, /background:\s*var\(--bg-primary-color/);
+  assert.match(source, /This page may be out of date: there are unsaved changes\./);
+  assert.match(source, /Esta página pode estar desatualizada: há alterações não salvas\./);
+  assert.match(source, /Esta página puede estar desactualizada: hay cambios sin guardar\./);
 });
 
 test('preview cover: first sync paints the text and the save button', () => {

@@ -96,10 +96,9 @@ export function previewCoverSecondLine(input: IPreviewCoverLineInput, blockedTem
   return null;
 }
 
-/** Studio, with unsaved or refused work, and not the page level (editing happens on the preview). */
+/** Studio, with unsaved or refused work, on every level including the page editor. */
 export function previewCoverVisible(input: IPreviewCoverInput): boolean {
   return input.studio === true
-    && input.level !== EDIT_LEVEL
     && (previewCoverBlockedDecision(input).show || previewCoverSecondLine(input, '{n}') !== null);
 }
 // preview-cover-decision:end
@@ -168,21 +167,21 @@ interface IPreviewCoverCopy {
 
 const PREVIEW_COVER_COPY: Record<'en' | 'pt' | 'es', IPreviewCoverCopy> = {
   en: {
-    before: 'There are unsaved draft changes. Use ',
+    before: 'This page may be out of date: there are unsaved changes. ',
     save: 'Save',
-    after: ' to update this preview.',
+    after: '',
     blocked: '{n} file(s) with errors were not saved: fix them.',
   },
   pt: {
-    before: 'Há alterações no rascunho. Use ',
+    before: 'Esta página pode estar desatualizada: há alterações não salvas. ',
     save: 'Salvar',
-    after: ' para atualizar este preview.',
+    after: '',
     blocked: '{n} arquivo(s) com erro não foram salvos: corrija-os.',
   },
   es: {
-    before: 'Hay cambios en el borrador. Use ',
+    before: 'Esta página puede estar desactualizada: hay cambios sin guardar. ',
     save: 'Guardar',
-    after: ' para actualizar esta vista previa.',
+    after: '',
     blocked: '{n} archivo(s) con error no se guardaron: corríjalos.',
   },
 };
@@ -232,6 +231,52 @@ export function fillPreviewCoverOnFirstSync(create: () => IPreviewCoverNodes, co
 }
 // preview-cover-paint:end
 
+// preview-cover-footer:start
+export interface IPreviewCoverChrome {
+  /** The strip informs. It never freezes the preview. */
+  inert: boolean;
+  blockScroll: boolean;
+  pointerEvents: string;
+  /** Pixels kept under the preview so the page end stays reachable. */
+  reservedPx: number;
+}
+
+export function previewCoverChrome(stripPx: number): IPreviewCoverChrome {
+  const reservedPx = typeof stripPx === 'number' && Number.isFinite(stripPx) && stripPx > 0
+    ? Math.round(stripPx)
+    : 0;
+  return { inert: false, blockScroll: false, pointerEvents: 'auto', reservedPx };
+}
+
+export interface IPreviewCoverRegionStyle {
+  pointerEvents: string;
+  height: string;
+}
+
+export interface IPreviewCoverRegionEl {
+  removeAttribute(name: string): void;
+  setAttribute(name: string, value: string): void;
+  style: IPreviewCoverRegionStyle;
+}
+
+/** The region stays active. Its height leaves the strip's pixels free at the bottom. */
+export function applyPreviewCoverChrome(
+  region: IPreviewCoverRegionEl,
+  chrome: IPreviewCoverChrome | null,
+  heightPx: number | null,
+): void {
+  if (chrome !== null && chrome.inert) region.setAttribute('inert', '');
+  else region.removeAttribute('inert');
+  region.style.pointerEvents = chrome === null ? '' : chrome.pointerEvents;
+  const reserved = chrome === null ? 0 : chrome.reservedPx;
+  if (heightPx == null) {
+    region.style.height = reserved > 0 ? `calc(100% - ${reserved}px)` : '100%';
+    return;
+  }
+  region.style.height = `${Math.max(0, heightPx - reserved)}px`;
+}
+// preview-cover-footer:end
+
 function readNonNegative(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
   return value;
@@ -272,10 +317,6 @@ function readDiscardHold(value: unknown): { project: number; hold: boolean } | n
   const project = readSavedProject(record);
   if (project === null || typeof record.hold !== 'boolean') return null;
   return { project, hold: record.hold };
-}
-
-function blockPreviewScroll(event: Event): void {
-  event.preventDefault();
 }
 
 /** Last count seen, including one that arrived before this service connected. */
@@ -559,13 +600,16 @@ export class ServiceClientApp extends ServiceBase {
     if (height != null) this.style.height = `${height}px`;
     const region = this.querySelector('main[data-region="content"]') as HTMLElement | null;
     if (!region) return;
-    region.style.height = height != null ? `${height}px` : '100%';
+    const chrome = this.coverEl ? previewCoverChrome(this.coverEl.offsetHeight) : null;
+    applyPreviewCoverChrome(region, chrome, height);
   }
 
   /**
-   * The preview stays on the last saved copy until Save. The cover sits beside the adopted
-   * region (never inside it: the shell remounts when the region host's first child changes)
-   * and is moved to the end on every sync, because adopting the region appends it.
+   * The preview stays on the last saved copy until Save. The notice is a footer strip
+   * beside the adopted region (never inside it: the shell remounts when the region host's
+   * first child changes) and is moved to the end on every sync, because adopting the
+   * region appends it. The strip stays in normal flow under the page, and the region
+   * height shrinks by the strip, so the strip never covers a pixel of the page.
    */
   private syncPreviewCover(): void {
     const pending = { count: this.pendingCount, blocked: this.pendingBlocked, failure: this.saveFailure };
@@ -580,11 +624,8 @@ export class ServiceClientApp extends ServiceBase {
       this.dropCover();
       return;
     }
-    this.classList.add('preview-draft-locked');
     const region = this.querySelector('main[data-region="content"]');
-    if (region instanceof HTMLElement) {
-      region.setAttribute('inert', '');
-    } else if (!this.reportedMissingRegion) {
+    if (!(region instanceof HTMLElement) && !this.reportedMissingRegion) {
       this.reportedMissingRegion = true;
       console.error('[preview] draft cover has no content region');
     }
@@ -608,6 +649,7 @@ export class ServiceClientApp extends ServiceBase {
       console.error('[preview] draft cover was created without its text nodes');
     }
     if (this.coverEl) this.append(this.coverEl);
+    this.applyRegionHeight();
   }
 
   private ensureCover(): HTMLElement {
@@ -615,8 +657,6 @@ export class ServiceClientApp extends ServiceBase {
     const cover = document.createElement('div');
     cover.className = 'preview-draft-cover';
     cover.setAttribute('role', 'status');
-    cover.addEventListener('wheel', blockPreviewScroll, { passive: false });
-    cover.addEventListener('touchmove', blockPreviewScroll, { passive: false });
     const before = document.createTextNode('');
     const button = document.createElement('button');
     button.type = 'button';
@@ -646,9 +686,7 @@ export class ServiceClientApp extends ServiceBase {
     this.coverButton = undefined;
     this.coverBlocked = undefined;
     this.coverBlockedBreak = undefined;
-    this.classList.remove('preview-draft-locked');
-    const region = this.querySelector('main[data-region="content"]');
-    if (region instanceof HTMLElement) region.removeAttribute('inert');
+    this.applyRegionHeight();
   }
 
   private readonly onCoverSave = (): void => {
