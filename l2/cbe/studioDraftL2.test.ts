@@ -360,3 +360,77 @@ test('publishDraftL2 reads and compiles only a sha the worker does not have', as
     (globalThis as { mls?: unknown }).mls = previous;
   }
 });
+
+test('publishDraftL2 compiles an included local edit from its text and leaves the other local edit', async () => {
+  const localText = 'local saved text';
+  const applied: string[] = [];
+  const compiled: string[] = [];
+  const reads: string[][] = [];
+  const adds: DraftWorkerAdd[] = [];
+  const previous = (globalThis as { mls?: unknown }).mls;
+  (globalThis as { mls: unknown }).mls = {
+    stor: {
+      files: {
+        saved: { getContent: async () => localText },
+        other: { getContent: async () => 'local other text' },
+      },
+      getKeyToFile: (file: { shortName?: string }) => file.shortName ?? '',
+    },
+  };
+  const deps: PublishDraftL2Deps = {
+    draftDiff: async () => ({
+      head: 'abc',
+      files: [
+        { status: 'M', path: 'l2/saved.ts', sha: 'sha-old' },
+        { status: 'M', path: 'l2/other.ts', sha: 'sha-other' },
+      ],
+    }),
+    readDraftTexts: async (_project, paths) => {
+      reads.push([...paths]);
+      return new Map(paths.map((path) => [path, `draft ${path}`]));
+    },
+    apply: async (_project, path, text) => { applied.push(`${path}:${text}`); },
+    compile: async (_project, path) => {
+      compiled.push(path);
+      return { path: `_102047_${path.slice(3, -3)}.js`, version: 'compiled-version', content: `js-of-${path}` };
+    },
+    postAdd: async (message) => { adds.push(message); },
+    hasLocalEdit: () => true,
+    cachedDraft: async () => null,
+  };
+  try {
+    const result = await publishDraftL2(102047, 'team-102047', deps, undefined, ['l2/saved.ts']);
+    assert.equal(result.sent, 1);
+    assert.equal(result.keep?.has('l2/saved.ts'), true);
+    assert.equal(result.keep?.has('l2/other.ts'), true);
+    assert.deepEqual(reads, []);
+    assert.deepEqual(compiled, ['l2/saved.ts']);
+    assert.deepEqual(applied, [`l2/saved.ts:${localText}`]);
+    assert.equal(adds.length, 1);
+    assert.equal(adds[0].content, 'js-of-l2/saved.ts');
+    assert.equal(adds[0].version, '41cfdea9');
+    assert.notEqual(adds[0].version, 'sha-old');
+
+    const sentUrl = `/local/${adds[0].path}~team-102047?v=${adds[0].version}`;
+    const otherUrl = '/local/_102047_other.js~team-102047?v=sha-other';
+    const goneUrl = '/local/_102047_gone.js~team-102047?v=old';
+    const deleted: string[] = [];
+    const forgotten = await forgetStaleDraftL2(102047, 'team-102047', result.keep ?? new Set(), {
+      hasLocalEdit: () => false,
+      caches: {
+        keys: async () => ['mls-v2'],
+        open: async () => ({
+          keys: async () => [{ url: sentUrl }, { url: otherUrl }, { url: goneUrl }],
+          delete: async (request) => {
+            deleted.push(request.url);
+            return true;
+          },
+        }),
+      },
+    });
+    assert.equal(forgotten, 1);
+    assert.deepEqual(deleted, [goneUrl]);
+  } finally {
+    (globalThis as { mls?: unknown }).mls = previous;
+  }
+});

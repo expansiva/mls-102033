@@ -1,7 +1,8 @@
 /// <mls fileReference="_102033_/l2/cbe/studioDraftL2.ts" enhancement="_blank" />
 // Compile, in this browser, the l2 sources the current draft changed against main.
 // The draft text comes from /exec.
-// It is applied on the editor model directly: storFile.getContent() would return production.
+// It is applied on the editor model directly: storFile.getContent() would return production,
+// except an included path that still has a local copy. That text is getContent(), the same text Save sent.
 
 const DRAFT_SLUG = /^(team|user)-[a-z0-9_.-]{1,64}$/;
 const L2_STATUS = new Set(['A', 'M', 'R']);
@@ -70,6 +71,8 @@ export interface PublishDraftL2Deps {
   hasLocalEdit(project: number, path: string): boolean;
   /** `getURL` with `sha`. A string means that draft copy is already in the service worker. */
   cachedDraft(project: number, path: string, sha: string): Promise<string | null>;
+  /** Included local edit. Production reads `mls.stor.files[key].getContent()`. */
+  readLocalText?(project: number, path: string): Promise<string | null>;
 }
 
 export interface L2ImportFile {
@@ -397,23 +400,72 @@ const defaultPublishDeps: PublishDraftL2Deps = {
 
 interface PendingDraftL2 {
   path: string;
-  sha: string;
+  version: string;
+  /** Set when the text is the local copy, not `getContents`. */
+  localText?: string;
+}
+
+/** CRC of the local source. The service worker stores this as `?v=` so a saved copy is not the cached sha. */
+function textCrc(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      const mask = -(crc & 1);
+      crc = (crc >>> 1) ^ (0xedb88320 & mask);
+    }
+  }
+  return ((crc ^ 0xffffffff) >>> 0).toString(16).padStart(8, '0');
+}
+
+async function defaultReadLocalText(project: number, path: string): Promise<string | null> {
+  const loc = parseL2Ts(path);
+  if (!loc) return null;
+  const file = mls.stor.files[mls.stor.getKeyToFile(l2FileBase(project, loc))];
+  if (!file) return null;
+  const content = await file.getContent();
+  return typeof content === 'string' ? content : null;
+}
+
+async function localTextOf(deps: PublishDraftL2Deps, project: number, path: string): Promise<string | null> {
+  const read = deps.readLocalText ?? defaultReadLocalText;
+  try {
+    const text = await read(project, path);
+    if (typeof text !== 'string') {
+      console.error(`[studioDraftL2] ${path}: local text is missing`);
+      return null;
+    }
+    return text;
+  } catch (err) {
+    console.error(`[studioDraftL2] ${path}: ${errorText(err)}`);
+    return null;
+  }
 }
 
 /**
  * l2 sources the draft changed: skip a sha the service worker already has, read the rest in one
  * `getContents`, apply them, then compile and send `{action:'add', draft:slug}` with `version: sha`.
- * A local edit is left as it is. Does not reload and does not touch a `-d<slug>` cache.
+ * A local edit is left as it is, unless its path is in `include` (Save already matched the accepted draft).
+ * That copy is compiled from `getContent` and sent with the CRC of that text.
+ * Does not reload and does not touch a `-d<slug>` cache.
+ * `keep` is every l2 path still in the diff. It is `null` when the diff was not read.
  */
+export interface PublishDraftL2Result {
+  sent: number;
+  keep: ReadonlySet<string> | null;
+}
+
 export async function publishDraftL2(
   project: number,
   slug: string,
   deps: PublishDraftL2Deps = defaultPublishDeps,
   known?: { head: string; files: DraftDiffName[] },
-): Promise<{ sent: number }> {
+  include?: readonly string[],
+): Promise<PublishDraftL2Result> {
   if (!DRAFT_SLUG.test(slug)) {
     console.error(`[studioDraftL2] ${slug}: draft slug is invalid; versions were not sent`);
-    return { sent: 0 };
+    return { sent: 0, keep: null };
   }
   let diff: { head: string; files: DraftDiffName[] };
   if (known) {
@@ -423,14 +475,31 @@ export async function publishDraftL2(
       diff = await deps.draftDiff(project, slug);
     } catch (err) {
       console.error(`[studioDraftL2] draftDiff: ${errorText(err)}`);
-      return { sent: 0 };
+      return { sent: 0, keep: null };
     }
   }
   const byPath = new Map(diff.files.map((file) => [file.path, file]));
+  const included = new Set(include ?? []);
+  const keep = new Set(draftL2Targets(diff.files));
   const pending: PendingDraftL2[] = [];
   for (const path of draftL2Targets(diff.files)) {
-    if (deps.hasLocalEdit(project, path)) {
+    const local = deps.hasLocalEdit(project, path);
+    if (local && !included.has(path)) {
       console.info(`[studioDraftL2] ${path}: local edit kept`);
+      continue;
+    }
+    if (local) {
+      const localText = await localTextOf(deps, project, path);
+      if (localText === null) continue;
+      const version = textCrc(localText);
+      let cached: string | null = null;
+      try {
+        cached = await deps.cachedDraft(project, path, version);
+      } catch (err) {
+        console.error(`[studioDraftL2] ${path}: ${errorText(err)}`);
+      }
+      if (cached) continue;
+      pending.push({ path, version, localText });
       continue;
     }
     const sha = byPath.get(path)?.sha;
@@ -445,15 +514,22 @@ export async function publishDraftL2(
       console.error(`[studioDraftL2] ${path}: ${errorText(err)}`);
     }
     if (cached) continue;
-    pending.push({ path, sha });
+    pending.push({ path, version: sha });
   }
-  if (pending.length === 0) return { sent: 0 };
-  let texts: ReadonlyMap<string, string>;
-  try {
-    texts = await deps.readDraftTexts(project, pending.map((item) => item.path));
-  } catch (err) {
-    console.error(`[studioDraftL2] getContents: ${errorText(err)}`);
-    return { sent: 0 };
+  if (pending.length === 0) return { sent: 0, keep };
+  const texts = new Map<string, string>();
+  for (const item of pending) {
+    if (item.localText !== undefined) texts.set(item.path, item.localText);
+  }
+  const draftPaths = pending.filter((item) => item.localText === undefined).map((item) => item.path);
+  if (draftPaths.length > 0) {
+    try {
+      const read = await deps.readDraftTexts(project, draftPaths);
+      for (const [path, text] of read) texts.set(path, text);
+    } catch (err) {
+      console.error(`[studioDraftL2] getContents: ${errorText(err)}`);
+      if (texts.size === 0) return { sent: 0, keep };
+    }
   }
   const applied: PendingDraftL2[] = [];
   for (const item of pending) {
@@ -480,7 +556,7 @@ export async function publishDraftL2(
       await deps.postAdd({
         action: 'add',
         path: compiled.path,
-        version: item.sha,
+        version: item.version,
         content: compiled.content,
         contentType: 'application/javascript',
         draft: slug,
@@ -490,7 +566,7 @@ export async function publishDraftL2(
       console.error(`[studioDraftL2] ${item.path}: ${errorText(err)}`);
     }
   }
-  return { sent };
+  return { sent, keep };
 }
 
 function defaultHasLocalEdit(project: number, path: string): boolean {
