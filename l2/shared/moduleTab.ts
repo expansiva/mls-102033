@@ -13,6 +13,22 @@ interface ModuleTabHost {
   title: string;
   pinned: boolean;
   mounted: boolean;
+  /** Bare page specifier from the route, once the tab has rendered. */
+  pageSpecifier?: string;
+  pageTag?: string;
+}
+
+/** One open preview tab. `page` is the module the route mounts. */
+export interface PreviewTabSlot {
+  div: HTMLElement;
+  page: string;
+  tag: string;
+}
+
+interface RenderedRoute {
+  title: string;
+  tag: string;
+  entrypoint: string;
 }
 
 const COLLAB_TABS_KEY = 'collabTabs';
@@ -117,7 +133,7 @@ async function renderRoute(
   route: string,
   div: HTMLElement,
   importer: RouteImporter | undefined,
-): Promise<string> {
+): Promise<RenderedRoute> {
   const boot = await loadBoot(basePath);
   const pathname = pathnameOf(route);
   const matched = matchAuraRoute(boot.routes, pathname);
@@ -131,7 +147,45 @@ async function renderRoute(
     : document.createElement(matched.tag) as PageElement;
   page.bootConfig = boot;
   if (page !== current) div.replaceChildren(page);
-  return moduleNameFromId(boot.moduleId) || matched.title;
+  return {
+    title: moduleNameFromId(boot.moduleId) || matched.title,
+    tag: matched.tag,
+    entrypoint: matched.entrypoint,
+  };
+}
+
+function rememberPage(host: ModuleTabHost, rendered: RenderedRoute): void {
+  host.title = rendered.title;
+  host.pageSpecifier = rendered.entrypoint;
+  host.pageTag = rendered.tag;
+}
+
+/**
+ * Builds the page again inside this tab div.
+ * `prepare` runs before the node is inserted, so a remount can copy state onto it first.
+ * Nodes outside `div` are left as they are.
+ */
+export function replaceTabPage(
+  div: HTMLElement,
+  tag: string,
+  prepare?: (previous: HTMLElement | null, next: HTMLElement) => void,
+): HTMLElement {
+  const previous = div.firstElementChild as PageElement | null;
+  const next = document.createElement(tag) as PageElement;
+  if (previous?.bootConfig !== undefined) next.bootConfig = previous.bootConfig;
+  prepare?.(previous, next);
+  div.replaceChildren(next);
+  return next;
+}
+
+/** Open tabs that already rendered a page. A tab that failed to render is absent. */
+export function previewTabSlots(): PreviewTabSlot[] {
+  const slots: PreviewTabSlot[] = [];
+  for (const host of hosts.values()) {
+    if (!host.pageSpecifier || !host.pageTag || !tabIsOpen(host)) continue;
+    slots.push({ div: host.div, page: host.pageSpecifier, tag: host.pageTag });
+  }
+  return slots;
 }
 
 function currentHref(): string {
@@ -421,7 +475,7 @@ export async function mountModuleTabOnActivate(id: string, importer?: RouteImpor
   const host = hosts.get(id);
   if (!host || host.mounted) return;
   try {
-    host.title = await renderRoute(host.basePath, host.route, host.div, importer);
+    rememberPage(host, await renderRoute(host.basePath, host.route, host.div, importer));
     host.mounted = true;
   } catch (error) {
     host.mounted = true;
@@ -556,7 +610,7 @@ export async function navigateModuleTab(
     throw error;
   }
   try {
-    host.title = await renderRoute(basePath, route, host.div, importer);
+    rememberPage(host, await renderRoute(basePath, route, host.div, importer));
     host.route = route;
     host.mounted = true;
   } catch (error) {
@@ -598,7 +652,7 @@ export async function openModuleTab(
   };
   hosts.set(id, host);
   try {
-    host.title = await renderRoute(basePath, route, div, importer);
+    rememberPage(host, await renderRoute(basePath, route, div, importer));
     host.mounted = true;
   } catch (error) {
     host.mounted = true;

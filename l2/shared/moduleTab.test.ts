@@ -21,7 +21,9 @@ pinnedTabRoute,
   moduleDisplayName,
   moduleNameFromId,
   openModuleTab,
+  previewTabSlots,
   readShellRoute,
+  replaceTabPage,
   restorePinnedModuleTabs,
   revealModuleTabForLocation,
   settleClosedContentTab,
@@ -1078,6 +1080,73 @@ describe('rt161 s3: pinning the app tab hosts the boot module and leaves app fre
       assert.equal(elements.get('mod-/desk#1')?.child ?? null, null);
       await mountModuleTabOnActivate('mod-/desk#1', async () => ({}));
       assert.equal(elements.get('mod-/desk#1')?.child?.tagName, 'DESK-MINHAS');
+    } finally {
+      globalThis.window = previousWindow;
+      globalThis.document = previousDocument;
+      globalThis.fetch = previousFetch;
+    }
+  });
+});
+
+describe('preview tab refresh', { concurrency: false }, () => {
+  test('replaceTabPage rebuilds one tab div and leaves the header and the other tab', () => {
+    const previousDocument = globalThis.document;
+    globalThis.document = { createElement } as unknown as Document;
+    try {
+      const header = createElement('header');
+      header.textContent = 'SHELL';
+      const kept = createElement('div');
+      const changed = createElement('div');
+      const oldPage = createElement('page-a');
+      oldPage.bootConfig = boot('/a', 'a', '/a', 'page-a');
+      changed.replaceChildren(oldPage);
+      const other = createElement('page-b');
+      kept.replaceChildren(other);
+
+      const fresh = replaceTabPage(changed as unknown as HTMLElement, 'page-a');
+
+      assert.equal(changed.child, fresh);
+      assert.notEqual(fresh, oldPage);
+      assert.equal(fresh.tagName, 'PAGE-A');
+      assert.equal(fresh.bootConfig, oldPage.bootConfig);
+      assert.equal(kept.child, other);
+      assert.equal(header.textContent, 'SHELL');
+      assert.equal(header.child, null);
+    } finally {
+      globalThis.document = previousDocument;
+    }
+  });
+
+  test('an open tab keeps the page specifier and the tag for a later refresh', async () => {
+    const opened: Array<{ id: string; element: FakeElement }> = [];
+    const tabs: string[] = [];
+    const previousWindow = globalThis.window;
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    globalThis.document = { createElement } as unknown as Document;
+    globalThis.window = {
+      collabRouteChunkCache: new Set<string>(),
+      collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+      collabRuntimeNav3: {
+        openTab(tab: { id: string; element: FakeElement }) {
+          opened.push({ id: tab.id, element: tab.element });
+          tabs.push(tab.id);
+        },
+        activateTab() {},
+        closeTab() {},
+        listTabs: () => tabs,
+      },
+    } as unknown as Window & typeof globalThis;
+    globalThis.fetch = (async () => new Response(JSON.stringify(
+      boot('/slot-a', 'slot', '/slot-a', 'slot-page'),
+    ), { status: 200 })) as typeof fetch;
+    try {
+      await openModuleTab('/slot-a', '/slot-a', async () => ({}));
+      const slots = previewTabSlots();
+      assert.equal(slots.length, 1);
+      assert.equal(slots[0].page, '/slot-a/page.js');
+      assert.equal(slots[0].tag, 'slot-page');
+      assert.equal(slots[0].div, opened[0].element);
     } finally {
       globalThis.window = previousWindow;
       globalThis.document = previousDocument;
