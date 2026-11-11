@@ -125,12 +125,56 @@ export async function swapVisibleScreen(ref: IVisibleScreenRef): Promise<void> {
 export type PreviewTabsUpdate = (project: number, files: readonly string[]) => Promise<void>;
 
 let previewTabsUpdate: PreviewTabsUpdate | null = null;
+let pendingPreviewTabs: { project: number; files: readonly string[] } | null = null;
+let previewTabsFailure: ((cause: string) => void) | null = null;
+
+export function registerPreviewTabsFailure(report: (cause: string) => void): () => void {
+  previewTabsFailure = report;
+  return () => {
+    if (previewTabsFailure === report) previewTabsFailure = null;
+  };
+}
+
+/** Paints the footer when a caller has one. Without it, the cause stays on the console. */
+export function reportPreviewTabsFailure(cause: string): void {
+  if (cause.length === 0) {
+    console.error('[studioEditSlot] preview tabs failure had an empty cause');
+    return;
+  }
+  if (!previewTabsFailure) {
+    console.error(`[studioEditSlot] preview tabs were not updated: ${cause}`);
+    return;
+  }
+  previewTabsFailure(cause);
+}
 
 export function registerPreviewTabsUpdate(update: PreviewTabsUpdate): () => void {
   previewTabsUpdate = update;
+  const pending = pendingPreviewTabs;
+  pendingPreviewTabs = null;
+  if (pending) {
+    void update(pending.project, pending.files).catch((err: unknown) => {
+      const detail = err instanceof Error && err.message ? err.message : String(err);
+      console.error(`[studioEditSlot] preview tabs were not updated: ${detail}`);
+      reportPreviewTabsFailure(detail);
+    });
+  }
   return () => {
     if (previewTabsUpdate === update) previewTabsUpdate = null;
   };
+}
+
+export function previewTabsReady(): boolean {
+  return previewTabsUpdate !== null;
+}
+
+/** The entry asked before the tool loaded. The next register runs this one list. */
+export function holdPreviewTabsUpdate(project: number, files: readonly string[]): void {
+  pendingPreviewTabs = { project, files: [...files] };
+}
+
+export function dropPendingPreviewTabs(): void {
+  pendingPreviewTabs = null;
 }
 
 export async function askPreviewTabsUpdate(project: number, files: readonly string[]): Promise<void> {
@@ -148,6 +192,8 @@ export function resetStudioEditSlot(): void {
   visibleSwap = null;
   waitingSwaps.clear();
   previewTabsUpdate = null;
+  pendingPreviewTabs = null;
+  previewTabsFailure = null;
 }
 
 /**

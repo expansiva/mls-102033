@@ -302,6 +302,17 @@ test('st66 s4: Discard module keeps the hold and then updates with that module d
   );
 });
 
+test('st68 s1: a preview failure keeps the footer after Studio is off', () => {
+  const line = previewUpdateFailureText(UPDATE_FAILED, 'production compile failed');
+  assert.equal(previewCoverVisible({ studio: false, level: 5, count: 0, failure: line }), true);
+  assert.equal(previewCoverSecondLine({ count: 0, failure: line }, BLOCKED_LINE), line);
+  assert.equal(previewCoverVisible({ studio: false, level: 5, count: 5 }), false);
+  const source = readFileSync(new URL('./serviceClientApp.ts', import.meta.url), 'utf8');
+  assert.match(source, /registerPreviewTabsFailure/);
+  assert.match(source, /previewTabsFailureLine/);
+  assert.match(source, /coverButton\.hidden = !studio/);
+});
+
 test('st66 s4: a failed tab update is the footer line and the page is not reloaded', async () => {
   const errors: unknown[][] = [];
   const previous = console.error;

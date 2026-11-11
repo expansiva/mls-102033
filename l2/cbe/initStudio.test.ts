@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyDraftFiles, draftEntrySeedPending, rememberDraftMain } from '/_102033_/l2/cbe/studioDraftFiles.js';
 import { publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
+import { activeDraft, rememberCollabMode } from '/_102033_/l2/cbe/studioDraft.js';
+import { onStudioExit, rememberRelease } from '/_102033_/l2/cbe/studioExitReload.js';
+import {
+  registerPreviewTabsFailure,
+  registerPreviewTabsUpdate,
+  resetStudioEditSlot,
+} from '/_102033_/l2/cbe/studioEditSlot.js';
 import {
   enterStudioDraft,
   handleCollabModeMessage,
@@ -408,7 +415,6 @@ test('enterStudioDraft reads draftDiff once; publishDraftL2 alone still reads it
       applyFiles: (project, slug, diff) => applyDraftFiles(project, slug, undefined, diff),
       publishL2: (project, slug, diff) => publishDraftL2(project, slug, undefined, diff),
       changedTs: (project, slug, diff) => listChangedDraftTs(project, slug, diff),
-      applyChanged: async () => undefined,
     });
     assert.equal(diffCount(), 1);
     assert.equal(seen[0]?.names, true);
@@ -422,86 +428,267 @@ test('enterStudioDraft reads draftDiff once; publishDraftL2 alone still reads it
   }
 });
 
-test('enter swaps each compiled ts; production collab-mode compiles the release then swaps', async () => {
-  const calls: string[] = [];
-  const previousWindow = (globalThis as { window?: unknown }).window;
-  const origWarn = console.warn;
-  console.warn = () => undefined;
+interface ExitModel {
+  model: { setValue: (text: string) => void };
+  storFile: { project: number };
+  compilerResults: { modelNeedCompile: boolean; prodJS: string };
+}
+
+function installExitHost(calls: string[], history: (ref: string) => string | null, compileOk: boolean): ExitModel {
+  const model: ExitModel = {
+    model: { setValue: (text: string) => { calls.push(`set:${text}`); } },
+    storFile: { project: 7 },
+    compilerResults: { modelNeedCompile: false, prodJS: 'draft-js' },
+  };
   (globalThis as { window: unknown }).window = {
     mls: {
-      editor: {
-        getModels: () => ({
-          ts: {
-            model: { setValue: (text: string) => { calls.push(`set:${text}`); } },
-            storFile: { project: 7 },
-            compilerResults: { modelNeedCompile: false },
+      editor: { getModels: () => ({ ts: model }) },
+      stor: { others: { getDefaultDriver: async () => ({ getHistoryContent: async (_file: unknown, ref: string) => history(ref) }) } },
+      l2: {
+        typescript: {
+          compileAndPostProcess: async (compiled: ExitModel) => {
+            calls.push('compile');
+            if (!compileOk) return false;
+            compiled.compilerResults.prodJS = 'published-js';
+            return true;
           },
-        }),
+        },
       },
-      stor: { others: { getDefaultDriver: async () => ({ getHistoryContent: async (_file: unknown, ref: string) => (ref === 'main-sha' ? 'release-text' : null) }) } },
-      l2: { typescript: { compileAndPostProcess: async () => { calls.push('compile'); return true; } } },
     },
   };
+  return model;
+}
+
+test('st68 s1: exit puts the open tabs on production through the slot; entry puts them back', async () => {
+  const calls: string[] = [];
+  const shown = new Map<string, string>();
+  const openTabs = ['main', 'other'];
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const previousLocation = (globalThis as { location?: { reload?: () => void } }).location;
+  let reloads = 0;
+  (globalThis as { location: { reload: () => void } }).location = { reload: () => { reloads += 1; } };
+  const origWarn = console.warn;
+  console.warn = () => undefined;
+  resetStudioEditSlot();
+  const model = installExitHost(calls, (ref) => (ref === 'main-sha' ? 'release-text' : null), true);
+  const stop = registerPreviewTabsUpdate(async (_project, files) => {
+    const slug = activeDraft() ?? null;
+    calls.push(`slot:${slug ?? 'null'}:${files.join('+')}`);
+    if (slug === null) {
+      for (const tab of openTabs) shown.set(tab, model.compilerResults.prodJS);
+    }
+  });
   rememberDraftMain('main-sha');
+  rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
   try {
     await enterStudioDraft(7, 'team-7', {
       applyFiles: async () => { calls.push('apply'); },
-      publishL2: async () => { calls.push('publish'); },
+      publishL2: async () => {
+        calls.push('publish');
+        model.compilerResults.prodJS = 'draft-js';
+      },
       changedTs: async () => [
         { project: 7, shortName: 'page11', folder: 'web/page11', level: 2 },
-        { project: 7, shortName: 'other', folder: 'web/page12', level: 2 },
       ],
-      applyChanged: async (ref) => { calls.push(`swap:${ref.shortName}`); },
     });
-    assert.deepEqual(calls, ['apply', 'publish', 'swap:page11', 'swap:other']);
+    assert.deepEqual(calls, ['apply', 'publish', 'slot:team-7:l2/web/page11/page11.ts']);
     calls.length = 0;
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
-    assert.deepEqual(calls, [
-      'set:release-text', 'compile', 'swap:page11',
-      'set:release-text', 'compile', 'swap:other',
-    ]);
+    assert.deepEqual(calls, ['set:release-text', 'compile', 'slot:null:l2/web/page11/page11.ts']);
+    assert.equal(shown.get('main'), 'published-js');
+    assert.equal(shown.get('other'), 'published-js');
+    assert.equal(activeDraft(), undefined);
+    assert.equal(reloads, 0);
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'studio' });
     await handleCollabModeMessage({ type: 'nope' });
-    assert.equal(calls.length, 6);
+    assert.equal(reloads, 0);
+    assert.equal(calls.length, 3);
+    rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+    calls.length = 0;
+    shown.clear();
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => { calls.push('apply'); },
+      publishL2: async () => {
+        calls.push('publish');
+        model.compilerResults.prodJS = 'draft-js';
+      },
+      changedTs: async () => [
+        { project: 7, shortName: 'page11', folder: 'web/page11', level: 2 },
+      ],
+    });
+    assert.deepEqual(calls, ['apply', 'publish', 'slot:team-7:l2/web/page11/page11.ts']);
+    assert.equal(model.compilerResults.prodJS, 'draft-js');
+    assert.equal(reloads, 0);
   } finally {
+    stop();
+    resetStudioEditSlot();
+    rememberCollabMode({ mode: 'production' });
     console.warn = origWarn;
+    if (previousLocation === undefined) delete (globalThis as { location?: unknown }).location;
+    else (globalThis as { location?: unknown }).location = previousLocation;
     if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
     else (globalThis as { window: unknown }).window = previousWindow;
   }
 });
 
-test('production exit does not swap a screen that has no published version', async () => {
+test('st68 s1: the main page alone returns to production without a reload', async () => {
   const calls: string[] = [];
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const previousLocation = (globalThis as { location?: { reload?: () => void } }).location;
+  let reloads = 0;
+  (globalThis as { location: { reload: () => void } }).location = { reload: () => { reloads += 1; } };
+  const origWarn = console.warn;
+  console.warn = () => undefined;
+  resetStudioEditSlot();
+  const model = installExitHost(calls, () => 'release-text', true);
+  let seen: string | null = null;
+  const stop = registerPreviewTabsUpdate(async (_project, files) => {
+    if (activeDraft() === undefined) seen = `${files.join('+')}:${model.compilerResults.prodJS}`;
+  });
+  rememberDraftMain('main-sha');
+  rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  try {
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => undefined,
+      publishL2: async () => undefined,
+      changedTs: async () => [{ project: 7, shortName: 'page11', folder: 'web/home', level: 2 }],
+    });
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.equal(seen, 'l2/web/home/page11.ts:published-js');
+    assert.equal(reloads, 0);
+  } finally {
+    stop();
+    resetStudioEditSlot();
+    rememberCollabMode({ mode: 'production' });
+    console.warn = origWarn;
+    if (previousLocation === undefined) delete (globalThis as { location?: unknown }).location;
+    else (globalThis as { location?: unknown }).location = previousLocation;
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window: unknown }).window = previousWindow;
+  }
+});
+
+test('st68 s1: a slot failure stays on the footer and does not reload', async () => {
+  const calls: string[] = [];
+  const failures: string[] = [];
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const previousLocation = (globalThis as { location?: { reload?: () => void } }).location;
+  let reloads = 0;
+  (globalThis as { location: { reload: () => void } }).location = { reload: () => { reloads += 1; } };
+  const origWarn = console.warn;
+  const origError = console.error;
+  console.warn = () => undefined;
+  console.error = () => undefined;
+  resetStudioEditSlot();
+  installExitHost(calls, () => 'release-text', false);
+  const stopFail = registerPreviewTabsFailure((cause) => { failures.push(cause); });
+  const stop = registerPreviewTabsUpdate(async () => { calls.push('slot'); });
+  rememberDraftMain('main-sha');
+  rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  try {
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => undefined,
+      publishL2: async () => undefined,
+      changedTs: async () => [{ project: 7, shortName: 'page11', folder: 'web/page11', level: 2 }],
+    });
+    calls.length = 0;
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(calls, ['set:release-text', 'compile']);
+    assert.deepEqual(failures, ['production compile failed']);
+    assert.equal(reloads, 0);
+  } finally {
+    stop();
+    stopFail();
+    resetStudioEditSlot();
+    rememberCollabMode({ mode: 'production' });
+    console.warn = origWarn;
+    console.error = origError;
+    if (previousLocation === undefined) delete (globalThis as { location?: unknown }).location;
+    else (globalThis as { location?: unknown }).location = previousLocation;
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window: unknown }).window = previousWindow;
+  }
+});
+
+test('st68 s1: a thrown slot update stays on the footer and does not reload', async () => {
+  const calls: string[] = [];
+  const failures: string[] = [];
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const previousLocation = (globalThis as { location?: { reload?: () => void } }).location;
+  let reloads = 0;
+  (globalThis as { location: { reload: () => void } }).location = { reload: () => { reloads += 1; } };
+  const origWarn = console.warn;
+  const origError = console.error;
+  console.warn = () => undefined;
+  console.error = () => undefined;
+  resetStudioEditSlot();
+  installExitHost(calls, () => 'release-text', true);
+  const stopFail = registerPreviewTabsFailure((cause) => { failures.push(cause); });
+  const stop = registerPreviewTabsUpdate(async () => { throw new Error('preview tabs update is not registered'); });
+  rememberDraftMain('main-sha');
+  rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  try {
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => undefined,
+      publishL2: async () => undefined,
+      changedTs: async () => [{ project: 7, shortName: 'page11', folder: 'web/page11', level: 2 }],
+    });
+    failures.length = 0;
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(failures, ['preview tabs update is not registered']);
+    assert.equal(reloads, 0);
+  } finally {
+    stop();
+    stopFail();
+    resetStudioEditSlot();
+    rememberCollabMode({ mode: 'production' });
+    console.warn = origWarn;
+    console.error = origError;
+    if (previousLocation === undefined) delete (globalThis as { location?: unknown }).location;
+    else (globalThis as { location?: unknown }).location = previousLocation;
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window: unknown }).window = previousWindow;
+  }
+});
+
+test('st68 s1: a different release still reloads on studio exit', async () => {
+  let current = 'rel-a';
+  await rememberRelease(async () => ({ id: current }));
+  let reloads = 0;
+  await onStudioExit(() => { reloads += 1; });
+  assert.equal(reloads, 0);
+  current = 'rel-b';
+  await onStudioExit(() => { reloads += 1; });
+  assert.equal(reloads, 1);
+});
+
+test('production exit does not compile a screen that has no published version', async () => {
+  const calls: string[] = [];
+  const failures: string[] = [];
   const previousWindow = (globalThis as { window?: unknown }).window;
   const origWarn = console.warn;
   console.warn = () => undefined;
-  (globalThis as { window: unknown }).window = {
-    mls: {
-      editor: {
-        getModels: () => ({
-          ts: {
-            model: { setValue: (text: string) => { calls.push(`set:${text}`); } },
-            storFile: { project: 7 },
-            compilerResults: { modelNeedCompile: false },
-          },
-        }),
-      },
-      stor: { others: { getDefaultDriver: async () => ({ getHistoryContent: async () => null }) } },
-      l2: { typescript: { compileAndPostProcess: async () => { calls.push('compile'); return true; } } },
-    },
-  };
+  resetStudioEditSlot();
+  const model = installExitHost(calls, () => null, true);
+  const stopFail = registerPreviewTabsFailure((cause) => { failures.push(cause); });
+  const stop = registerPreviewTabsUpdate(async () => { calls.push(`slot:${model.compilerResults.prodJS}`); });
   rememberDraftMain('main-sha');
+  rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
   try {
     await enterStudioDraft(7, 'team-7', {
       applyFiles: async () => undefined,
       publishL2: async () => undefined,
       changedTs: async () => [{ project: 7, shortName: 'new', folder: 'web/page13', level: 2 }],
-      applyChanged: async (ref) => { calls.push(`swap:${ref.shortName}`); },
     });
     calls.length = 0;
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
-    assert.deepEqual(calls, []);
+    assert.deepEqual(calls, ['slot:draft-js']);
+    assert.deepEqual(failures, []);
   } finally {
+    stop();
+    stopFail();
+    resetStudioEditSlot();
+    rememberCollabMode({ mode: 'production' });
     console.warn = origWarn;
     if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
     else (globalThis as { window: unknown }).window = previousWindow;

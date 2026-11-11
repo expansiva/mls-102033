@@ -7,6 +7,8 @@ import {
   publishEditHost,
   registerStudioEditTool,
   askPreviewTabsUpdate,
+  dropPendingPreviewTabs,
+  holdPreviewTabsUpdate,
   registerPreviewTabsUpdate,
   registerVisibleScreenSwap,
   resetStudioEditSlot,
@@ -102,6 +104,21 @@ test('a visible-screen swap asked before the tool loads waits and is replayed on
   assert.deepEqual(seen, ['page11']);
   await swapVisibleScreen({ ...ref, shortName: 'other' });
   assert.deepEqual(seen, ['page11', 'other']);
+});
+
+test('st68 s1: a tab update asked before the tool loads runs once when it registers', async () => {
+  resetStudioEditSlot();
+  const seen: string[] = [];
+  holdPreviewTabsUpdate(7, ['l2/web/page11/page11.ts']);
+  const stop = registerPreviewTabsUpdate(async (_project, files) => { seen.push(files.join('+')); });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(seen, ['l2/web/page11/page11.ts']);
+  stop();
+  holdPreviewTabsUpdate(7, ['l2/web/page12/other.ts']);
+  dropPendingPreviewTabs();
+  registerPreviewTabsUpdate(async () => { seen.push('late'); });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(seen, ['l2/web/page11/page11.ts']);
 });
 
 test('st66 s4: a tab update with no tool fails out loud; a registered tool receives the files', async () => {
