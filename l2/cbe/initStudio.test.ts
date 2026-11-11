@@ -459,6 +459,40 @@ function installExitHost(calls: string[], history: (ref: string) => string | nul
   return model;
 }
 
+interface ScriptedDiffFile {
+  status: string;
+  path: string;
+  sha: string | null;
+}
+
+/** Each `draftDiff` takes the next script. The last one repeats. `fail` throws that message. */
+function scriptedDraftDiff(steps: { files?: ScriptedDiffFile[]; fail?: string }[]): () => void {
+  const previous = globalThis.fetch;
+  let n = 0;
+  globalThis.fetch = async () => {
+    const step = steps[Math.min(n, steps.length - 1)];
+    n += 1;
+    if (!step || step.fail) throw new Error(step?.fail ?? 'draftDiff failed');
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: 'files',
+        head: 'hhh',
+        main: 'main-sha',
+        files: step.files ?? [],
+      }),
+    } as Response;
+  };
+  return () => {
+    globalThis.fetch = previous;
+  };
+}
+
+function diffFile(path: string): ScriptedDiffFile {
+  return { status: 'M', path, sha: 'abc' };
+}
+
 test('st68 s1: exit puts the open tabs on production through the slot; entry puts them back', async () => {
   const calls: string[] = [];
   const shown = new Map<string, string>();
@@ -480,6 +514,7 @@ test('st68 s1: exit puts the open tabs on production through the slot; entry put
   });
   rememberDraftMain('main-sha');
   rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  const restoreDiff = scriptedDraftDiff([{ files: [diffFile('l2/web/page11/page11.ts')] }]);
   try {
     await enterStudioDraft(7, 'team-7', {
       applyFiles: async () => { calls.push('apply'); },
@@ -520,6 +555,7 @@ test('st68 s1: exit puts the open tabs on production through the slot; entry put
     assert.equal(model.compilerResults.prodJS, 'draft-js');
     assert.equal(reloads, 0);
   } finally {
+    restoreDiff();
     stop();
     resetStudioEditSlot();
     rememberCollabMode({ mode: 'production' });
@@ -547,6 +583,7 @@ test('st68 s1: the main page alone returns to production without a reload', asyn
   });
   rememberDraftMain('main-sha');
   rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  const restoreDiff = scriptedDraftDiff([{ files: [diffFile('l2/web/home/page11.ts')] }]);
   try {
     await enterStudioDraft(7, 'team-7', {
       applyFiles: async () => undefined,
@@ -557,6 +594,7 @@ test('st68 s1: the main page alone returns to production without a reload', asyn
     assert.equal(seen, 'l2/web/home/page11.ts:published-js');
     assert.equal(reloads, 0);
   } finally {
+    restoreDiff();
     stop();
     resetStudioEditSlot();
     rememberCollabMode({ mode: 'production' });
@@ -585,6 +623,7 @@ test('st68 s1: a slot failure stays on the footer and does not reload', async ()
   const stop = registerPreviewTabsUpdate(async () => { calls.push('slot'); });
   rememberDraftMain('main-sha');
   rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  const restoreDiff = scriptedDraftDiff([{ files: [diffFile('l2/web/page11/page11.ts')] }]);
   try {
     await enterStudioDraft(7, 'team-7', {
       applyFiles: async () => undefined,
@@ -597,6 +636,7 @@ test('st68 s1: a slot failure stays on the footer and does not reload', async ()
     assert.deepEqual(failures, ['production compile failed']);
     assert.equal(reloads, 0);
   } finally {
+    restoreDiff();
     stop();
     stopFail();
     resetStudioEditSlot();
@@ -627,6 +667,7 @@ test('st68 s1: a thrown slot update stays on the footer and does not reload', as
   const stop = registerPreviewTabsUpdate(async () => { throw new Error('preview tabs update is not registered'); });
   rememberDraftMain('main-sha');
   rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  const restoreDiff = scriptedDraftDiff([{ files: [diffFile('l2/web/page11/page11.ts')] }]);
   try {
     await enterStudioDraft(7, 'team-7', {
       applyFiles: async () => undefined,
@@ -638,6 +679,7 @@ test('st68 s1: a thrown slot update stays on the footer and does not reload', as
     assert.deepEqual(failures, ['preview tabs update is not registered']);
     assert.equal(reloads, 0);
   } finally {
+    restoreDiff();
     stop();
     stopFail();
     resetStudioEditSlot();
@@ -648,6 +690,161 @@ test('st68 s1: a thrown slot update stays on the footer and does not reload', as
     else (globalThis as { location?: unknown }).location = previousLocation;
     if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
     else (globalThis as { window: unknown }).window = previousWindow;
+  }
+});
+
+function openExitCase(): {
+  calls: string[];
+  failures: string[];
+  infos: string[];
+  errors: string[];
+  reloads: () => number;
+  close: () => void;
+} {
+  const calls: string[] = [];
+  const failures: string[] = [];
+  const infos: string[] = [];
+  const errors: string[] = [];
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const previousLocation = (globalThis as { location?: { reload?: () => void } }).location;
+  let reloads = 0;
+  (globalThis as { location: { reload: () => void } }).location = { reload: () => { reloads += 1; } };
+  const origWarn = console.warn;
+  const origInfo = console.info;
+  const origError = console.error;
+  console.warn = () => undefined;
+  console.info = (msg?: unknown) => { infos.push(String(msg)); };
+  console.error = (msg?: unknown) => { errors.push(String(msg)); };
+  resetStudioEditSlot();
+  installExitHost(calls, () => 'release-text', true);
+  const stopFail = registerPreviewTabsFailure((cause) => { failures.push(cause); });
+  const stop = registerPreviewTabsUpdate(async (_project, files) => {
+    calls.push(`slot:${files.join('+')}`);
+  });
+  rememberDraftMain('main-sha');
+  rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  return {
+    calls,
+    failures,
+    infos,
+    errors,
+    reloads: () => reloads,
+    close() {
+      stop();
+      stopFail();
+      resetStudioEditSlot();
+      rememberCollabMode({ mode: 'production' });
+      console.warn = origWarn;
+      console.info = origInfo;
+      console.error = origError;
+      if (previousLocation === undefined) delete (globalThis as { location?: unknown }).location;
+      else (globalThis as { location?: unknown }).location = previousLocation;
+      if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+      else (globalThis as { window: unknown }).window = previousWindow;
+    },
+  };
+}
+
+test('st68 s1c: a page saved after entry is restored on the first exit', async () => {
+  const host = openExitCase();
+  const page = 'l2/web/saved/page.ts';
+  const restoreDiff = scriptedDraftDiff([
+    { files: [] },
+    { files: [diffFile(page)] },
+  ]);
+  try {
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => undefined,
+      publishL2: async () => undefined,
+      changedTs: async () => [],
+    });
+    host.calls.length = 0;
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(host.calls, ['set:release-text', 'compile', `slot:${page}`]);
+    assert.equal(host.calls.filter((call) => call.startsWith('slot:')).length, 1);
+    assert.deepEqual(host.failures, []);
+    assert.equal(host.reloads(), 0);
+  } finally {
+    restoreDiff();
+    host.close();
+  }
+});
+
+test('st68 s1c: exit updates the entry file and the one saved later', async () => {
+  const host = openExitCase();
+  const entry = 'l2/web/page11/page11.ts';
+  const saved = 'l2/web/page12/page12.ts';
+  const restoreDiff = scriptedDraftDiff([
+    { files: [diffFile(entry)] },
+    { files: [diffFile(entry), diffFile(saved)] },
+  ]);
+  try {
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => undefined,
+      publishL2: async () => undefined,
+      changedTs: async () => [{ project: 7, shortName: 'page11', folder: 'web/page11', level: 2 }],
+    });
+    host.calls.length = 0;
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(host.calls, [
+      'set:release-text', 'compile',
+      'set:release-text', 'compile',
+      `slot:${entry}+${saved}`,
+    ]);
+    assert.equal(host.reloads(), 0);
+  } finally {
+    restoreDiff();
+    host.close();
+  }
+});
+
+test('st68 s1c: a failed exit diff keeps the entry list and paints the footer', async () => {
+  const host = openExitCase();
+  const entry = 'l2/web/page11/page11.ts';
+  const restoreDiff = scriptedDraftDiff([
+    { files: [diffFile(entry)] },
+    { fail: 'draftDiff failed' },
+  ]);
+  try {
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => undefined,
+      publishL2: async () => undefined,
+      changedTs: async () => [{ project: 7, shortName: 'page11', folder: 'web/page11', level: 2 }],
+    });
+    host.calls.length = 0;
+    host.failures.length = 0;
+    host.errors.length = 0;
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(host.calls, ['set:release-text', 'compile', `slot:${entry}`]);
+    assert.deepEqual(host.failures, ['draftDiff failed']);
+    assert.equal(host.errors.some((line) => line.includes('draftDiff on exit failed: draftDiff failed')), true);
+    assert.equal(host.reloads(), 0);
+  } finally {
+    restoreDiff();
+    host.close();
+  }
+});
+
+test('st68 s1c: an empty diff on entry and exit changes nothing', async () => {
+  const host = openExitCase();
+  const restoreDiff = scriptedDraftDiff([{ files: [] }]);
+  try {
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => undefined,
+      publishL2: async () => undefined,
+      changedTs: async () => [],
+    });
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(host.calls, []);
+    assert.deepEqual(host.failures, []);
+    assert.deepEqual(host.infos, [
+      '[initStudio] nada alterado no rascunho',
+      '[initStudio] nada alterado no rascunho',
+    ]);
+    assert.equal(host.reloads(), 0);
+  } finally {
+    restoreDiff();
+    host.close();
   }
 });
 
@@ -674,6 +871,7 @@ test('production exit does not compile a screen that has no published version', 
   const stop = registerPreviewTabsUpdate(async () => { calls.push(`slot:${model.compilerResults.prodJS}`); });
   rememberDraftMain('main-sha');
   rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  const restoreDiff = scriptedDraftDiff([{ files: [diffFile('l2/web/page13/new.ts')] }]);
   try {
     await enterStudioDraft(7, 'team-7', {
       applyFiles: async () => undefined,
@@ -685,6 +883,7 @@ test('production exit does not compile a screen that has no published version', 
     assert.deepEqual(calls, ['slot:draft-js']);
     assert.deepEqual(failures, []);
   } finally {
+    restoreDiff();
     stop();
     stopFail();
     resetStudioEditSlot();

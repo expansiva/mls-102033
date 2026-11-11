@@ -299,10 +299,14 @@ export interface StudioDraftEntryDeps {
   changedTs?(project: number, slug: string, diff?: DraftDiffResult): Promise<DraftScreenRef[]>;
 }
 
-/** l2 paths from the entry diff. Exit puts these back on production and asks the slot once. */
+/** l2 paths from the entry diff. Exit unions them with a fresh `draftDiff`. */
 let exitProject: number | null = null;
+/** Saved with `exitProject`. `activeDraft()` is already undefined on the way out. */
+let exitSlug: string | null = null;
 let exitPaths: string[] = [];
 let modeListenerOn = false;
+
+const DRAFT_UNCHANGED = '[initStudio] nada alterado no rascunho';
 
 interface ProductionStorFile {
   project?: number;
@@ -424,6 +428,40 @@ function reportTabsFailure(cause: string): void {
   reportPreviewTabsFailure(cause);
 }
 
+function unionPaths(left: readonly string[], right: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const path of [...left, ...right]) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    out.push(path);
+  }
+  return out;
+}
+
+/**
+ * Entry list plus the l2 `.ts` files the draft differs on at exit.
+ * `requestDraftDiff` uses the slug saved on entry: `activeDraft()` is already undefined.
+ * A failed diff is logged, painted on the footer, and the entry list is kept.
+ */
+async function pathsOnExit(project: number): Promise<string[]> {
+  if (exitSlug === null) {
+    console.error('[initStudio] exit has no draft slug; the entry list is used');
+    reportTabsFailure('exit has no draft slug');
+    return [...exitPaths];
+  }
+  try {
+    const diff = await requestDraftDiff(project, exitSlug);
+    const refs = await listChangedDraftTs(project, exitSlug, diff);
+    return unionPaths(exitPaths, refs.map(pathFromRef));
+  } catch (err) {
+    const cause = err instanceof Error && err.message ? err.message : String(err);
+    console.error(`[initStudio] draftDiff on exit failed: ${cause}`);
+    reportTabsFailure(cause);
+    return [...exitPaths];
+  }
+}
+
 /** `{type:'collab-mode'}` with `production`: published `prodJS`, then one slot update. No reload. */
 export async function handleCollabModeMessage(data: unknown): Promise<void> {
   const notice = readCollabModeNotice(data);
@@ -435,10 +473,14 @@ export async function handleCollabModeMessage(data: unknown): Promise<void> {
     console.warn('[initStudio] production mode with no draft screens to swap');
     return;
   }
-  if (exitPaths.length === 0) return;
   const project = exitProject;
+  const paths = await pathsOnExit(project);
+  if (paths.length === 0) {
+    console.info(DRAFT_UNCHANGED);
+    return;
+  }
   let failed = false;
-  for (const path of exitPaths) {
+  for (const path of paths) {
     const ref = refFromDraftPath(project, path);
     if (!ref) {
       console.error('[initStudio] draft path is not an l2 ts:', path);
@@ -451,7 +493,7 @@ export async function handleCollabModeMessage(data: unknown): Promise<void> {
     return;
   }
   try {
-    await askPreviewTabsUpdate(project, exitPaths);
+    await askPreviewTabsUpdate(project, paths);
   } catch (err) {
     const cause = err instanceof Error && err.message ? err.message : String(err);
     reportTabsFailure(cause);
@@ -593,9 +635,13 @@ export async function enterStudioDraft(
   if (!deps.changedTs) return;
   const refs = diff ? await deps.changedTs(project, slug, diff) : await deps.changedTs(project, slug);
   exitProject = project;
+  exitSlug = slug;
   exitPaths = refs.map(pathFromRef);
   listenForProductionSwap();
-  if (exitPaths.length === 0) return;
+  if (exitPaths.length === 0) {
+    console.info(DRAFT_UNCHANGED);
+    return;
+  }
   const shown = activeDraft();
   if (shown !== slug) {
     console.error(`[initStudio] active draft is ${shown ?? 'missing'}; open tabs were not moved to the draft`);
