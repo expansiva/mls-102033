@@ -180,8 +180,16 @@ function listedDraftPaths(project: number): string[] {
   return listed;
 }
 
-function storHasDraftPath(project: number, path: string): boolean {
-  const loc = parseDraftFile(path);
+function browserFileTable(): {
+  files: Record<string, unknown>;
+  getKeyToFiles: (
+    project: number,
+    level: number,
+    shortName: string,
+    folder: string,
+    extension: string,
+  ) => string;
+} | undefined {
   const stor = (globalThis as {
     mls?: {
       stor?: {
@@ -196,7 +204,14 @@ function storHasDraftPath(project: number, path: string): boolean {
       };
     };
   }).mls?.stor;
-  if (!loc || !stor?.files || typeof stor.getKeyToFiles !== 'function') return false;
+  if (!stor?.files || typeof stor.getKeyToFiles !== 'function') return undefined;
+  return { files: stor.files, getKeyToFiles: stor.getKeyToFiles };
+}
+
+function storHasDraftPath(project: number, path: string): boolean {
+  const loc = parseDraftFile(path);
+  const stor = browserFileTable();
+  if (!loc || !stor) return false;
   const key = stor.getKeyToFiles(project, loc.level, loc.shortName, loc.folder, loc.extension);
   return stor.files[key] != null;
 }
@@ -223,9 +238,13 @@ function uniqueStaleOrigin(
   current: string,
   level: number,
   extension: string,
+  paths: readonly string[] = listedDraftPaths(project),
+  kind: 'rename' | 'undo' = 'rename',
 ): string | undefined {
+  // No browser file table: another draft path cannot be told from a renamed-away name.
+  if (!browserFileTable()) return undefined;
   const stale: string[] = [];
-  for (const path of listedDraftPaths(project)) {
+  for (const path of paths) {
     if (path === current) continue;
     const loc = parseDraftFile(path);
     if (!loc || loc.level !== level || loc.extension !== extension) continue;
@@ -234,7 +253,7 @@ function uniqueStaleOrigin(
   }
   if (stale.length === 0) return undefined;
   if (stale.length === 1) return stale[0];
-  console.error(`[studioDraftFiles] several saved names could be the rename origin of ${current}`);
+  console.error(`[studioDraftFiles] several saved names could be the ${kind} origin of ${current}`);
   return undefined;
 }
 
@@ -242,6 +261,7 @@ function uniqueStaleOrigin(
  * Draft path the Save must delete for a `new` file that was renamed after it was saved.
  * The published `renamed` status is left to the driver. A name that was never in the draft
  * is not deleted. A→B→C without a save in the middle drops A, the oldest name still in the draft.
+ * A missing, unread, or never-saved origin uses that same older name before giving up.
  */
 export async function savedOriginToDrop(file: IDraftRenameOriginFile): Promise<string | undefined> {
   if (file.status !== 'new') return undefined;
@@ -254,19 +274,25 @@ export async function savedOriginToDrop(file: IDraftRenameOriginFile): Promise<s
     console.error('[studioDraftFiles] renamed new file is missing a path');
     return undefined;
   }
-  const current = draftShortPath(file.level, file.folder, file.shortName, file.extension);
+  const level = file.level;
+  const extension = file.extension;
+  const current = draftShortPath(level, file.folder, file.shortName, file.extension);
+  const stale = (): string | undefined => uniqueStaleOrigin(file.project, current, level, extension);
   const info = await readRenameOrigin(file);
   const originalName = info?.originalShortName;
+  // No rename origin is no evidence of a rename: a plain new file must not drop another saved name.
   if (!originalName) return undefined;
   if (info.originalProject !== undefined && info.originalProject !== file.project) {
     console.error(`[studioDraftFiles] rename origin of ${current} is in another project`);
     return undefined;
   }
   const originalFolder = (info.originalFolder ?? file.folder).replace(/\\/gu, '/');
-  const origin = draftShortPath(file.level, originalFolder, originalName, file.extension);
+  const origin = draftShortPath(level, originalFolder, originalName, extension);
   if (origin === current) return undefined;
-  if (draftPathIsSaved(file.project, origin)) return origin;
-  return uniqueStaleOrigin(file.project, current, file.level, file.extension);
+  const saved = draftPathIsSaved(file.project, origin);
+  const chosen = saved ? origin : stale();
+  console.info(`[studioDraftFiles] rename origin of ${current}: recorded=${origin}; saved=${saved}; drop=${chosen ?? 'none'}`);
+  return chosen;
 }
 
 /** Stor row `DriverVm.setContents` treats as a delete. Non-l1/l2/l3 paths stay in the draft. */
@@ -340,6 +366,11 @@ export async function undoPathsForDraftFile(
 ): Promise<string[]> {
   const paths = [currentPath];
   if (file.status !== 'new' && file.status !== 'renamed') return paths;
+  const pushStale = (): void => {
+    if (file.level === undefined || file.extension === undefined) return;
+    const stale = uniqueStaleOrigin(file.project, currentPath, file.level, file.extension, listed, 'undo');
+    if (stale) paths.push(stale);
+  };
   const info = await readRenameOrigin(file);
   const originalName = info?.originalShortName;
   const otherProject = info?.originalProject !== undefined && info.originalProject !== file.project;
@@ -364,16 +395,7 @@ export async function undoPathsForDraftFile(
     paths.push(origin);
     return paths;
   }
-  const stale = listed.filter((path) => {
-    if (path === currentPath) return false;
-    const loc = parseDraftFile(path);
-    if (!loc || loc.level !== file.level || loc.extension !== file.extension) return false;
-    return !storHasDraftPath(file.project, path);
-  });
-  if (stale.length === 1) paths.push(stale[0]);
-  else if (stale.length > 1) {
-    console.error(`[studioDraftFiles] several saved names could be the undo origin of ${currentPath}`);
-  }
+  pushStale();
   return paths;
 }
 

@@ -1134,3 +1134,66 @@ test('st69: undoPathsForDraftFile restores a published name and only drops a sav
     if (host.mls) host.mls.stor = previousStor;
   }
 });
+
+test('st69 s1c: with no readable rename origin nothing else is dropped; with a readable one a chain drops the one saved name', async () => {
+  const project = 102069;
+  const host = globalThis as { mls?: { stor?: { files?: Record<string, unknown>; getKeyToFiles?: (...args: unknown[]) => string } } };
+  const previousStor = host.mls?.stor;
+  if (!host.mls) host.mls = {};
+  host.mls.stor = {
+    files: { [`${project}|1|st69|next|.ts`]: { shortName: 'next' } },
+    getKeyToFiles: (...args: unknown[]) => args.join('|'),
+  };
+  const current = 'l1/st69/next.ts';
+  const saved = 'l1/st69/old.ts';
+  const base = {
+    project,
+    status: 'new' as const,
+    level: 1,
+    folder: 'st69',
+    shortName: 'next',
+    extension: '.ts',
+    inLocalStorage: true,
+  };
+  const errors: string[] = [];
+  const previousError = console.error;
+  const previousInfo = console.info;
+  const infos: string[] = [];
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+  console.info = (...args: unknown[]) => { infos.push(args.map(String).join(' ')); };
+  rememberDraftPaths(project, [saved]);
+  try {
+    // A plain new file, or one whose origin cannot be read, is no evidence of a rename: nothing else is dropped.
+    assert.equal(await savedOriginToDrop(base), undefined);
+    assert.equal(await savedOriginToDrop({
+      ...base,
+      getValueInfo: async () => { throw new Error('origin unreadable'); },
+    }), undefined);
+    assert.deepEqual(await undoPathsForDraftFile(base, current, [saved, current]), [current]);
+    // A chain A -> mid -> next: the recorded origin (mid) was never saved, the one saved name left is dropped.
+    const chain = {
+      ...base,
+      getValueInfo: async () => ({ originalFolder: 'st69', originalProject: project, originalShortName: 'mid' }),
+    };
+    infos.length = 0;
+    assert.equal(await savedOriginToDrop(chain), saved);
+    assert.equal(infos.some((line) => line.includes('recorded=l1/st69/mid.ts') && line.includes(`drop=${saved}`)), true, infos.join('\n'));
+    assert.deepEqual(await undoPathsForDraftFile(chain, current, [saved, current]), [current, saved]);
+
+    rememberDraftPaths(project, ['l1/st69/other.ts']);
+    errors.length = 0;
+    assert.equal(await savedOriginToDrop(chain), undefined);
+    assert.equal(errors.some((line) => line.includes('several saved names')), true, errors.join('\n'));
+    errors.length = 0;
+    assert.deepEqual(
+      await undoPathsForDraftFile(chain, current, [saved, 'l1/st69/other.ts', current]),
+      [current],
+    );
+    assert.equal(errors.some((line) => line.includes('several saved names') && line.includes('undo origin')), true, errors.join('\n'));
+  } finally {
+    console.error = previousError;
+    console.info = previousInfo;
+    forgetDraftPaths(project, [saved, 'l1/st69/mid.ts', 'l1/st69/other.ts', current]);
+    if (host.mls) host.mls.stor = previousStor;
+  }
+});
