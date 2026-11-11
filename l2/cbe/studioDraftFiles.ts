@@ -326,6 +326,57 @@ export type DraftUndoFetch = (
 
 const DRAFT_SLUG_RE = /^(team|user)-([a-z0-9_.-]{1,64})$/;
 
+/**
+ * Paths one Undo sends for a renamed file.
+ * A published `renamed` file includes the published name, so that name comes back
+ * and the new name leaves. A `new` file includes the saved name only while that
+ * name is still in the draft (or the one older name a chain left behind). A name
+ * that was never saved is not sent, and a `new` file restores nothing.
+ */
+export async function undoPathsForDraftFile(
+  file: IDraftRenameOriginFile,
+  currentPath: string,
+  listed: readonly string[],
+): Promise<string[]> {
+  const paths = [currentPath];
+  if (file.status !== 'new' && file.status !== 'renamed') return paths;
+  const info = await readRenameOrigin(file);
+  const originalName = info?.originalShortName;
+  const otherProject = info?.originalProject !== undefined && info.originalProject !== file.project;
+  if (!originalName || file.level === undefined || file.extension === undefined || otherProject) {
+    if (file.status === 'renamed') {
+      const why = otherProject ? 'published name is in another project' : 'has no published name';
+      console.error(`[studioDraftFiles] undo of ${currentPath} ${why}`);
+      throw new Error(`undo of ${currentPath} ${why}`);
+    }
+    return paths;
+  }
+  const folder = (info?.originalFolder ?? file.folder ?? '').replace(/\\/gu, '/');
+  const origin = draftShortPath(file.level, folder, originalName, file.extension);
+  if (origin === currentPath) {
+    if (file.status === 'renamed') {
+      console.error(`[studioDraftFiles] undo of ${currentPath} has no published name`);
+      throw new Error(`undo of ${currentPath} has no published name`);
+    }
+    return paths;
+  }
+  if (file.status === 'renamed' || listed.includes(origin)) {
+    paths.push(origin);
+    return paths;
+  }
+  const stale = listed.filter((path) => {
+    if (path === currentPath) return false;
+    const loc = parseDraftFile(path);
+    if (!loc || loc.level !== file.level || loc.extension !== file.extension) return false;
+    return !storHasDraftPath(file.project, path);
+  });
+  if (stale.length === 1) paths.push(stale[0]);
+  else if (stale.length > 1) {
+    console.error(`[studioDraftFiles] several saved names could be the undo origin of ${currentPath}`);
+  }
+  return paths;
+}
+
 function dispatchDraftDiscarded(project: number, paths: readonly string[]): void {
   const target = (globalThis as { window?: EventTarget }).window;
   if (!target || typeof target.dispatchEvent !== 'function') {
@@ -342,6 +393,8 @@ function dispatchDraftDiscarded(project: number, paths: readonly string[]): void
 
 /**
  * One `draftRestorePaths` for every path, then the browser copy, one recount, one preview reload.
+ * A rename passes both names (`undoPathsForDraftFile`): the published name comes back and the
+ * new name is removed; a `new` file only drops names, because those paths are not on `main`.
  * A server refusal throws before `afterRestore`, so the browser stays as it was.
  */
 export async function undoDraftPaths(

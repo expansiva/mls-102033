@@ -19,6 +19,7 @@ import {
   savedOriginToDrop,
   sentCrcOf,
   undoDraftPaths,
+  undoPathsForDraftFile,
   type DraftDiffFile,
   type DraftFileIdentity,
   type DraftFilesDeps,
@@ -1071,6 +1072,65 @@ test('st69: savedOriginToDrop removes the oldest draft name of a new rename', as
     });
   } finally {
     forgetDraftPaths(project, ['l1/st69/old.ts', 'l1/st69/mid.ts', 'l1/st69/next.ts']);
+    if (host.mls) host.mls.stor = previousStor;
+  }
+});
+
+test('st69: undoPathsForDraftFile restores a published name and only drops a saved new name', async () => {
+  const project = 102069;
+  const host = globalThis as { mls?: { stor?: { files?: Record<string, unknown>; getKeyToFiles?: (...args: unknown[]) => string } } };
+  const previousStor = host.mls?.stor;
+  if (!host.mls) host.mls = {};
+  host.mls.stor = {
+    files: { [`${project}|1|st69|next|.ts`]: { shortName: 'next' } },
+    getKeyToFiles: (...args: unknown[]) => args.join('|'),
+  };
+  const published = {
+    project,
+    status: 'renamed',
+    level: 1,
+    folder: 'st69',
+    shortName: 'next',
+    extension: '.ts',
+    inLocalStorage: true,
+    getValueInfo: async () => ({ originalFolder: 'st69', originalProject: project, originalShortName: 'page' }),
+  };
+  const created = {
+    ...published,
+    status: 'new',
+    getValueInfo: async () => ({ originalFolder: 'st69', originalProject: project, originalShortName: 'old' }),
+  };
+  const errors: string[] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+  try {
+    assert.deepEqual(
+      await undoPathsForDraftFile(published, 'l1/st69/next.ts', ['l1/st69/next.ts']),
+      ['l1/st69/next.ts', 'l1/st69/page.ts'],
+    );
+    assert.deepEqual(
+      await undoPathsForDraftFile(created, 'l1/st69/next.ts', ['l1/st69/old.ts', 'l1/st69/next.ts']),
+      ['l1/st69/next.ts', 'l1/st69/old.ts'],
+    );
+    assert.deepEqual(
+      await undoPathsForDraftFile(created, 'l1/st69/next.ts', ['l1/st69/next.ts']),
+      ['l1/st69/next.ts'],
+    );
+    const chained = {
+      ...created,
+      getValueInfo: async () => ({ originalFolder: 'st69', originalProject: project, originalShortName: 'mid' }),
+    };
+    assert.deepEqual(
+      await undoPathsForDraftFile(chained, 'l1/st69/next.ts', ['l1/st69/old.ts', 'l1/st69/next.ts']),
+      ['l1/st69/next.ts', 'l1/st69/old.ts'],
+    );
+    await assert.rejects(
+      () => undoPathsForDraftFile({ ...published, getValueInfo: async () => undefined }, 'l1/st69/next.ts', ['l1/st69/next.ts']),
+      /has no published name/,
+    );
+    assert.equal(errors.some((line) => line.includes('has no published name')), true);
+  } finally {
+    console.error = previousError;
     if (host.mls) host.mls.stor = previousStor;
   }
 });
