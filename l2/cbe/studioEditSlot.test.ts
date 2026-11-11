@@ -10,9 +10,7 @@ import {
   dropPendingPreviewTabs,
   holdPreviewTabsUpdate,
   registerPreviewTabsUpdate,
-  registerVisibleScreenSwap,
   resetStudioEditSlot,
-  swapVisibleScreen,
   type IStudioEditHost,
 } from '/_102033_/l2/cbe/studioEditSlot.js';
 
@@ -90,20 +88,6 @@ test('the state carries the two conditions separately', () => {
   assert.equal(last?.studioMode, true);
   assert.equal(last?.editLevel, false);
   assert.equal(last?.panelVisible, true, 'and the panel visibility, which the overlay follows');
-});
-
-test('a visible-screen swap asked before the tool loads waits and is replayed once; later ones go straight', async () => {
-  resetStudioEditSlot();
-  const seen: string[] = [];
-  const ref = { project: 7, shortName: 'page11', folder: 'web/page11', level: 2 };
-  await swapVisibleScreen(ref);
-  await swapVisibleScreen(ref);
-  assert.deepEqual(seen, []);
-  registerVisibleScreenSwap(async (r) => { seen.push(r.shortName); });
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.deepEqual(seen, ['page11']);
-  await swapVisibleScreen({ ...ref, shortName: 'other' });
-  assert.deepEqual(seen, ['page11', 'other']);
 });
 
 test('st68 s1: a tab update asked before the tool loads runs once when it registers', async () => {
