@@ -61,6 +61,7 @@ import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPage
 import { NAV3_TAB_CHANGE_EVENT, activeTabHost, tabChanged, type IAnnouncedTab, type INav3TabChange } from '/_102033_/l2/shared/nav3ActiveTab.js';
 import { onStudioExit, readCollabReleaseId, rememberRelease } from '/_102033_/l2/cbe/studioExitReload.js';
 import { enterStudioTheme, leaveStudioTheme } from '/_102033_/l2/cbe/studioTheme.js';
+import { enterStudioDesignSystem, leaveStudioDesignSystem } from '/_102033_/l2/cbe/studioDesignSystem.js';
 import { contentDevice, isStudioDevice, readStudioDevice, rememberStudioDevice, type StudioDevice } from '/_102033_/l2/cbe/studioDevice.js';
 import {
   applyCollabModeNotice,
@@ -811,8 +812,9 @@ export class CollabAuraShell extends LitElement {
     this.studioModeOn = studioOn;
     this.requestUpdate();
     if (!this.studioModeOn) {
-      // The light/dark switched while editing was the studio's: the app gets its own back.
+      // The light/dark and the DS switched while editing were the studio's: the app gets its own back.
       leaveStudioTheme();
+      leaveStudioDesignSystem();
       this.dropStudioDevice();
       this.refreshAsideNavigation('mode');
       this.showRuntimeServices();
@@ -820,6 +822,7 @@ export class CollabAuraShell extends LitElement {
       return;
     }
     enterStudioTheme();
+    enterStudioDesignSystem();
     const rememberedDevice = readStudioDevice();
     if (rememberedDevice) void this.setStudioDevice(rememberedDevice);
     const { monaco } = this.loadStudioDefinitions();
