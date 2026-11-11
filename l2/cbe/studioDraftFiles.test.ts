@@ -6,6 +6,7 @@ import {
   beginDraftEntrySeed,
   COLLAB_DRAFT_DISCARDED,
   COLLAB_DRAFT_RECOUNT,
+  deletedDraftFile,
   draftContentCrc,
   draftEntrySeedPending,
   draftFileOps,
@@ -13,7 +14,9 @@ import {
   draftPublishedCommit,
   forgetDraftPaths,
   rememberDraftMain,
+  rememberDraftPaths,
   requestDraftDiff,
+  savedOriginToDrop,
   sentCrcOf,
   undoDraftPaths,
   type DraftDiffFile,
@@ -1015,5 +1018,59 @@ test('st65 s6: a failed entry seed releases the hold and logs the cause', async 
   } finally {
     console.error = previousError;
     host.window = previousWindow;
+  }
+});
+
+test('st69: savedOriginToDrop removes the oldest draft name of a new rename', async () => {
+  const project = 102069;
+  const host = globalThis as { mls?: { stor?: { files?: Record<string, unknown>; getKeyToFiles?: (...args: unknown[]) => string } } };
+  const previousStor = host.mls?.stor;
+  const files: Record<string, unknown> = {
+    [`${project}|1|st69|next|.ts`]: { shortName: 'next' },
+  };
+  if (!host.mls) host.mls = {};
+  host.mls.stor = {
+    files,
+    getKeyToFiles: (...args: unknown[]) => args.join('|'),
+  };
+  rememberDraftPaths(project, ['l1/st69/old.ts']);
+  try {
+    const renamed = {
+      project,
+      status: 'new',
+      level: 1,
+      folder: 'st69',
+      shortName: 'next',
+      extension: '.ts',
+      inLocalStorage: true,
+      getValueInfo: async () => ({ originalFolder: 'st69', originalProject: project, originalShortName: 'old' }),
+    };
+    assert.equal(await savedOriginToDrop(renamed), 'l1/st69/old.ts');
+    assert.equal(await savedOriginToDrop({ ...renamed, status: 'renamed' }), undefined);
+
+    const unsaved = {
+      ...renamed,
+      getValueInfo: async () => ({ originalFolder: 'st69', originalProject: project, originalShortName: 'fresh' }),
+    };
+    forgetDraftPaths(project, ['l1/st69/old.ts']);
+    assert.equal(await savedOriginToDrop(unsaved), undefined);
+
+    rememberDraftPaths(project, ['l1/st69/old.ts']);
+    const chained = {
+      ...renamed,
+      getValueInfo: async () => ({ originalFolder: 'st69', originalProject: project, originalShortName: 'mid' }),
+    };
+    assert.equal(await savedOriginToDrop(chained), 'l1/st69/old.ts');
+    assert.deepEqual(deletedDraftFile(project, 'l1/st69/old.ts'), {
+      project,
+      level: 1,
+      folder: 'st69',
+      shortName: 'old',
+      extension: '.ts',
+      status: 'deleted',
+    });
+  } finally {
+    forgetDraftPaths(project, ['l1/st69/old.ts', 'l1/st69/mid.ts', 'l1/st69/next.ts']);
+    if (host.mls) host.mls.stor = previousStor;
   }
 });
