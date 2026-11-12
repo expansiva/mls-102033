@@ -59,6 +59,21 @@ function freeTabId(basePath: string): string {
   return `mod-${basePath}`;
 }
 
+/** Fired on window when a module tab has its boot config (the header follows the module of the tab on screen). */
+export const MODULE_TAB_BOOT_EVENT = 'collab-module-tab-boot';
+
+/** Tell the shell a module tab has its boot config. Never in the way of opening the tab. */
+function announceTabBoot(basePath: string): void {
+  if (typeof window.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return;
+  window.dispatchEvent(new CustomEvent(MODULE_TAB_BOOT_EVENT, { detail: { basePath } }));
+}
+
+/** The boot config of the module a tab shows, once loaded; undefined for the app tab or a tab still loading. */
+export function moduleTabBoot(tabId: string): MasterFrontendBootConfig | undefined {
+  const host = hosts.get(tabId);
+  return host ? bootCache.get(host.basePath) : undefined;
+}
+
 /** A module id shown as a name: first letter uppercased. Never a path. */
 export function moduleNameFromId(moduleId: string): string {
   const name = moduleId.replace(/^\/+|\/+$/gu, '').split('/').pop() ?? '';
@@ -142,6 +157,7 @@ async function renderRoute(
   importer: RouteImporter | undefined,
 ): Promise<RenderedRoute> {
   const boot = await loadBoot(basePath);
+  announceTabBoot(basePath);
   const pathname = pathnameOf(route);
   const matched = matchAuraRoute(boot.routes, pathname);
   if (!matched) {

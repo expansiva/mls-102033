@@ -53,7 +53,10 @@ import {
   settleClosedContentTab,
   syncHistoryForContentTab,
   toggleModuleTabPin,
+  MODULE_TAB_BOOT_EVENT,
+  moduleTabBoot,
 } from '/_102033_/l2/shared/moduleTab.js';
+import { headerBootForTab } from '/_102033_/l2/shared/headerTabBoot.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 import { MOBILE_BREAKPOINT_PX } from '/_102033_/l2/shared/breakpoints.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
@@ -400,6 +403,7 @@ export class CollabAuraShell extends LitElement {
     window.addEventListener(AURA_CLOSE_ASIDE_EVENT, this.handleCloseAside as EventListener);
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('popstate', this.handlePopState);
+    window.addEventListener(MODULE_TAB_BOOT_EVENT, this.handleModuleTabBoot);
     navigator.serviceWorker?.addEventListener('message', this.handleServiceWorkerMode);
     void this.adoptRecordedMode();
     this.unsubscribeInteraction = subscribeToInteractionState((state) => {
@@ -427,6 +431,7 @@ export class CollabAuraShell extends LitElement {
     window.removeEventListener(AURA_CLOSE_ASIDE_EVENT, this.handleCloseAside as EventListener);
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('popstate', this.handlePopState);
+    window.removeEventListener(MODULE_TAB_BOOT_EVENT, this.handleModuleTabBoot);
     navigator.serviceWorker?.removeEventListener('message', this.handleServiceWorkerMode);
     this.unsubscribeInteraction?.();
     this.topBandScrollHost?.removeEventListener('scroll', this.handleTopBandScroll, true);
@@ -1580,7 +1585,39 @@ export class CollabAuraShell extends LitElement {
    * After render, so the element is already in its panel: tells whoever follows the page on screen (the Studio edit
    * tools, through serviceClientApp) that the tab, or the element it hosts, changed.
    */
+  /** The header's boot for the tab on screen, memoised per (tab, module boot) so the header re-renders only on a change. */
+  private headerBootMemo?: { app: MasterFrontendBootConfig; tab: string; module: MasterFrontendBootConfig | undefined; boot: MasterFrontendBootConfig };
+
+  /**
+   * The header follows the module of the tab on screen: on a module tab it gets the app's boot with that module's
+   * fields (headerTabBoot); on the app tab, the app's boot. Only the header — the content and the aside keep theirs.
+   */
+  private headerBoot(): MasterFrontendBootConfig | undefined {
+    const app = this.bootConfig;
+    if (!app) return app;
+    const tab = this.activeContentTabId;
+    const module = moduleTabBoot(tab);
+    const memo = this.headerBootMemo;
+    if (memo && memo.app === app && memo.tab === tab && memo.module === module) return memo.boot;
+    const boot = headerBootForTab(app, module);
+    this.headerBootMemo = { app, tab, module, boot };
+    return boot;
+  }
+
+  /** Hand the header the boot of the tab on screen (no-op when it already has it). */
+  private refreshHeaderBoot(): void {
+    const header = this.querySelector('[data-region-host="header"]')?.firstElementChild as AuraRegionElement | null;
+    const boot = this.headerBoot();
+    if (header && boot && header.bootConfig !== boot) header.bootConfig = boot;
+  }
+
+  /** A module tab finished loading its boot config: the header may be showing that tab already. */
+  private readonly handleModuleTabBoot = (): void => {
+    this.refreshHeaderBoot();
+  };
+
   private announceActiveTab(): void {
+    this.refreshHeaderBoot();
     const next = { id: this.activeContentTabId, element: this.activeContentTabElement() };
     if (!tabChanged(this.announcedTab, next)) return;
     this.announcedTab = next;
@@ -1931,7 +1968,7 @@ export class CollabAuraShell extends LitElement {
       });
       const currentElement = host.firstElementChild as AuraRegionElement | null;
       if (currentElement) {
-        currentElement.bootConfig = this.bootConfig;
+        currentElement.bootConfig = region === 'header' ? this.headerBoot() : this.bootConfig;
         currentElement.regionProps = this.getRegionProps(region);
       }
       if (region === 'aside') this.flushAsideNavigation('mode');
@@ -1944,7 +1981,7 @@ export class CollabAuraShell extends LitElement {
       tag: renderer.tag,
     });
     const element = document.createElement(renderer.tag) as AuraRegionElement;
-    element.bootConfig = this.bootConfig;
+    element.bootConfig = region === 'header' ? this.headerBoot() : this.bootConfig;
     element.regionProps = this.getRegionProps(region);
     host.replaceChildren(element);
     if (region === 'aside') this.flushAsideNavigation('mode');

@@ -16,6 +16,7 @@
 
 import { LitElement, html, nothing, render } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
+import { live } from 'lit/directives/live.js';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
 import type { ProjectNavigationEntry } from '/_102029_/l2/runtimeConfigTypes.js';
 import { closeAuraAside, toggleAuraAside } from '/_102033_/l2/shared/layout/aura-shell-events.js';
@@ -485,12 +486,15 @@ export abstract class AuraHeaderBase extends LitElement {
     const currentHref = this.basePath || '/';
     const currentLabel = this.bootConfig?.pageTitle ?? this.bootConfig?.moduleId ?? currentHref;
     const options = [{ href: currentHref, label: currentLabel }, ...others];
+    // The selection is set on the options with `live(...)`, not `.value` on the select: `.value` is applied BEFORE the
+    // options update, and the options are reused by position — when the module changes, option 0 is still the
+    // current one, so a plain `.selected` binding is skipped by lit (same value as last render) while the DOM
+    // selection sits on an option that now holds another module. `live` compares against the DOM instead.
 
     return html`
       <select
         class="aura-header-select"
         aria-label="Module"
-        .value=${currentHref}
         @change=${(event: Event) => {
           const select = event.target as HTMLSelectElement;
           const href = select.value;
@@ -500,7 +504,7 @@ export abstract class AuraHeaderBase extends LitElement {
           if (href !== currentHref) this.navigateTo(href);
         }}
       >
-        ${options.map((option) => html`<option value=${option.href} ?selected=${option.href === currentHref}>${option.label}</option>`)}
+        ${options.map((option) => html`<option value=${option.href} .selected=${live(option.href === currentHref)}>${option.label}</option>`)}
       </select>
     `;
   }
@@ -516,10 +520,9 @@ export abstract class AuraHeaderBase extends LitElement {
       <select
         class="aura-header-select"
         aria-label="Language"
-        .value=${current ?? languages[0]}
         @change=${(event: Event) => setRuntimeLanguage((event.target as HTMLSelectElement).value, languages)}
       >
-        ${languages.map((language) => html`<option value=${language} ?selected=${language === current}>${language}</option>`)}
+        ${languages.map((language) => html`<option value=${language} .selected=${live(language === current)}>${language}</option>`)}
       </select>
     `;
   }
@@ -536,14 +539,13 @@ export abstract class AuraHeaderBase extends LitElement {
       <select
         class="aura-header-select"
         aria-label="Design system"
-        .value=${current ?? designSystems[0]}
         @change=${(event: Event) => {
           const designSystem = (event.target as HTMLSelectElement).value;
           void setRuntimeDesignSystem(designSystem, designSystems, projectId)
             .catch((error) => console.warn('[aura-header] design system switch failed:', error));
         }}
       >
-        ${designSystems.map((designSystem) => html`<option value=${designSystem} ?selected=${designSystem === current}>${designSystem}</option>`)}
+        ${designSystems.map((designSystem) => html`<option value=${designSystem} .selected=${live(designSystem === current)}>${designSystem}</option>`)}
       </select>
     `;
   }
