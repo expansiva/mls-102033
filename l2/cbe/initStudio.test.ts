@@ -505,11 +505,12 @@ test('st68 s1: exit puts the open tabs on production through the slot; entry put
   console.warn = () => undefined;
   resetStudioEditSlot();
   const model = installExitHost(calls, (ref) => (ref === 'main-sha' ? 'release-text' : null), true);
-  const stop = registerPreviewTabsUpdate(async (_project, files) => {
+  const stop = registerPreviewTabsUpdate(async (_project, files, options) => {
     const slug = activeDraft() ?? null;
-    calls.push(`slot:${slug ?? 'null'}:${files.join('+')}`);
+    const mode = options?.production === true ? 'production' : 'draft';
+    calls.push(`slot:${slug ?? 'null'}:${mode}:${files.join('+')}`);
     if (slug === null) {
-      for (const tab of openTabs) shown.set(tab, model.compilerResults.prodJS);
+      for (const tab of openTabs) shown.set(tab, mode);
     }
   });
   rememberDraftMain('main-sha');
@@ -526,18 +527,19 @@ test('st68 s1: exit puts the open tabs on production through the slot; entry put
         { project: 7, shortName: 'page11', folder: 'web/page11', level: 2 },
       ],
     });
-    assert.deepEqual(calls, ['apply', 'publish', 'slot:team-7:l2/web/page11/page11.ts']);
+    assert.deepEqual(calls, ['apply', 'publish', 'slot:team-7:draft:l2/web/page11/page11.ts']);
     calls.length = 0;
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
-    assert.deepEqual(calls, ['set:release-text', 'compile', 'slot:null:l2/web/page11/page11.ts']);
-    assert.equal(shown.get('main'), 'published-js');
-    assert.equal(shown.get('other'), 'published-js');
+    assert.deepEqual(calls, ['slot:null:production:l2/web/page11/page11.ts']);
+    assert.equal(model.compilerResults.prodJS, 'draft-js');
+    assert.equal(shown.get('main'), 'production');
+    assert.equal(shown.get('other'), 'production');
     assert.equal(activeDraft(), undefined);
     assert.equal(reloads, 0);
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'studio' });
     await handleCollabModeMessage({ type: 'nope' });
     assert.equal(reloads, 0);
-    assert.equal(calls.length, 3);
+    assert.equal(calls.length, 1);
     rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
     calls.length = 0;
     shown.clear();
@@ -551,7 +553,7 @@ test('st68 s1: exit puts the open tabs on production through the slot; entry put
         { project: 7, shortName: 'page11', folder: 'web/page11', level: 2 },
       ],
     });
-    assert.deepEqual(calls, ['apply', 'publish', 'slot:team-7:l2/web/page11/page11.ts']);
+    assert.deepEqual(calls, ['apply', 'publish', 'slot:team-7:draft:l2/web/page11/page11.ts']);
     assert.equal(model.compilerResults.prodJS, 'draft-js');
     assert.equal(reloads, 0);
   } finally {
@@ -578,8 +580,10 @@ test('st68 s1: the main page alone returns to production without a reload', asyn
   resetStudioEditSlot();
   const model = installExitHost(calls, () => 'release-text', true);
   let seen: string | null = null;
-  const stop = registerPreviewTabsUpdate(async (_project, files) => {
-    if (activeDraft() === undefined) seen = `${files.join('+')}:${model.compilerResults.prodJS}`;
+  const stop = registerPreviewTabsUpdate(async (_project, files, options) => {
+    if (activeDraft() === undefined) {
+      seen = `${files.join('+')}:${options?.production === true ? 'production' : model.compilerResults.prodJS}`;
+    }
   });
   rememberDraftMain('main-sha');
   rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
@@ -591,7 +595,9 @@ test('st68 s1: the main page alone returns to production without a reload', asyn
       changedTs: async () => [{ project: 7, shortName: 'page11', folder: 'web/home', level: 2 }],
     });
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
-    assert.equal(seen, 'l2/web/home/page11.ts:published-js');
+    assert.equal(seen, 'l2/web/home/page11.ts:production');
+    assert.equal(model.compilerResults.prodJS, 'draft-js');
+    assert.equal(calls.some((call) => call.startsWith('set:')), false);
     assert.equal(reloads, 0);
   } finally {
     restoreDiff();
@@ -606,7 +612,7 @@ test('st68 s1: the main page alone returns to production without a reload', asyn
   }
 });
 
-test('st68 s1: a slot failure stays on the footer and does not reload', async () => {
+test('st68 s1: exit does not compile; a compile that would fail is not a footer error', async () => {
   const calls: string[] = [];
   const failures: string[] = [];
   const previousWindow = (globalThis as { window?: unknown }).window;
@@ -620,7 +626,9 @@ test('st68 s1: a slot failure stays on the footer and does not reload', async ()
   resetStudioEditSlot();
   installExitHost(calls, () => 'release-text', false);
   const stopFail = registerPreviewTabsFailure((cause) => { failures.push(cause); });
-  const stop = registerPreviewTabsUpdate(async () => { calls.push('slot'); });
+  const stop = registerPreviewTabsUpdate(async (_project, _files, options) => {
+    calls.push(options?.production === true ? 'slot:production' : 'slot');
+  });
   rememberDraftMain('main-sha');
   rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
   const restoreDiff = scriptedDraftDiff([{ files: [diffFile('l2/web/page11/page11.ts')] }]);
@@ -632,8 +640,8 @@ test('st68 s1: a slot failure stays on the footer and does not reload', async ()
     });
     calls.length = 0;
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
-    assert.deepEqual(calls, ['set:release-text', 'compile']);
-    assert.deepEqual(failures, ['production compile failed']);
+    assert.deepEqual(calls, ['slot:production']);
+    assert.deepEqual(failures, []);
     assert.equal(reloads, 0);
   } finally {
     restoreDiff();
@@ -675,7 +683,9 @@ test('st68 s1: a thrown slot update stays on the footer and does not reload', as
       changedTs: async () => [{ project: 7, shortName: 'page11', folder: 'web/page11', level: 2 }],
     });
     failures.length = 0;
+    calls.length = 0;
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(calls, []);
     assert.deepEqual(failures, ['preview tabs update is not registered']);
     assert.equal(reloads, 0);
   } finally {
@@ -718,8 +728,9 @@ function openExitCase(): {
   resetStudioEditSlot();
   installExitHost(calls, () => 'release-text', true);
   const stopFail = registerPreviewTabsFailure((cause) => { failures.push(cause); });
-  const stop = registerPreviewTabsUpdate(async (_project, files) => {
-    calls.push(`slot:${files.join('+')}`);
+  const stop = registerPreviewTabsUpdate(async (_project, files, options) => {
+    const mode = options?.production === true ? ':production' : '';
+    calls.push(`slot:${files.join('+')}${mode}`);
   });
   rememberDraftMain('main-sha');
   rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
@@ -760,7 +771,7 @@ test('st68 s1c: a page saved after entry is restored on the first exit', async (
     });
     host.calls.length = 0;
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
-    assert.deepEqual(host.calls, ['set:release-text', 'compile', `slot:${page}`]);
+    assert.deepEqual(host.calls, [`slot:${page}:production`]);
     assert.equal(host.calls.filter((call) => call.startsWith('slot:')).length, 1);
     assert.deepEqual(host.failures, []);
     assert.equal(host.reloads(), 0);
@@ -786,11 +797,7 @@ test('st68 s1c: exit updates the entry file and the one saved later', async () =
     });
     host.calls.length = 0;
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
-    assert.deepEqual(host.calls, [
-      'set:release-text', 'compile',
-      'set:release-text', 'compile',
-      `slot:${entry}+${saved}`,
-    ]);
+    assert.deepEqual(host.calls, [`slot:${entry}+${saved}:production`]);
     assert.equal(host.reloads(), 0);
   } finally {
     restoreDiff();
@@ -815,7 +822,7 @@ test('st68 s1c: a failed exit diff keeps the entry list and paints the footer', 
     host.failures.length = 0;
     host.errors.length = 0;
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
-    assert.deepEqual(host.calls, ['set:release-text', 'compile', `slot:${entry}`]);
+    assert.deepEqual(host.calls, [`slot:${entry}:production`]);
     assert.deepEqual(host.failures, ['draftDiff failed']);
     assert.equal(host.errors.some((line) => line.includes('draftDiff on exit failed: draftDiff failed')), true);
     assert.equal(host.reloads(), 0);
@@ -848,6 +855,334 @@ test('st68 s1c: an empty diff on entry and exit changes nothing', async () => {
   }
 });
 
+/** Same comparison `_checkSameContent` uses: published CRC against the model text. */
+function publishedCrc(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      const mask = -(crc & 1);
+      crc = (crc >>> 1) ^ (0xedb88320 & mask);
+    }
+  }
+  return ((crc ^ 0xffffffff) >>> 0).toString(16);
+}
+
+test('st72 s0: leaving Studio keeps the saved local copy and does not write the published text', async () => {
+  const published = 'published-source';
+  const saved = 'saved-draft-source';
+  const calls: string[] = [];
+  const local: { content: string | null } = { content: saved };
+  const stor = { project: 7, status: 'changed', inLocalStorage: true };
+  let value = saved;
+  const model = {
+    originalCRC: publishedCrc(published),
+    model: {
+      getValue: () => value,
+      setValue: (text: string) => {
+        calls.push(`set:${text}`);
+        value = text;
+        const same = model.originalCRC === publishedCrc(value);
+        if (same) {
+          if (stor.status !== 'renamed' && stor.status !== 'new') {
+            stor.status = 'nochange';
+            local.content = null;
+            stor.inLocalStorage = false;
+          }
+        } else if (stor.status !== 'renamed' && stor.status !== 'new') {
+          stor.status = 'changed';
+          local.content = value;
+          stor.inLocalStorage = Boolean(value);
+        }
+      },
+    },
+    storFile: stor,
+    compilerResults: { modelNeedCompile: false, prodJS: 'draft-js' },
+  };
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const origWarn = console.warn;
+  console.warn = () => undefined;
+  resetStudioEditSlot();
+  (globalThis as { window: unknown }).window = {
+    mls: {
+      editor: { getModels: () => ({ ts: model }) },
+      stor: {
+        others: {
+          getDefaultDriver: async () => ({
+            getHistoryContent: async (_file: unknown, ref: string) => (ref === 'main-sha' ? published : null),
+          }),
+        },
+      },
+      l2: {
+        typescript: {
+          compileAndPostProcess: async (compiled: { compilerResults: { prodJS: string } }) => {
+            calls.push('compile');
+            compiled.compilerResults.prodJS = 'published-js';
+            return true;
+          },
+        },
+      },
+    },
+  };
+  let productionAsked = false;
+  const stop = registerPreviewTabsUpdate(async (_project, files, options) => {
+    calls.push('slot');
+    productionAsked = options?.production === true && files.join('+') === page;
+  });
+  rememberDraftMain('main-sha');
+  rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  const page = 'l2/web/saved/page.ts';
+  const restoreDiff = scriptedDraftDiff([{ files: [] }, { files: [diffFile(page)] }]);
+  try {
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => undefined,
+      publishL2: async () => undefined,
+      changedTs: async () => [],
+    });
+    calls.length = 0;
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    const wrotePublished = calls.includes(`set:${published}`);
+    const cleared = local.content === null && stor.inLocalStorage === false && stor.status === 'nochange';
+    assert.equal(
+      `${wrotePublished}:${cleared}:${value}:${stor.status}:${String(local.content)}`,
+      `false:false:${saved}:changed:${saved}`,
+    );
+    assert.equal(model.originalCRC, publishedCrc(published));
+    assert.equal(calls.includes('compile'), false);
+    assert.equal(productionAsked, true);
+  } finally {
+    restoreDiff();
+    stop();
+    resetStudioEditSlot();
+    rememberCollabMode({ mode: 'production' });
+    console.warn = origWarn;
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window: unknown }).window = previousWindow;
+  }
+});
+
+interface SavedExit {
+  calls: string[];
+  failures: string[];
+  value: () => string;
+  crc: () => string;
+  prodJS: () => string;
+  stor: { status: string; inLocalStorage: boolean };
+  local: { content: string | null };
+  unsaved: () => number;
+  close: () => void;
+}
+
+/** A saved file whose model listener clears the local copy when the text becomes the published CRC. */
+function openSavedExit(
+  status: 'changed' | 'new',
+  saved: string,
+  published: string,
+  page: string,
+  onSlot: (files: readonly string[], options?: { production?: boolean }) => Promise<void>,
+): SavedExit {
+  const calls: string[] = [];
+  const failures: string[] = [];
+  const local: { content: string | null } = { content: saved };
+  const stor = { project: 7, status, inLocalStorage: true };
+  let value = saved;
+  let unsaved = 0;
+  const model = {
+    originalCRC: publishedCrc(published),
+    model: {
+      getValue: () => value,
+      setValue: (text: string) => {
+        calls.push(`set:${text}`);
+        value = text;
+        if (value !== saved) unsaved = 1;
+        if (model.originalCRC === publishedCrc(value) && stor.status !== 'renamed' && stor.status !== 'new') {
+          stor.status = 'nochange';
+          local.content = null;
+          stor.inLocalStorage = false;
+        }
+      },
+    },
+    storFile: stor,
+    compilerResults: { modelNeedCompile: false, prodJS: 'draft-js' },
+  };
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const origWarn = console.warn;
+  const origError = console.error;
+  console.warn = () => undefined;
+  console.error = () => undefined;
+  resetStudioEditSlot();
+  (globalThis as { window: unknown }).window = {
+    mls: {
+      editor: { getModels: () => ({ ts: model }) },
+      l2: { typescript: { compileAndPostProcess: async () => { calls.push('compile'); return true; } } },
+    },
+  };
+  const stopFail = registerPreviewTabsFailure((cause) => { failures.push(cause); });
+  const stop = registerPreviewTabsUpdate(async (_project, files, options) => onSlot(files, options));
+  rememberDraftMain('main-sha');
+  rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  return {
+    calls,
+    failures,
+    value: () => value,
+    crc: () => model.originalCRC,
+    prodJS: () => model.compilerResults.prodJS,
+    stor,
+    local,
+    unsaved: () => unsaved,
+    close() {
+      stop();
+      stopFail();
+      resetStudioEditSlot();
+      rememberCollabMode({ mode: 'production' });
+      console.warn = origWarn;
+      console.error = origError;
+      if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+      else (globalThis as { window: unknown }).window = previousWindow;
+    },
+  };
+}
+
+async function enterSaved(): Promise<void> {
+  await enterStudioDraft(7, 'team-7', {
+    applyFiles: async () => undefined,
+    publishL2: async () => undefined,
+    changedTs: async () => [],
+  });
+}
+
+test('st72 s1: a saved new file keeps its local copy when Studio closes', async () => {
+  const saved = 'saved-new-source';
+  const published = 'published-source';
+  const page = 'l2/web/saved/fresh.ts';
+  const slot: string[] = [];
+  const host = openSavedExit('new', saved, published, page, async (files, options) => {
+    slot.push(`${files.join('+')}:${options?.production === true ? 'production' : 'draft'}`);
+  });
+  const restoreDiff = scriptedDraftDiff([{ files: [] }, { files: [diffFile(page)] }]);
+  try {
+    await enterSaved();
+    host.calls.length = 0;
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(host.calls, []);
+    assert.equal(host.value(), saved);
+    assert.equal(host.local.content, saved);
+    assert.equal(host.stor.inLocalStorage, true);
+    assert.equal(host.stor.status, 'new');
+    assert.equal(host.crc(), publishedCrc(published));
+    assert.equal(host.unsaved(), 0);
+    assert.equal(host.prodJS(), 'draft-js');
+    assert.deepEqual(slot, [`${page}:production`]);
+    assert.deepEqual(host.failures, []);
+  } finally {
+    restoreDiff();
+    host.close();
+  }
+});
+
+test('st72 s1: a file with no open model still asks the tabs for production', async () => {
+  const calls: string[] = [];
+  const failures: string[] = [];
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const origWarn = console.warn;
+  const origError = console.error;
+  console.warn = () => undefined;
+  console.error = () => undefined;
+  resetStudioEditSlot();
+  (globalThis as { window: unknown }).window = { mls: { editor: { getModels: () => undefined } } };
+  const stopFail = registerPreviewTabsFailure((cause) => { failures.push(cause); });
+  const stop = registerPreviewTabsUpdate(async (_project, files, options) => {
+    calls.push(`${files.join('+')}:${options?.production === true ? 'production' : 'draft'}`);
+  });
+  rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+  const page = 'l2/web/closed/page.ts';
+  const restoreDiff = scriptedDraftDiff([{ files: [diffFile(page)] }]);
+  try {
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => undefined,
+      publishL2: async () => undefined,
+      changedTs: async () => [{ project: 7, shortName: 'page', folder: 'web/closed', level: 2 }],
+    });
+    calls.length = 0;
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(calls, [`${page}:production`]);
+    assert.deepEqual(failures, []);
+  } finally {
+    restoreDiff();
+    stop();
+    stopFail();
+    resetStudioEditSlot();
+    rememberCollabMode({ mode: 'production' });
+    console.warn = origWarn;
+    console.error = origError;
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window: unknown }).window = previousWindow;
+  }
+});
+
+test('st72 s1: leaving and entering again without a reload keeps the draft text and the draft tabs', async () => {
+  const saved = 'saved-draft-source';
+  const published = 'published-source';
+  const page = 'l2/web/saved/page.ts';
+  const slot: string[] = [];
+  const host = openSavedExit('changed', saved, published, page, async (files, options) => {
+    slot.push(`${files.join('+')}:${options?.production === true ? 'production' : 'draft'}`);
+  });
+  const restoreDiff = scriptedDraftDiff([{ files: [] }, { files: [diffFile(page)] }]);
+  try {
+    await enterSaved();
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.equal(host.value(), saved);
+    assert.equal(host.unsaved(), 0);
+    assert.equal(host.prodJS(), 'draft-js');
+    rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
+    slot.length = 0;
+    await enterStudioDraft(7, 'team-7', {
+      applyFiles: async () => undefined,
+      publishL2: async () => undefined,
+      changedTs: async () => [{ project: 7, shortName: 'page', folder: 'web/saved', level: 2 }],
+    });
+    assert.equal(host.value(), saved);
+    assert.equal(host.local.content, saved);
+    assert.equal(host.stor.status, 'changed');
+    assert.equal(host.stor.inLocalStorage, true);
+    assert.equal(host.crc(), publishedCrc(published));
+    assert.equal(host.unsaved(), 0);
+    assert.equal(host.prodJS(), 'draft-js');
+    assert.deepEqual(host.calls, []);
+    assert.deepEqual(slot, [`${page}:draft`]);
+  } finally {
+    restoreDiff();
+    host.close();
+  }
+});
+
+test('st72 s1: a failed production tab update stays on the footer and keeps the local copy', async () => {
+  const saved = 'saved-draft-source';
+  const published = 'published-source';
+  const page = 'l2/web/saved/page.ts';
+  const host = openSavedExit('changed', saved, published, page, async () => {
+    throw new Error('preview tabs update is not registered');
+  });
+  const restoreDiff = scriptedDraftDiff([{ files: [] }, { files: [diffFile(page)] }]);
+  try {
+    await enterSaved();
+    host.failures.length = 0;
+    await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
+    assert.deepEqual(host.failures, ['preview tabs update is not registered']);
+    assert.deepEqual(host.calls, []);
+    assert.equal(host.value(), saved);
+    assert.equal(host.local.content, saved);
+    assert.equal(host.stor.inLocalStorage, true);
+    assert.equal(host.stor.status, 'changed');
+    assert.equal(host.unsaved(), 0);
+  } finally {
+    restoreDiff();
+    host.close();
+  }
+});
+
 test('st68 s1: a different release still reloads on studio exit', async () => {
   let current = 'rel-a';
   await rememberRelease(async () => ({ id: current }));
@@ -868,7 +1203,9 @@ test('production exit does not compile a screen that has no published version', 
   resetStudioEditSlot();
   const model = installExitHost(calls, () => null, true);
   const stopFail = registerPreviewTabsFailure((cause) => { failures.push(cause); });
-  const stop = registerPreviewTabsUpdate(async () => { calls.push(`slot:${model.compilerResults.prodJS}`); });
+  const stop = registerPreviewTabsUpdate(async (_project, _files, options) => {
+    calls.push(`slot:${model.compilerResults.prodJS}:${options?.production === true ? 'production' : 'draft'}`);
+  });
   rememberDraftMain('main-sha');
   rememberCollabMode({ mode: 'studio', project: 7, draft: 'team-7' });
   const restoreDiff = scriptedDraftDiff([{ files: [diffFile('l2/web/page13/new.ts')] }]);
@@ -880,7 +1217,7 @@ test('production exit does not compile a screen that has no published version', 
     });
     calls.length = 0;
     await handleCollabModeMessage({ type: 'collab-mode', mode: 'production' });
-    assert.deepEqual(calls, ['slot:draft-js']);
+    assert.deepEqual(calls, ['slot:draft-js:production']);
     assert.deepEqual(failures, []);
   } finally {
     restoreDiff();

@@ -115,3 +115,15 @@ test('st66 s4: a tab update with no tool fails out loud; a registered tool recei
   stop();
   await assert.rejects(askPreviewTabsUpdate(102047, ['l2/a.ts']), /not registered/);
 });
+
+test('st72 s1: a production tab update forwards the flag; a plain update does not', async () => {
+  resetStudioEditSlot();
+  const seen: Array<boolean | undefined> = [];
+  const stop = registerPreviewTabsUpdate(async (_project, _files, options) => {
+    seen.push(options?.production);
+  });
+  await askPreviewTabsUpdate(102047, ['l2/a.ts']);
+  await askPreviewTabsUpdate(102047, ['l2/b.ts'], { production: true });
+  assert.deepEqual(seen, [undefined, true]);
+  stop();
+});

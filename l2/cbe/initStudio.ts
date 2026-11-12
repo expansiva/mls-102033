@@ -10,7 +10,7 @@
 
 import type { StudioMls } from './global.js';
 import { activeDraft, readCollabModeNotice, rememberCollabMode } from '/_102033_/l2/cbe/studioDraft.js';
-import { applyDraftFiles, beginDraftEntrySeed, completeDraftEntrySeed, draftPublishedCommit, requestDraftDiff, type DraftDiffResult } from '/_102033_/l2/cbe/studioDraftFiles.js';
+import { applyDraftFiles, beginDraftEntrySeed, completeDraftEntrySeed, requestDraftDiff, type DraftDiffResult } from '/_102033_/l2/cbe/studioDraftFiles.js';
 import { askPreviewTabsUpdate, dropPendingPreviewTabs, holdPreviewTabsUpdate, previewTabsReady, reportPreviewTabsFailure } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { draftL2Targets, publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
 import type { DriverVm } from '/_102033_/l2/cbe/driverVm.js';
@@ -308,121 +308,6 @@ let modeListenerOn = false;
 
 const DRAFT_UNCHANGED = '[initStudio] nada alterado no rascunho';
 
-interface ProductionStorFile {
-  project?: number;
-}
-
-interface ProductionModel {
-  model?: { setValue?: (text: string) => void };
-  storFile?: ProductionStorFile;
-  compilerResults?: { modelNeedCompile?: boolean; prodJS?: string };
-}
-
-interface ProductionDriver {
-  getHistoryContent?: (fileInfo: ProductionStorFile, ref: string) => Promise<string | null>;
-}
-
-interface ProductionMls {
-  stor?: { others?: { getDefaultDriver?: (project: number) => Promise<ProductionDriver | null | undefined> | ProductionDriver | null | undefined } };
-  editor?: {
-    getModels?: (
-      project: number,
-      shortName: string,
-      folder: string,
-      level?: number,
-    ) => { ts?: ProductionModel } | undefined;
-  };
-  l2?: {
-    typescript?: {
-      compileAndPostProcess?: (
-        model: ProductionModel,
-        runAfterCompile: boolean,
-        saveCache: boolean,
-      ) => Promise<boolean>;
-    };
-  };
-}
-
-function productionMls(): ProductionMls | undefined {
-  const fromWindow = (globalThis as unknown as { window?: { mls?: ProductionMls } }).window?.mls;
-  return fromWindow ?? (globalThis as unknown as { mls?: ProductionMls }).mls;
-}
-
-/**
- * The published source of one screen: `getHistoryContent` at the commit of `main` that `draftDiff` sent.
- * The row's own `getContent` would read the draft blob (the draft apply moved its `versionRef`), so it
- * is not production. Null when the screen has no published version or the read failed.
- */
-async function publishedSource(ref: DraftScreenRef, storFile: ProductionStorFile): Promise<string | null> {
-  const main = draftPublishedCommit();
-  if (!main) {
-    console.warn('[initStudio] draftDiff sent no main; production version was not restored', ref);
-    return null;
-  }
-  try {
-    const driver = await productionMls()?.stor?.others?.getDefaultDriver?.(ref.project);
-    if (!driver?.getHistoryContent) {
-      console.warn('[initStudio] driver has no getHistoryContent; production version was not restored', ref);
-      return null;
-    }
-    const text = await driver.getHistoryContent(storFile, main);
-    if (typeof text !== 'string') {
-      console.warn('[initStudio] no published version of this screen; it stays as it is', {
-        changed: `${ref.project}/${ref.folder}/${ref.shortName}`,
-      });
-      return null;
-    }
-    return text;
-  } catch (err) {
-    console.warn('[initStudio] published source failed', ref, err);
-    return null;
-  }
-}
-
-/**
- * Puts the published source back on the model and compiles it into `prodJS`.
- * `absent` when this screen has no model or no published source: the slot fetches production.
- * `failed` when the model is still the draft and the compile did not replace `prodJS`.
- */
-async function restoreProduction(ref: DraftScreenRef): Promise<'restored' | 'absent' | 'failed'> {
-  const model = productionMls()?.editor?.getModels?.(ref.project, ref.shortName, ref.folder, ref.level)?.ts;
-  if (!model?.model?.setValue || !model.storFile) {
-    console.warn('[initStudio] no model; production version was not compiled', {
-      changed: `${ref.project}/${ref.folder}/${ref.shortName}`,
-    });
-    return 'absent';
-  }
-  const content = await publishedSource(ref, model.storFile);
-  if (content === null) return 'absent';
-  model.model.setValue(content);
-  if (model.compilerResults) model.compilerResults.modelNeedCompile = true;
-  const compile = productionMls()?.l2?.typescript?.compileAndPostProcess;
-  if (!compile) {
-    console.warn('[initStudio] compileAndPostProcess missing; production version was not compiled', ref);
-    return 'failed';
-  }
-  try {
-    const ok = await compile(model, true, true);
-    if (!ok) {
-      console.warn('[initStudio] production compile failed', {
-        changed: `${ref.project}/${ref.folder}/${ref.shortName}`,
-      });
-      return 'failed';
-    }
-  } catch (err) {
-    console.warn('[initStudio] production compile failed', ref, err);
-    return 'failed';
-  }
-  const js = model.compilerResults?.prodJS;
-  if (typeof js !== 'string' || js.length === 0) {
-    console.warn('[initStudio] production compile wrote no prodJS', {
-      changed: `${ref.project}/${ref.folder}/${ref.shortName}`,
-    });
-    return 'failed';
-  }
-  return 'restored';
-}
-
 function reportTabsFailure(cause: string): void {
   console.error(`[initStudio] preview tabs were not updated: ${cause}`);
   reportPreviewTabsFailure(cause);
@@ -462,7 +347,10 @@ async function pathsOnExit(project: number): Promise<string[]> {
   }
 }
 
-/** `{type:'collab-mode'}` with `production`: published `prodJS`, then one slot update. No reload. */
+/**
+ * `{type:'collab-mode'}` with `production`: one slot update that fetches production.
+ * The edit model and its local copy stay as they were. No reload.
+ */
 export async function handleCollabModeMessage(data: unknown): Promise<void> {
   const notice = readCollabModeNotice(data);
   if (!notice || notice.mode !== 'production') return;
@@ -479,21 +367,8 @@ export async function handleCollabModeMessage(data: unknown): Promise<void> {
     console.info(DRAFT_UNCHANGED);
     return;
   }
-  let failed = false;
-  for (const path of paths) {
-    const ref = refFromDraftPath(project, path);
-    if (!ref) {
-      console.error('[initStudio] draft path is not an l2 ts:', path);
-      continue;
-    }
-    if (await restoreProduction(ref) === 'failed') failed = true;
-  }
-  if (failed) {
-    reportTabsFailure('production compile failed');
-    return;
-  }
   try {
-    await askPreviewTabsUpdate(project, paths);
+    await askPreviewTabsUpdate(project, paths, { production: true });
   } catch (err) {
     const cause = err instanceof Error && err.message ? err.message : String(err);
     reportTabsFailure(cause);

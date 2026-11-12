@@ -78,7 +78,16 @@ export function currentEditHost(): IStudioEditHost | null {
  * Same direction as `registerStudioEditTool`: this project never names the Studio plugin.
  * A save or a discard does not wait: with no tool, the caller shows the failure.
  */
-export type PreviewTabsUpdate = (project: number, files: readonly string[]) => Promise<void>;
+/** `production` makes open tabs load the published JavaScript. The editor model stays out of that read. */
+export interface IPreviewTabsUpdateOptions {
+  production?: boolean;
+}
+
+export type PreviewTabsUpdate = (
+  project: number,
+  files: readonly string[],
+  options?: IPreviewTabsUpdateOptions,
+) => Promise<void>;
 
 let previewTabsUpdate: PreviewTabsUpdate | null = null;
 let pendingPreviewTabs: { project: number; files: readonly string[] } | null = null;
@@ -133,12 +142,17 @@ export function dropPendingPreviewTabs(): void {
   pendingPreviewTabs = null;
 }
 
-export async function askPreviewTabsUpdate(project: number, files: readonly string[]): Promise<void> {
+export async function askPreviewTabsUpdate(
+  project: number,
+  files: readonly string[],
+  options?: IPreviewTabsUpdateOptions,
+): Promise<void> {
   if (!previewTabsUpdate) {
     console.error('[studioEditSlot] preview tabs were not updated: no tool registered');
     throw new Error('preview tabs update is not registered');
   }
-  await previewTabsUpdate(project, files);
+  if (options) await previewTabsUpdate(project, files, options);
+  else await previewTabsUpdate(project, files);
 }
 
 /** Only for tests: forget every tool, the last state and the pending tab update. */
