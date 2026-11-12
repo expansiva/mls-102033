@@ -73,64 +73,64 @@ export function currentEditHost(): IStudioEditHost | null {
   return current;
 }
 
-/** One screen of the running app that the draft changed. */
-export interface IVisibleScreenRef {
-  project: number;
-  shortName: string;
-  folder: string;
-  level: number;
-}
-
-/** Swaps that screen live when it is the one showing. The tool that knows how registers it. */
-export type VisibleScreenSwap = (ref: IVisibleScreenRef) => Promise<void>;
-
-let visibleSwap: VisibleScreenSwap | null = null;
-const waitingSwaps = new Map<string, IVisibleScreenRef>();
-
-function swapKey(ref: IVisibleScreenRef): string {
-  return `${ref.project}/${ref.level}/${ref.folder}/${ref.shortName}`;
-}
-
-/**
- * The live-update tool announces how to swap a visible screen. Same direction as `registerStudioEditTool`:
- * this project never names the Studio plugin. A swap asked for before the tool loaded (the plugin scan runs
- * when studio mode turns on) waits and is replayed here, once per screen.
- */
-export function registerVisibleScreenSwap(swap: VisibleScreenSwap): () => void {
-  visibleSwap = swap;
-  const waiting = [...waitingSwaps.values()];
-  waitingSwaps.clear();
-  for (const ref of waiting) {
-    void swap(ref).catch((err: unknown) => console.warn('[studioEditSlot] visible swap failed:', err));
-  }
-  return () => {
-    if (visibleSwap === swap) visibleSwap = null;
-  };
-}
-
-/** Asks for the live swap of one screen; held until a tool registers when none has yet. */
-export async function swapVisibleScreen(ref: IVisibleScreenRef): Promise<void> {
-  if (!visibleSwap) {
-    waitingSwaps.set(swapKey(ref), ref);
-    return;
-  }
-  await visibleSwap(ref);
-}
-
 /**
  * Updates the open preview tabs for these changed paths.
- * Same direction as `registerVisibleScreenSwap`: this project never names the Studio plugin.
+ * Same direction as `registerStudioEditTool`: this project never names the Studio plugin.
  * A save or a discard does not wait: with no tool, the caller shows the failure.
  */
 export type PreviewTabsUpdate = (project: number, files: readonly string[]) => Promise<void>;
 
 let previewTabsUpdate: PreviewTabsUpdate | null = null;
+let pendingPreviewTabs: { project: number; files: readonly string[] } | null = null;
+let previewTabsFailure: ((cause: string) => void) | null = null;
+
+export function registerPreviewTabsFailure(report: (cause: string) => void): () => void {
+  previewTabsFailure = report;
+  return () => {
+    if (previewTabsFailure === report) previewTabsFailure = null;
+  };
+}
+
+/** Paints the footer when a caller has one. Without it, the cause stays on the console. */
+export function reportPreviewTabsFailure(cause: string): void {
+  if (cause.length === 0) {
+    console.error('[studioEditSlot] preview tabs failure had an empty cause');
+    return;
+  }
+  if (!previewTabsFailure) {
+    console.error(`[studioEditSlot] preview tabs were not updated: ${cause}`);
+    return;
+  }
+  previewTabsFailure(cause);
+}
 
 export function registerPreviewTabsUpdate(update: PreviewTabsUpdate): () => void {
   previewTabsUpdate = update;
+  const pending = pendingPreviewTabs;
+  pendingPreviewTabs = null;
+  if (pending) {
+    void update(pending.project, pending.files).catch((err: unknown) => {
+      const detail = err instanceof Error && err.message ? err.message : String(err);
+      console.error(`[studioEditSlot] preview tabs were not updated: ${detail}`);
+      reportPreviewTabsFailure(detail);
+    });
+  }
   return () => {
     if (previewTabsUpdate === update) previewTabsUpdate = null;
   };
+}
+
+export function previewTabsReady(): boolean {
+  return previewTabsUpdate !== null;
+}
+
+/** The entry asked before the tool loaded. The next register runs this one list. */
+export function holdPreviewTabsUpdate(project: number, files: readonly string[]): void {
+  pendingPreviewTabs = { project, files: [...files] };
+}
+
+export function dropPendingPreviewTabs(): void {
+  pendingPreviewTabs = null;
 }
 
 export async function askPreviewTabsUpdate(project: number, files: readonly string[]): Promise<void> {
@@ -141,13 +141,13 @@ export async function askPreviewTabsUpdate(project: number, files: readonly stri
   await previewTabsUpdate(project, files);
 }
 
-/** Only for tests: forget every tool, the last state and the swap. */
+/** Only for tests: forget every tool, the last state and the pending tab update. */
 export function resetStudioEditSlot(): void {
   tools.clear();
   current = null;
-  visibleSwap = null;
-  waitingSwaps.clear();
   previewTabsUpdate = null;
+  pendingPreviewTabs = null;
+  previewTabsFailure = null;
 }
 
 /**

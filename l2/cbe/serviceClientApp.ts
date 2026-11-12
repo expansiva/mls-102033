@@ -13,7 +13,7 @@ import { html } from 'lit';
 import { ServiceBase, type IService, type IServiceMenu, type IToolbarContent } from '/_102027_/l2/serviceBase.js';
 import { moveConnectedRegion } from '/_102033_/l2/shared/connectedRegionMove.js';
 import { parseMsizeHeight } from '/_102033_/l2/shared/regionMsize.js';
-import { askPreviewTabsUpdate, publishEditHost } from '/_102033_/l2/cbe/studioEditSlot.js';
+import { askPreviewTabsUpdate, publishEditHost, registerPreviewTabsFailure } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { loadStudioTools } from '/_102033_/l2/cbe/studioServices.js';
 import { tabPinLabel } from '/_102033_/l2/shared/moduleTab.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
@@ -96,10 +96,13 @@ export function previewCoverSecondLine(input: IPreviewCoverLineInput, blockedTem
   return null;
 }
 
-/** Studio, with unsaved or refused work, on every level including the page editor. */
+/**
+ * Studio, with unsaved or refused work, on every level including the page editor.
+ * A failed tab update stays on the strip after Studio is off: that is the only line left.
+ */
 export function previewCoverVisible(input: IPreviewCoverInput): boolean {
-  return input.studio === true
-    && (previewCoverBlockedDecision(input).show || previewCoverSecondLine(input, '{n}') !== null);
+  if (typeof input.failure === 'string' && input.failure.length > 0) return true;
+  return input.studio === true && previewCoverBlockedDecision(input).show;
 }
 // preview-cover-decision:end
 
@@ -340,6 +343,11 @@ export function previewUpdateFailureText(phrase: string, cause: string): string 
   return `${phrase} ${cause}`;
 }
 
+/** The footer line for a tab update that failed. Default language is English. */
+export function previewTabsFailureLine(cause: string, language: string): string {
+  return previewUpdateFailureText(previewCoverCopy(language).updateFailed, cause);
+}
+
 export async function deliverPreviewUpdate(
   ask: (project: number, files: readonly string[]) => Promise<void>,
   project: number,
@@ -426,6 +434,7 @@ export class ServiceClientApp extends ServiceBase {
   private panelVisible = true;
   private studioModeObserver?: MutationObserver;
   private draftWatchOn = false;
+  private stopPreviewFailure: (() => void) | null = null;
   /** Set while Discard is inside `saveL5File` for the site project. */
   private discardHold: number | null = null;
   private pendingCount = 0;
@@ -514,6 +523,8 @@ export class ServiceClientApp extends ServiceBase {
       window.removeEventListener(COLLAB_DRAFT_DISCARD_HOLD, this.onDiscardHold);
       this.draftWatchOn = false;
     }
+    this.stopPreviewFailure?.();
+    this.stopPreviewFailure = null;
     this.dropCover();
     window.removeEventListener(NAV3_TAB_CHANGE_EVENT, this.onTabChange);
     // Whoever plugged in tears itself down: the app region is going away.
@@ -684,8 +695,9 @@ export class ServiceClientApp extends ServiceBase {
    */
   private syncPreviewCover(): void {
     const pending = { count: this.pendingCount, blocked: this.pendingBlocked, failure: this.saveFailure };
+    const studio = this.isStudioMode();
     const show = previewCoverVisible({
-      studio: this.isStudioMode(),
+      studio,
       level: this.level,
       count: pending.count,
       blocked: pending.blocked,
@@ -704,6 +716,9 @@ export class ServiceClientApp extends ServiceBase {
     const line = previewCoverSecondLine(pending, phrase.blocked);
     const copy: IPreviewCoverCopy = {
       ...phrase,
+      before: studio ? phrase.before : '',
+      save: studio ? phrase.save : '',
+      after: studio ? phrase.after : '',
       blocked: line === null ? '' : line,
     };
     const cover = fillPreviewCoverOnFirstSync(() => {
@@ -719,6 +734,7 @@ export class ServiceClientApp extends ServiceBase {
     if (!cover.before || !cover.button || !cover.blocked) {
       console.error('[preview] draft cover was created without its text nodes');
     }
+    if (this.coverButton) this.coverButton.hidden = !studio;
     if (this.coverEl) this.append(this.coverEl);
     this.applyRegionHeight();
   }
@@ -781,6 +797,11 @@ export class ServiceClientApp extends ServiceBase {
     window.addEventListener(COLLAB_DRAFT_SAVED, this.onDraftSaved);
     window.addEventListener(COLLAB_DRAFT_DISCARDED, this.onDraftDiscarded);
     window.addEventListener(COLLAB_DRAFT_DISCARD_HOLD, this.onDiscardHold);
+    this.stopPreviewFailure?.();
+    this.stopPreviewFailure = registerPreviewTabsFailure((cause) => {
+      this.saveFailure = previewTabsFailureLine(cause, document.documentElement?.lang || 'en');
+      this.syncPreviewCover();
+    });
     this.draftWatchOn = true;
     if (latestPending) this.applyPending(latestPending);
   }

@@ -9,9 +9,9 @@
 // LoadMonaco listener that calls initStudio() on demand.
 
 import type { StudioMls } from './global.js';
-import { activeDraft, readCollabModeNotice } from '/_102033_/l2/cbe/studioDraft.js';
+import { activeDraft, readCollabModeNotice, rememberCollabMode } from '/_102033_/l2/cbe/studioDraft.js';
 import { applyDraftFiles, beginDraftEntrySeed, completeDraftEntrySeed, draftPublishedCommit, requestDraftDiff, type DraftDiffResult } from '/_102033_/l2/cbe/studioDraftFiles.js';
-import { swapVisibleScreen } from '/_102033_/l2/cbe/studioEditSlot.js';
+import { askPreviewTabsUpdate, dropPendingPreviewTabs, holdPreviewTabsUpdate, previewTabsReady, reportPreviewTabsFailure } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { draftL2Targets, publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
 import type { DriverVm } from '/_102033_/l2/cbe/driverVm.js';
 
@@ -297,14 +297,16 @@ export interface StudioDraftEntryDeps {
   publishL2(project: number, slug: string, diff?: DraftDiffResult): Promise<unknown>;
   /** Compiled draft `.ts` files, after `publishL2`. Absent when the caller only publishes. */
   changedTs?(project: number, slug: string, diff?: DraftDiffResult): Promise<DraftScreenRef[]>;
-  /** Swaps one visible screen. Same function on the way out, after the production compile. */
-  applyChanged?(ref: DraftScreenRef): Promise<void>;
 }
 
-/** Screens the last entry compiled. Exit swaps these back to production. */
-let visibleRefs: DraftScreenRef[] = [];
-let swapChanged: ((ref: DraftScreenRef) => Promise<void>) | null = null;
+/** l2 paths from the entry diff. Exit unions them with a fresh `draftDiff`. */
+let exitProject: number | null = null;
+/** Saved with `exitProject`. `activeDraft()` is already undefined on the way out. */
+let exitSlug: string | null = null;
+let exitPaths: string[] = [];
 let modeListenerOn = false;
+
+const DRAFT_UNCHANGED = '[initStudio] nada alterado no rascunho';
 
 interface ProductionStorFile {
   project?: number;
@@ -313,7 +315,7 @@ interface ProductionStorFile {
 interface ProductionModel {
   model?: { setValue?: (text: string) => void };
   storFile?: ProductionStorFile;
-  compilerResults?: { modelNeedCompile?: boolean };
+  compilerResults?: { modelNeedCompile?: boolean; prodJS?: string };
 }
 
 interface ProductionDriver {
@@ -378,26 +380,26 @@ async function publishedSource(ref: DraftScreenRef, storFile: ProductionStorFile
 }
 
 /**
- * Puts the published source back on the model and compiles it into the cache.
- * The model still holds the draft until this runs.
- * False when there is nothing to swap — the caller must not apply the draft over production.
+ * Puts the published source back on the model and compiles it into `prodJS`.
+ * `absent` when this screen has no model or no published source: the slot fetches production.
+ * `failed` when the model is still the draft and the compile did not replace `prodJS`.
  */
-async function restoreProduction(ref: DraftScreenRef): Promise<boolean> {
+async function restoreProduction(ref: DraftScreenRef): Promise<'restored' | 'absent' | 'failed'> {
   const model = productionMls()?.editor?.getModels?.(ref.project, ref.shortName, ref.folder, ref.level)?.ts;
   if (!model?.model?.setValue || !model.storFile) {
     console.warn('[initStudio] no model; production version was not compiled', {
       changed: `${ref.project}/${ref.folder}/${ref.shortName}`,
     });
-    return false;
+    return 'absent';
   }
   const content = await publishedSource(ref, model.storFile);
-  if (content === null) return false;
+  if (content === null) return 'absent';
   model.model.setValue(content);
   if (model.compilerResults) model.compilerResults.modelNeedCompile = true;
   const compile = productionMls()?.l2?.typescript?.compileAndPostProcess;
   if (!compile) {
     console.warn('[initStudio] compileAndPostProcess missing; production version was not compiled', ref);
-    return false;
+    return 'failed';
   }
   try {
     const ok = await compile(model, true, true);
@@ -405,27 +407,96 @@ async function restoreProduction(ref: DraftScreenRef): Promise<boolean> {
       console.warn('[initStudio] production compile failed', {
         changed: `${ref.project}/${ref.folder}/${ref.shortName}`,
       });
-      return false;
+      return 'failed';
     }
   } catch (err) {
     console.warn('[initStudio] production compile failed', ref, err);
-    return false;
+    return 'failed';
   }
-  return true;
+  const js = model.compilerResults?.prodJS;
+  if (typeof js !== 'string' || js.length === 0) {
+    console.warn('[initStudio] production compile wrote no prodJS', {
+      changed: `${ref.project}/${ref.folder}/${ref.shortName}`,
+    });
+    return 'failed';
+  }
+  return 'restored';
 }
 
-/** `{type:'collab-mode'}` with `production`: swap the visible screens to the release. Studio is the entry path. */
+function reportTabsFailure(cause: string): void {
+  console.error(`[initStudio] preview tabs were not updated: ${cause}`);
+  reportPreviewTabsFailure(cause);
+}
+
+function unionPaths(left: readonly string[], right: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const path of [...left, ...right]) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    out.push(path);
+  }
+  return out;
+}
+
+/**
+ * Entry list plus the l2 `.ts` files the draft differs on at exit.
+ * `requestDraftDiff` uses the slug saved on entry: `activeDraft()` is already undefined.
+ * A failed diff is logged, painted on the footer, and the entry list is kept.
+ */
+async function pathsOnExit(project: number): Promise<string[]> {
+  if (exitSlug === null) {
+    console.error('[initStudio] exit has no draft slug; the entry list is used');
+    reportTabsFailure('exit has no draft slug');
+    return [...exitPaths];
+  }
+  try {
+    const diff = await requestDraftDiff(project, exitSlug);
+    const refs = await listChangedDraftTs(project, exitSlug, diff);
+    return unionPaths(exitPaths, refs.map(pathFromRef));
+  } catch (err) {
+    const cause = err instanceof Error && err.message ? err.message : String(err);
+    console.error(`[initStudio] draftDiff on exit failed: ${cause}`);
+    reportTabsFailure(cause);
+    return [...exitPaths];
+  }
+}
+
+/** `{type:'collab-mode'}` with `production`: published `prodJS`, then one slot update. No reload. */
 export async function handleCollabModeMessage(data: unknown): Promise<void> {
   const notice = readCollabModeNotice(data);
   if (!notice || notice.mode !== 'production') return;
-  if (!swapChanged) {
+  // Before the slot reads `activeDraft()`. The shell may hear this message later.
+  rememberCollabMode({ mode: 'production' });
+  dropPendingPreviewTabs();
+  if (exitProject === null) {
     console.warn('[initStudio] production mode with no draft screens to swap');
     return;
   }
-  for (const ref of visibleRefs) {
-    const restored = await restoreProduction(ref);
-    if (!restored) continue;
-    await swapChanged(ref);
+  const project = exitProject;
+  const paths = await pathsOnExit(project);
+  if (paths.length === 0) {
+    console.info(DRAFT_UNCHANGED);
+    return;
+  }
+  let failed = false;
+  for (const path of paths) {
+    const ref = refFromDraftPath(project, path);
+    if (!ref) {
+      console.error('[initStudio] draft path is not an l2 ts:', path);
+      continue;
+    }
+    if (await restoreProduction(ref) === 'failed') failed = true;
+  }
+  if (failed) {
+    reportTabsFailure('production compile failed');
+    return;
+  }
+  try {
+    await askPreviewTabsUpdate(project, paths);
+  } catch (err) {
+    const cause = err instanceof Error && err.message ? err.message : String(err);
+    reportTabsFailure(cause);
   }
 }
 
@@ -440,6 +511,11 @@ function listenForProductionSwap(): void {
   sw.addEventListener('message', (event: MessageEvent) => {
     void handleCollabModeMessage(event.data);
   });
+}
+
+function pathFromRef(ref: DraftScreenRef): string {
+  const folder = ref.folder.length > 0 ? `${ref.folder}/` : '';
+  return `l2/${folder}${ref.shortName}.ts`;
 }
 
 /** `l2/<folder/>shortName.ts` from `draftL2Targets`. Null when the path is not that shape. */
@@ -519,14 +595,9 @@ export async function listChangedDraftTs(
   return refs;
 }
 
-async function applyChangedOnVisible(ref: DraftScreenRef): Promise<void> {
-  // The tool lives in the Studio plugin (102020); this project only asks through the slot.
-  await swapVisibleScreen(ref);
-}
-
 /**
  * On studio entry: one `draftDiff`, then the draft list, then each l2 that differs from production
- * compiled into the service worker, then the visible screens swapped. Does not reload and does not
+ * compiled into the service worker, then the open tabs through the slot. Does not reload and does not
  * write a `-d<slug>` cache. A failed read is logged and each stage asks on its own.
  */
 export async function enterStudioDraft(
@@ -561,12 +632,32 @@ export async function enterStudioDraft(
   } else {
     await deps.publishL2(project, slug);
   }
-  if (!deps.changedTs || !deps.applyChanged) return;
+  if (!deps.changedTs) return;
   const refs = diff ? await deps.changedTs(project, slug, diff) : await deps.changedTs(project, slug);
-  visibleRefs = refs;
-  swapChanged = deps.applyChanged;
+  exitProject = project;
+  exitSlug = slug;
+  exitPaths = refs.map(pathFromRef);
   listenForProductionSwap();
-  for (const ref of refs) await deps.applyChanged(ref);
+  if (exitPaths.length === 0) {
+    console.info(DRAFT_UNCHANGED);
+    return;
+  }
+  const shown = activeDraft();
+  if (shown !== slug) {
+    console.error(`[initStudio] active draft is ${shown ?? 'missing'}; open tabs were not moved to the draft`);
+    return;
+  }
+  if (!previewTabsReady()) {
+    holdPreviewTabsUpdate(project, exitPaths);
+    console.warn('[initStudio] preview tabs wait for the studio tool');
+    return;
+  }
+  try {
+    await askPreviewTabsUpdate(project, exitPaths);
+  } catch (err) {
+    const cause = err instanceof Error && err.message ? err.message : String(err);
+    reportTabsFailure(cause);
+  }
 }
 
 /**
@@ -625,6 +716,5 @@ export async function loadProjectDefinitions(project: number): Promise<void> {
     applyFiles: (prj, slug, diff) => applyDraftFiles(prj, slug, undefined, diff),
     publishL2: (prj, slug, diff) => publishDraftL2(prj, slug, undefined, diff),
     changedTs: (prj, slug, diff) => listChangedDraftTs(prj, slug, diff),
-    applyChanged: (ref) => applyChangedOnVisible(ref),
   });
 }

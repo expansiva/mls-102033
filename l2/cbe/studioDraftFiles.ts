@@ -150,6 +150,175 @@ export function draftPathIsSaved(project: number, path: string): boolean {
   return draftPaths.has(draftPathKey(project, path));
 }
 
+/** A stor row the Save uses to find the draft path a `new` rename should drop. */
+export interface IDraftRenameOriginFile {
+  project: number;
+  status?: string;
+  level?: number;
+  folder?: string;
+  shortName?: string;
+  extension?: string;
+  inLocalStorage?: boolean;
+  getValueInfo?: () => Promise<{
+    originalFolder?: string;
+    originalProject?: number;
+    originalShortName?: string;
+  } | null | undefined>;
+}
+
+function draftShortPath(level: number, folder: string, shortName: string, extension: string): string {
+  const folderPart = folder === '' ? '' : `${folder}/`;
+  return `l${level}/${folderPart}${shortName}${extension}`;
+}
+
+function listedDraftPaths(project: number): string[] {
+  const prefix = `${project}\u0000`;
+  const listed: string[] = [];
+  for (const key of draftPaths) {
+    if (key.startsWith(prefix)) listed.push(key.slice(prefix.length));
+  }
+  return listed;
+}
+
+function browserFileTable(): {
+  files: Record<string, unknown>;
+  getKeyToFiles: (
+    project: number,
+    level: number,
+    shortName: string,
+    folder: string,
+    extension: string,
+  ) => string;
+} | undefined {
+  const stor = (globalThis as {
+    mls?: {
+      stor?: {
+        files?: Record<string, unknown>;
+        getKeyToFiles?: (
+          project: number,
+          level: number,
+          shortName: string,
+          folder: string,
+          extension: string,
+        ) => string;
+      };
+    };
+  }).mls?.stor;
+  if (!stor?.files || typeof stor.getKeyToFiles !== 'function') return undefined;
+  return { files: stor.files, getKeyToFiles: stor.getKeyToFiles };
+}
+
+function storHasDraftPath(project: number, path: string): boolean {
+  const loc = parseDraftFile(path);
+  const stor = browserFileTable();
+  if (!loc || !stor) return false;
+  const key = stor.getKeyToFiles(project, loc.level, loc.shortName, loc.folder, loc.extension);
+  return stor.files[key] != null;
+}
+
+async function readRenameOrigin(
+  file: IDraftRenameOriginFile,
+): Promise<{ originalFolder?: string; originalProject?: number; originalShortName?: string } | undefined> {
+  if (!file.getValueInfo) return undefined;
+  const previous = file.inLocalStorage;
+  file.inLocalStorage = true;
+  try {
+    return (await file.getValueInfo()) ?? undefined;
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    console.error(`[studioDraftFiles] rename origin could not be read: ${why}`);
+    return undefined;
+  } finally {
+    file.inLocalStorage = previous;
+  }
+}
+
+function uniqueStaleOrigin(
+  project: number,
+  current: string,
+  level: number,
+  extension: string,
+  paths: readonly string[] = listedDraftPaths(project),
+  kind: 'rename' | 'undo' = 'rename',
+): string | undefined {
+  // No browser file table: another draft path cannot be told from a renamed-away name.
+  if (!browserFileTable()) return undefined;
+  const stale: string[] = [];
+  for (const path of paths) {
+    if (path === current) continue;
+    const loc = parseDraftFile(path);
+    if (!loc || loc.level !== level || loc.extension !== extension) continue;
+    if (storHasDraftPath(project, path)) continue;
+    stale.push(path);
+  }
+  if (stale.length === 0) return undefined;
+  if (stale.length === 1) return stale[0];
+  console.error(`[studioDraftFiles] several saved names could be the ${kind} origin of ${current}`);
+  return undefined;
+}
+
+/**
+ * Draft path the Save must delete for a `new` file that was renamed after it was saved.
+ * The published `renamed` status is left to the driver. A name that was never in the draft
+ * is not deleted. A→B→C without a save in the middle drops A, the oldest name still in the draft.
+ * A missing, unread, or never-saved origin uses that same older name before giving up.
+ */
+export async function savedOriginToDrop(file: IDraftRenameOriginFile): Promise<string | undefined> {
+  if (file.status !== 'new') return undefined;
+  if (
+    file.level === undefined
+    || file.shortName === undefined
+    || file.folder === undefined
+    || file.extension === undefined
+  ) {
+    console.error('[studioDraftFiles] renamed new file is missing a path');
+    return undefined;
+  }
+  const level = file.level;
+  const extension = file.extension;
+  const current = draftShortPath(level, file.folder, file.shortName, file.extension);
+  const stale = (): string | undefined => uniqueStaleOrigin(file.project, current, level, extension);
+  const info = await readRenameOrigin(file);
+  const originalName = info?.originalShortName;
+  // No rename origin is no evidence of a rename: a plain new file must not drop another saved name.
+  if (!originalName) return undefined;
+  if (info.originalProject !== undefined && info.originalProject !== file.project) {
+    console.error(`[studioDraftFiles] rename origin of ${current} is in another project`);
+    return undefined;
+  }
+  const originalFolder = (info.originalFolder ?? file.folder).replace(/\\/gu, '/');
+  const origin = draftShortPath(level, originalFolder, originalName, extension);
+  if (origin === current) return undefined;
+  const saved = draftPathIsSaved(file.project, origin);
+  const chosen = saved ? origin : stale();
+  console.info(`[studioDraftFiles] rename origin of ${current}: recorded=${origin}; saved=${saved}; drop=${chosen ?? 'none'}`);
+  return chosen;
+}
+
+/** Stor row `DriverVm.setContents` treats as a delete. Non-l1/l2/l3 paths stay in the draft. */
+export function deletedDraftFile(project: number, path: string): {
+  project: number;
+  level: number;
+  folder: string;
+  shortName: string;
+  extension: string;
+  status: 'deleted';
+} | undefined {
+  const loc = parseDraftFile(path);
+  if (!loc) {
+    console.error(`[studioDraftFiles] cannot drop a non-l1/l2/l3 origin: ${path}`);
+    return undefined;
+  }
+  return {
+    project,
+    level: loc.level,
+    folder: loc.folder,
+    shortName: loc.shortName,
+    extension: loc.extension,
+    status: 'deleted',
+  };
+}
+
 let browserOnlyUndo = 0;
 
 /** True while Discard module is clearing local copies. Those undos must not call the server again. */
@@ -183,6 +352,53 @@ export type DraftUndoFetch = (
 
 const DRAFT_SLUG_RE = /^(team|user)-([a-z0-9_.-]{1,64})$/;
 
+/**
+ * Paths one Undo sends for a renamed file.
+ * A published `renamed` file includes the published name, so that name comes back
+ * and the new name leaves. A `new` file includes the saved name only while that
+ * name is still in the draft (or the one older name a chain left behind). A name
+ * that was never saved is not sent, and a `new` file restores nothing.
+ */
+export async function undoPathsForDraftFile(
+  file: IDraftRenameOriginFile,
+  currentPath: string,
+  listed: readonly string[],
+): Promise<string[]> {
+  const paths = [currentPath];
+  if (file.status !== 'new' && file.status !== 'renamed') return paths;
+  const pushStale = (): void => {
+    if (file.level === undefined || file.extension === undefined) return;
+    const stale = uniqueStaleOrigin(file.project, currentPath, file.level, file.extension, listed, 'undo');
+    if (stale) paths.push(stale);
+  };
+  const info = await readRenameOrigin(file);
+  const originalName = info?.originalShortName;
+  const otherProject = info?.originalProject !== undefined && info.originalProject !== file.project;
+  if (!originalName || file.level === undefined || file.extension === undefined || otherProject) {
+    if (file.status === 'renamed') {
+      const why = otherProject ? 'published name is in another project' : 'has no published name';
+      console.error(`[studioDraftFiles] undo of ${currentPath} ${why}`);
+      throw new Error(`undo of ${currentPath} ${why}`);
+    }
+    return paths;
+  }
+  const folder = (info?.originalFolder ?? file.folder ?? '').replace(/\\/gu, '/');
+  const origin = draftShortPath(file.level, folder, originalName, file.extension);
+  if (origin === currentPath) {
+    if (file.status === 'renamed') {
+      console.error(`[studioDraftFiles] undo of ${currentPath} has no published name`);
+      throw new Error(`undo of ${currentPath} has no published name`);
+    }
+    return paths;
+  }
+  if (file.status === 'renamed' || listed.includes(origin)) {
+    paths.push(origin);
+    return paths;
+  }
+  pushStale();
+  return paths;
+}
+
 function dispatchDraftDiscarded(project: number, paths: readonly string[]): void {
   const target = (globalThis as { window?: EventTarget }).window;
   if (!target || typeof target.dispatchEvent !== 'function') {
@@ -199,6 +415,8 @@ function dispatchDraftDiscarded(project: number, paths: readonly string[]): void
 
 /**
  * One `draftRestorePaths` for every path, then the browser copy, one recount, one preview reload.
+ * A rename passes both names (`undoPathsForDraftFile`): the published name comes back and the
+ * new name is removed; a `new` file only drops names, because those paths are not on `main`.
  * A server refusal throws before `afterRestore`, so the browser stays as it was.
  */
 export async function undoDraftPaths(
