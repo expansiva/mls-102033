@@ -7,6 +7,7 @@
 
 import type { AppHeaderAction, AppHeaderBrand } from '/_102029_/l2/runtimeConfigTypes.js';
 import type { MasterFrontendBootConfig } from '/_102033_/l2/shared/contracts/bootstrap.js';
+import { isSafeInlineSvg } from '/_102036_/l2/inlineSvg.js';
 
 /**
  * Fixed header band, in px.
@@ -43,11 +44,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Hard cap for an inlined mark. Generous on purpose: a real mark may carry defs and many paths. */
 export const MAX_LOGO_SVG_BYTES = 12000;
 
-const LOGO_SVG_FORBIDDEN = [
-  '<script', '<foreignobject', '<iframe', '<image', '<use', '<style', '<animate',
-  'javascript:', 'xlink:', '<!entity', '<!doctype',
-];
-
 /**
  * Whether an SVG markup is safe AND suitable to be inlined in the header band.
  *
@@ -59,36 +55,11 @@ const LOGO_SVG_FORBIDDEN = [
  * `monochrome: true` additionally requires currentColor-only paint (what makes a mark follow the
  * design system in both themes); it is OPT-IN, because a real brand mark may well be colored.
  *
- * Shared by the runtime and by the generator's validation, so both judge by the same rule.
+ * Shared by the runtime and by the generator's validation, so both judge by the same rule. The rule
+ * itself is 102036 isSafeInlineSvg, which the apps-menu icons use too; this function adds the mark's cap.
  */
 export function isSafeLogoSvg(markup: string, options: { monochrome?: boolean } = {}): boolean {
-  const svg = readString(markup);
-  if (!svg || svg.length > MAX_LOGO_SVG_BYTES) return false;
-
-  const lower = svg.toLowerCase();
-  if (!lower.startsWith('<svg') || !lower.endsWith('</svg>')) return false;
-  if (lower.split('<svg').length !== 2) return false;              // exactly one root
-  if (!/\sviewbox\s*=/u.test(lower)) return false;
-  if (LOGO_SVG_FORBIDDEN.some((token) => lower.includes(token))) return false;
-  if (/\son[a-z]+\s*=/u.test(lower)) return false;                 // event handlers
-  // A url(#id) points inside this very markup (a gradient it carries); anything else leaves the page.
-  if (/url\(\s*(?!#)/u.test(lower)) return false;
-  if (/(?:href|src)\s*=/u.test(lower)) return false;
-
-  // Intrinsic size on the ROOT tag only — width/height on inner shapes is legitimate.
-  const root = lower.slice(0, lower.indexOf('>') + 1);
-  if (/\s(width|height)\s*=/u.test(root)) return false;
-
-  // Opt-in: only when the caller wants a design-system-following mark.
-  if (options.monochrome === true) {
-    if (/#[0-9a-f]{3,8}/u.test(lower) || /(rgb|rgba|hsl|hsla)\(/u.test(lower)) return false;
-    for (const paint of lower.matchAll(/(?:fill|stroke)\s*=\s*"([^"]*)"/gu)) {
-      const value = paint[1].trim();
-      if (value && value !== 'currentcolor' && value !== 'none') return false;
-    }
-  }
-
-  return true;
+  return isSafeInlineSvg(markup, { maxBytes: MAX_LOGO_SVG_BYTES, monochrome: options.monochrome === true });
 }
 
 /**

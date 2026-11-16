@@ -8,6 +8,7 @@
 
 import { setEnvironment, type CollabMessagesEnvironment, type CollabProgramMenu, type CollabProgramMenuItem } from '/_102036_/l2/environmentContract.js';
 import type { ExecutionContext, IAgentMeta } from '/_102036_/l2/shared/interfaces.js';
+import { readMenuIconSvg } from '/_102036_/l2/inlineSvg.js';
 import { notificationsRuntime } from '/_102025_/l2/notificationsRuntime.js';
 import { collabMessagesEnvironmentBase } from '/_102025_/l2/collabMessagesEnvironmentBase.js';
 import { closeAuraAside } from '/_102033_/l2/shellEvents.js';
@@ -23,12 +24,16 @@ function moduleToMenu(moduleConfig: ConfigModule, project: number): CollabProgra
   const basePath = moduleConfig.basePath ?? `/${moduleConfig.moduleId}`;
   const navigation = (moduleConfig.navigation ?? []).filter((nav) => nav.href);
   const menu: CollabProgramMenuItem[] = navigation.length > 0
-    ? navigation.map((nav) => ({
-        title: nav.label ?? nav.id ?? nav.href ?? '',
-        icon: typeof nav.icon === 'string' && nav.icon !== '' ? nav.icon : '',
-        url: nav.href ?? '',
-        pageName: nav.id ?? nav.href ?? '',
-      }))
+    ? navigation.map((nav) => {
+        const iconSvg = readMenuIconSvg(nav.iconSvg, `${moduleConfig.moduleId}/${nav.id ?? nav.href ?? ''}`);
+        return {
+          title: nav.label ?? nav.id ?? nav.href ?? '',
+          icon: typeof nav.icon === 'string' && nav.icon !== '' ? nav.icon : '',
+          ...(iconSvg ? { iconSvg } : {}),
+          url: nav.href ?? '',
+          pageName: nav.id ?? nav.href ?? '',
+        };
+      })
     : [{ title: moduleConfig.moduleId, icon: '', url: basePath, pageName: moduleConfig.moduleId }];
   return { name: moduleConfig.moduleId, icon: '', project, path: basePath, menu };
 }

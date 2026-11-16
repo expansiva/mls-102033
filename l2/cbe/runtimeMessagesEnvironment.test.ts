@@ -321,6 +321,34 @@ test('rt165: Studio draft copies the nav icon from l5/config.json', async () => 
     }
 });
 
+test('menu icon svg: a safe iconSvg reaches the menu item, an unsafe one is dropped with a warning', async () => {
+    const safe = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12h18"/></svg>';
+    const unsafe = '<svg viewBox="0 0 24 24"><script>alert(1)</script></svg>';
+    const apps: AppEntry[] = [{
+        projectId: MASTER,
+        moduleId: 'monitor',
+        basePath: '/monitor',
+        navigation: [
+            { id: 'ok', label: 'Ok', href: '/monitor/ok', icon: 'house', iconSvg: safe } as AppEntry['navigation'][number],
+            { id: 'bad', label: 'Bad', href: '/monitor/bad', iconSvg: unsafe } as AppEntry['navigation'][number],
+        ],
+    }];
+    const warnings: unknown[][] = [];
+    const origWarn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args); };
+    const env = installDraftMenu('production', draftConfig('new-page'), apps);
+    try {
+        const items = (await buildProgramMenu())[0].menu;
+        assert.equal(items[0].iconSvg, safe);
+        assert.equal(items[0].icon, 'house');
+        assert.equal('iconSvg' in items[1], false);
+        assert.equal(JSON.stringify(warnings).includes('monitor/bad dropped'), true);
+    } finally {
+        env.restore();
+        console.warn = origWarn;
+    }
+});
+
 test('st39: config inválido mantém o BFF e avisa no console', async () => {
     const env = installDraftMenu('studio', '{');
     try {

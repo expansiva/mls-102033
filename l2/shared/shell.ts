@@ -304,6 +304,8 @@ export class CollabAuraShell extends LitElement {
   private stopConfigWatch: (() => void) | undefined;
   /** Set when the aside should be told the current mode; cleared once the element accepts it. */
   private asideNavPending = false;
+  /** One instance for mls.sites and for the shell's own menu refreshes. */
+  private readonly menuControls = createSitesMenuControls();
   private reportedMissingProject = false;
   private structureRetriesLeft = 67;
   // Phone: the same structure shows one nav3 at a time (mobilePane.ts). The header's ☰ — the aside
@@ -1395,7 +1397,7 @@ export class CollabAuraShell extends LitElement {
         getDevice: () => this.getContentDevice(),
         setDevice: (device: MasterFrontendDeviceKind) => this.setStudioDevice(device),
       };
-      const menuControls = createSitesMenuControls();
+      const menuControls = this.menuControls;
       register({
         getHeader: () => this.getRegionIndex('header'),
         setHeader: (index: number) => this.setRegionByIndex('header', index),
@@ -2026,6 +2028,9 @@ export class CollabAuraShell extends LitElement {
   private refreshAsideNavigation(reason: 'mode' | 'send'): void {
     this.asideNavPending = true;
     this.flushAsideNavigation(reason);
+    // The apps menu (collab-messages) loads once when it mounts, which on a reload is before the
+    // studio mode arrives, so it shows the release menu. Same moments as the aside: tell it to reread.
+    this.menuControls.updateMenu();
   }
 
   private flushAsideNavigation(reason: 'mode' | 'send'): void {
