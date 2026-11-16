@@ -57,6 +57,7 @@ import {
   moduleTabBoot,
 } from '/_102033_/l2/shared/moduleTab.js';
 import { headerBootForTab } from '/_102033_/l2/shared/headerTabBoot.js';
+import { syncCollabChromeMark } from '/_102033_/l2/shared/collabChromeDs.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 import { MOBILE_BREAKPOINT_PX } from '/_102033_/l2/shared/breakpoints.js';
 import { describeContentPageGenomeChange } from '/_102033_/l2/shared/contentPageGenome.js';
@@ -435,6 +436,8 @@ export class CollabAuraShell extends LitElement {
     navigator.serviceWorker?.removeEventListener('message', this.handleServiceWorkerMode);
     this.unsubscribeInteraction?.();
     this.topBandScrollHost?.removeEventListener('scroll', this.handleTopBandScroll, true);
+    // No shell, no app to follow: the Collab chrome goes back to its own colors.
+    syncCollabChromeMark(true);
     super.disconnectedCallback();
   }
 
@@ -2058,6 +2061,8 @@ export class CollabAuraShell extends LitElement {
     this.setAttribute('data-aside-open', String(this.getActualAsideOpen()));
     this.setAttribute('data-structure', this.structureState);
     this.setAttribute('data-studio-mode', String(this.studioModeOn));
+    // Outside studio mode the nav3 bars and the App tabs take the app's DS (the mark lives on <html>).
+    syncCollabChromeMark(this.studioModeOn);
     // The phone frame around the app region: only when the studio picked Mobile on a desktop-wide window. On a
     // narrow window the app already is the mobile app, full width, and a frame would add nothing.
     this.setAttribute('data-studio-frame', String(this.studioModeOn && this.studioDevicePick === 'mobile' && this.resolvedDevice === 'desktop'));
