@@ -63,18 +63,8 @@ export function loadECharts(): Promise<EChartsRuntime> {
  */
 export type ChartEvents = Record<string, (params: never) => void>;
 
-/**
- * Bind an ECharts option to the element this directive sits on.
- *
- * @param option a full EChartsCoreOption. Every chart type and component this runtime registers above is
- *        available — no `echarts.use()` needed at the call site, which is the whole point of the module:
- *        an unregistered piece renders BLANK with no error.
- * @param events optional handlers, e.g. `{ click: (p) => this.selectCategory(p.name) }`. Rebound on every
- *        update, so a closure over fresh state is always the one that runs.
- *
- * The element must have a height (ECharts measures its container; a container of height 0 draws nothing).
- */
-export const chart = directive(class extends AsyncDirective {
+/** The directive behind `chart()`. Named and exported so its declaration has a real type (TS4094 on an anonymous class). */
+export class ChartDirective extends AsyncDirective {
   #chart?: EChartsInstance;
   #observer?: ResizeObserver;
   #element?: HTMLElement;
@@ -147,4 +137,17 @@ export const chart = directive(class extends AsyncDirective {
 
   /** Lit reuses the directive when the element comes back; `update` runs again and re-inits. */
   override reconnected(): void {}
-});
+}
+
+/**
+ * Bind an ECharts option to the element this directive sits on.
+ *
+ * @param option a full EChartsCoreOption. Every chart type and component this runtime registers above is
+ *        available — no `echarts.use()` needed at the call site, which is the whole point of the module:
+ *        an unregistered piece renders BLANK with no error.
+ * @param events optional handlers, e.g. `{ click: (p) => this.selectCategory(p.name) }`. Rebound on every
+ *        update, so a closure over fresh state is always the one that runs.
+ *
+ * The element must have a height (ECharts measures its container; a container of height 0 draws nothing).
+ */
+export const chart = directive(ChartDirective);
