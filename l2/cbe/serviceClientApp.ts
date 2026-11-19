@@ -19,6 +19,8 @@ import { tabPinLabel } from '/_102033_/l2/shared/moduleTab.js';
 import { siteProjectFromBoot } from '/_102033_/l2/shared/siteProject.js';
 // Installs the bug collectors and Ctrl+Shift+B at load; the panel itself loads only when opened.
 import { captureAndOpenReportBug } from '/_102033_/l2/cbe/reportBug/reportBugCore.js';
+// Installs Ctrl+Shift+P at load; the comments mode itself loads only when entered.
+import { togglePinTagMode } from '/_102033_/l2/cbe/pinTag/pinTagCore.js';
 import { NAV3_TAB_CHANGE_EVENT } from '/_102033_/l2/shared/nav3ActiveTab.js';
 
 function pinMenuText(): string {
@@ -30,6 +32,11 @@ function pinMenuText(): string {
 /** Same text the report tab shows as its title (reportBug.ts), kept here to not load the panel for a label. */
 function reportBugMenuText(): string {
   return (document.documentElement?.lang || 'en').toLowerCase().startsWith('pt') ? 'Reportar bug' : 'Report bug';
+}
+
+/** The comments mode (PinTag). Not "Pin": `pin` already pins the tab. */
+function pinTagMenuText(): string {
+  return (document.documentElement?.lang || 'en').toLowerCase().startsWith('pt') ? 'Comentários na tela' : 'Screen comments';
 }
 
 /**
@@ -464,6 +471,9 @@ export class ServiceClientApp extends ServiceBase {
       reportBug: {
         get text() { return reportBugMenuText(); },
       },
+      pinTag: {
+        get text() { return pinTagMenuText(); },
+      },
     },
     tabs: undefined,
     tools: {},
@@ -471,6 +481,10 @@ export class ServiceClientApp extends ServiceBase {
       if (value === 'reportBug') {
         // Screenshot first (the screen still shows the bug), then the report opens in its own tab.
         void captureAndOpenReportBug();
+        return;
+      }
+      if (value === 'pinTag') {
+        void togglePinTagMode();
         return;
       }
       if (value !== 'pin') return;
