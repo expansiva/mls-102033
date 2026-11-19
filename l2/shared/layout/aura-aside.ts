@@ -320,7 +320,7 @@ export class AuraAside extends LitElement {
       <aside class="aside">
         <div class="head">
           <div>
-            <div class="badge">Global Aside</div>
+            <div class="badge">Global Aside (rt258 teste)</div>
             <div class="module-name">${this.bootConfig?.moduleId ?? 'module'}</div>
             <div class="caption">This aside lives in the 102033 shell and can be changed once for all modules.</div>
           </div>
