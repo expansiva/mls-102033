@@ -20,6 +20,7 @@ pinnedTabRoute,
   navigateModuleTab,
   moduleDisplayName,
   moduleNameFromId,
+  applyDeviceToOpenModuleTabs,
   openModuleTab,
   previewTabSlots,
   registerShellMainPage,
@@ -1207,6 +1208,124 @@ describe('preview tab refresh', { concurrency: false }, () => {
       registerShellMainPage(null);
       (globalThis as { HTMLElement?: unknown }).HTMLElement = previousElement;
       (globalThis as { document?: unknown }).document = previousDocument;
+    }
+  });
+});
+
+describe('rt280: a module tab mounts the device variant', () => {
+  const desktopTag = 'agents--web--desktop--page11--agents-102047';
+  const mobileTag = 'agents--web--mobile--page11--agents-102047';
+  const desktopEntrypoint = '/agents/l2/agents/web/desktop/page11/agents.js';
+  const mobileEntrypoint = '/agents/l2/agents/web/mobile/page11/agents.js';
+
+  function install(device: () => 'desktop' | 'mobile') {
+    const created: string[] = [];
+    const loaded: string[] = [];
+    const warnings: string[] = [];
+    const tabs: string[] = [];
+    const previousWindow = globalThis.window;
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    const previousWarn = console.warn;
+    globalThis.document = {
+      createElement(tag: string) {
+        created.push(tag);
+        return createElement(tag);
+      },
+    } as unknown as Document;
+    globalThis.window = {
+      collabRouteChunkCache: new Set<string>(),
+      collabRouteChunkPromises: new Map<string, Promise<unknown>>(),
+      collabRuntimeNav3: {
+        openTab(tab: { id: string }) {
+          if (!tabs.includes(tab.id)) tabs.push(tab.id);
+        },
+        activateTab() {},
+        closeTab() {},
+        listTabs: () => tabs,
+      },
+      mls: { sites: { getDevice: device } },
+    } as unknown as Window & typeof globalThis;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      ...boot('/agents', 'agents', '/agents', desktopTag),
+      routes: [{
+        path: '/agents',
+        entrypoint: desktopEntrypoint,
+        tag: desktopTag,
+        title: 'Agents',
+      }, {
+        path: '/plain',
+        entrypoint: '/plain/page.js',
+        tag: 'plain-page',
+        title: 'Plain',
+      }],
+    }), { status: 200 })) as typeof fetch;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    };
+    return {
+      created,
+      loaded,
+      warnings,
+      importer: async (specifier: string) => {
+        loaded.push(specifier);
+      },
+      restore() {
+        globalThis.window = previousWindow;
+        globalThis.document = previousDocument;
+        globalThis.fetch = previousFetch;
+        console.warn = previousWarn;
+      },
+    };
+  }
+
+  test('mobile mounts the mobile tag and entrypoint', async () => {
+    const env = install(() => 'mobile');
+    try {
+      await openModuleTab('/agents', '/agents', env.importer);
+      assert.equal(env.created.includes(mobileTag), true);
+      assert.deepEqual(env.loaded, [mobileEntrypoint]);
+    } finally {
+      env.restore();
+    }
+  });
+
+  test('desktop mounts the boot route', async () => {
+    const env = install(() => 'desktop');
+    try {
+      await openModuleTab('/agents', '/agents', env.importer);
+      assert.equal(env.created.includes(desktopTag), true);
+      assert.deepEqual(env.loaded, [desktopEntrypoint]);
+      assert.equal(env.warnings.length, 0);
+    } finally {
+      env.restore();
+    }
+  });
+
+  test('a route without a device segment stays and logs the reason', async () => {
+    const env = install(() => 'mobile');
+    try {
+      await openModuleTab('/agents', '/plain', env.importer);
+      assert.equal(env.created.includes('plain-page'), true);
+      assert.deepEqual(env.loaded, ['/plain/page.js']);
+      assert.equal(env.warnings.length, 1);
+      assert.equal(env.warnings[0].includes('no --web--<device>-- segment'), true);
+    } finally {
+      env.restore();
+    }
+  });
+
+  test('crossing the width swaps the open tab', async () => {
+    let device: 'desktop' | 'mobile' = 'desktop';
+    const env = install(() => device);
+    try {
+      await openModuleTab('/agents', '/agents', env.importer);
+      device = 'mobile';
+      await applyDeviceToOpenModuleTabs(env.importer);
+      assert.equal(env.created.at(-1), mobileTag);
+      assert.deepEqual(env.loaded, [desktopEntrypoint, mobileEntrypoint]);
+    } finally {
+      env.restore();
     }
   });
 });

@@ -49,6 +49,7 @@ import {
   registerShellMainPage,
   rememberShellRoute,
   restorePinnedModuleTabs,
+  applyDeviceToOpenModuleTabs,
   revealModuleTabForLocation,
   settleClosedContentTab,
   syncHistoryForContentTab,
@@ -1034,6 +1035,7 @@ export class CollabAuraShell extends LitElement {
     // holds a pick: then only the layout follows the width.
     if (this.activeRoute && this.studioDevicePick === null) {
       void this.applyContentPageDevice(nextDevice, true);
+      void applyDeviceToOpenModuleTabs();
     }
     // Which layout the spliter shows (client split or one pane) follows from updated() →
     // syncStructureLayout, since the device is part of its key.

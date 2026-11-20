@@ -1,5 +1,7 @@
 /// <mls fileReference="_102033_/l2/shared/moduleTab.ts" enhancement="_blank" />
 import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
+import type { MasterFrontendDeviceKind } from '/_102033_/l2/shared/contracts/bootstrap.js';
+import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
 import { loadAuraRouteChunk, matchAuraRoute } from '/_102033_/l2/shared/routeRuntime.js';
 
 type PageElement = HTMLElement & { bootConfig?: MasterFrontendBootConfig };
@@ -150,6 +152,15 @@ async function loadBoot(basePath: string): Promise<MasterFrontendBootConfig> {
   return body;
 }
 
+/** The shell publishes this as `mls.sites.getDevice` (the same value as `getContentDevice`). */
+function tabContentDevice(): MasterFrontendDeviceKind {
+  const getDevice = (window as unknown as {
+    mls?: { sites?: { getDevice?: () => MasterFrontendDeviceKind } };
+  }).mls?.sites?.getDevice;
+  if (typeof getDevice !== 'function') return 'desktop';
+  return getDevice() === 'mobile' ? 'mobile' : 'desktop';
+}
+
 async function renderRoute(
   basePath: string,
   route: string,
@@ -163,18 +174,43 @@ async function renderRoute(
   if (!matched) {
     throw new Error(`Route not registered for ${pathname}.`);
   }
-  await loadAuraRouteChunk(matched.entrypoint, importer);
+  const device = tabContentDevice();
+  const change = describeContentPageDeviceChange(matched, device);
+  const tag = change.ok ? change.nextTag : matched.tag;
+  const entrypoint = change.ok ? change.nextEntrypoint : matched.entrypoint;
+  if (!change.ok) {
+    console.warn(
+      `[moduleTab] ${device} content variant skipped for route '${pathname}' (entrypoint ${matched.entrypoint || 'none'}): ${change.reason} — keeping the route page.`,
+    );
+  }
+  await loadAuraRouteChunk(entrypoint, importer);
   const current = div.firstElementChild as PageElement | null;
-  const page = current?.tagName.toLowerCase() === matched.tag
+  const page = current?.tagName.toLowerCase() === tag
     ? current
-    : document.createElement(matched.tag) as PageElement;
+    : document.createElement(tag) as PageElement;
   page.bootConfig = boot;
   if (page !== current) div.replaceChildren(page);
   return {
     title: moduleNameFromId(boot.moduleId) || matched.title,
-    tag: matched.tag,
-    entrypoint: matched.entrypoint,
+    tag,
+    entrypoint,
   };
+}
+
+/** Open tabs follow a device change (the 768px cross). The device is read from `mls.sites.getDevice`. */
+export async function applyDeviceToOpenModuleTabs(importer?: RouteImporter): Promise<void> {
+  const pending: Promise<void>[] = [];
+  for (const host of hosts.values()) {
+    if (!host.mounted || !tabIsOpen(host)) continue;
+    pending.push((async () => {
+      try {
+        rememberPage(host, await renderRoute(host.basePath, host.route, host.div, importer));
+      } catch (error) {
+        showTabError(host.div, error);
+      }
+    })());
+  }
+  await Promise.all(pending);
 }
 
 function rememberPage(host: ModuleTabHost, rendered: RenderedRoute): void {
