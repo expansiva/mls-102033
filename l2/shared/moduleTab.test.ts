@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 import type { MasterFrontendBootConfig } from '/_102029_/l2/contracts/bootstrap.js';
+import { describeContentPageDeviceChange } from '/_102033_/l2/shared/contentPageDevice.js';
 import { auraNavigate } from '/_102033_/l2/shared/layout/auraNavigate.js';
 import {
   bindExpectedNavigationLoad,
@@ -1310,6 +1311,31 @@ describe('rt280: a module tab mounts the device variant', () => {
       assert.deepEqual(env.loaded, ['/plain/page.js']);
       assert.equal(env.warnings.length, 1);
       assert.equal(env.warnings[0].includes('no --web--<device>-- segment'), true);
+    } finally {
+      env.restore();
+    }
+  });
+
+  test('the tab and the content region mount the same mobile variant', async () => {
+    const env = install(() => 'mobile');
+    try {
+      await openModuleTab('/agents', '/agents', env.importer);
+      const tabTag = env.created.at(-1);
+      const change = describeContentPageDeviceChange(
+        { tag: desktopTag, entrypoint: desktopEntrypoint },
+        'mobile',
+      );
+      assert.equal(change.ok, true);
+      // mountRegion('content') creates the tag applyContentPageDevice wrote.
+      const before = env.created.length;
+      document.createElement(change.nextTag);
+      assert.equal(env.created[before], tabTag);
+      assert.equal(change.nextTag, mobileTag);
+      assert.equal(env.loaded[0], change.nextEntrypoint);
+      const shell = readFileSync(new URL('./shell.ts', import.meta.url), 'utf8');
+      assert.equal(shell.includes('describeContentPageDeviceChange(current, device)'), true);
+      assert.equal(shell.includes("applyContentPageDevice('mobile', false)"), true);
+      assert.equal(shell.includes('document.createElement(renderer.tag)'), true);
     } finally {
       env.restore();
     }
