@@ -2,7 +2,9 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import {
+  applyBootLanguage,
   getNextRuntimeLanguage,
   getRuntimeLanguage,
   listRuntimeLanguages,
@@ -54,4 +56,44 @@ test('rejects a language that is not configured', () => {
     () => setRuntimeLanguage('fr', ['en', 'pt'], runtimeDocument),
     /language not available \(valid: en, pt\)/u,
   );
+});
+
+function bootDocument(lang: string) {
+  return { documentElement: { lang }, querySelectorAll: () => [] };
+}
+
+test('boot: a product with only en leaves a pt-BR document in en', () => {
+  const runtimeDocument = bootDocument('pt-BR');
+  assert.equal(applyBootLanguage(['en'], runtimeDocument), 'en');
+  assert.equal(runtimeDocument.documentElement.lang, 'en');
+});
+
+test('boot: a product with pt and en keeps a pt-BR document in pt', () => {
+  const runtimeDocument = bootDocument('pt-BR');
+  assert.equal(applyBootLanguage(['pt', 'en'], runtimeDocument), 'pt');
+  assert.equal(runtimeDocument.documentElement.lang, 'pt');
+});
+
+test('boot: an empty document language starts on the first configured language', () => {
+  const first = bootDocument('');
+  assert.equal(applyBootLanguage(['pt', 'en'], first), 'pt');
+  assert.equal(first.documentElement.lang, 'pt');
+  const second = bootDocument('');
+  assert.equal(applyBootLanguage(['en', 'pt'], second), 'en');
+  assert.equal(second.documentElement.lang, 'en');
+});
+
+test('boot: no configured language leaves the document untouched and does not throw', () => {
+  const runtimeDocument = bootDocument('pt-BR');
+  assert.equal(applyBootLanguage([], runtimeDocument), undefined);
+  assert.equal(runtimeDocument.documentElement.lang, 'pt-BR');
+});
+
+test('the spa and pwa templates carry no lang on the html tag', () => {
+  for (const template of ['spa/index.html', 'pwa/index.html']) {
+    const html = readFileSync(new URL(`./${template}`, import.meta.url), 'utf8');
+    const tag = html.match(/<html\b[^>]*>/iu)?.[0] ?? '';
+    assert.ok(tag, `${template} has an html tag`);
+    assert.doesNotMatch(tag, /\blang\s*=/iu, template);
+  }
 });

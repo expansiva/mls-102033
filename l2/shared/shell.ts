@@ -25,6 +25,7 @@ import {
   subscribeToInteractionState,
 } from '/_102033_/l2/shared/interactionRuntime.js';
 import {
+  applyBootLanguage,
   getNextRuntimeLanguage,
   getRuntimeLanguage,
   listRuntimeLanguages,
@@ -360,6 +361,7 @@ export class CollabAuraShell extends LitElement {
     }
 
     this.bootConfig = window.collabBoot;
+    applyBootLanguage(this.listLanguages());
     this.resolvedDevice = this.resolveDevice();
     this.mobilePane = initialMobilePane(window.location.pathname, this.bootConfig.basePath);
     this.isAsideOpen = this.getDefaultAsideOpen(this.resolvedDevice);

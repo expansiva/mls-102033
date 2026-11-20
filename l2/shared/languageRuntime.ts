@@ -81,3 +81,19 @@ export function setRuntimeLanguage(
     }
   }
 }
+
+export function applyBootLanguage(
+  languages: readonly string[],
+  runtimeDocument: RuntimeLanguageDocument = document,
+): string | undefined {
+  if (languages.length === 0) {
+    return undefined;
+  }
+
+  const language = getRuntimeLanguage(languages, runtimeDocument.documentElement.lang);
+  if (!language) {
+    return undefined;
+  }
+  setRuntimeLanguage(language, languages, runtimeDocument);
+  return language;
+}
