@@ -48,12 +48,15 @@ export function isVmDriver(driver: { driverVersion?: string } | null | undefined
 
 export type CollabRunMode = 'studio' | 'production';
 
+export type DraftRecreated = 'not_synced' | 'boot_failed';
+
 export interface DraftEnterResponse {
   statusCode: number;
   ok: boolean;
   slug?: string;
   head?: string;
   error?: string;
+  recreated?: DraftRecreated;
 }
 
 export interface EnterDraftDeps {
@@ -86,6 +89,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Set by a successful `draftEnter` that recreated. Consumed when the Studio opens that slug. */
+let pendingRecreate: { slug: string; reason: DraftRecreated } | null = null;
+
+function readRecreated(parsed: Record<string, unknown>): DraftRecreated | undefined {
+  if (parsed.recreated === undefined) return undefined;
+  if (parsed.recreated === 'not_synced' || parsed.recreated === 'boot_failed') return parsed.recreated;
+  console.error('[studioDraft] draftEnter: unexpected recreated:', parsed.recreated);
+  return undefined;
+}
+
+/** The recreate this entry has not shown yet, for this slug. Other slugs stay pending. */
+export function takeDraftRecreated(slug: string): DraftRecreated | undefined {
+  if (!pendingRecreate || pendingRecreate.slug !== slug) return undefined;
+  const reason = pendingRecreate.reason;
+  pendingRecreate = null;
+  return reason;
+}
+
+/** The Studio did not open. The text is the server `msg`, unchanged. */
+function showDraftEnterFailure(message: string): void {
+  const body = typeof document !== 'undefined' ? document.body : null;
+  if (!body || typeof document.querySelector !== 'function') {
+    console.error('[studioDraft] draftEnter refusal has no document body:', message);
+    return;
+  }
+  document.querySelector('[data-draft-enter-error]')?.remove();
+  const el = document.createElement('div');
+  el.setAttribute('data-draft-enter-error', '');
+  el.setAttribute('role', 'alert');
+  el.textContent = message;
+  el.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:10000;padding:12px 16px;background:#5c1a1a;color:#fff;font:14px/1.4 sans-serif;';
+  body.append(el);
 }
 
 /** Token the shell sends with `draftEnter`: `studio.defaultDraft` when it is a slug, otherwise `user`. */
@@ -175,6 +212,11 @@ export async function enterDraft(project: number, slug: string, deps: EnterDraft
   }
   const response: DraftEnterResponse = { statusCode, ok: true, slug: returned };
   if (typeof parsed.head === 'string') response.head = parsed.head;
+  const recreated = readRecreated(parsed);
+  if (recreated) {
+    response.recreated = recreated;
+    pendingRecreate = { slug: returned, reason: recreated };
+  }
   return response;
 }
 
@@ -359,7 +401,11 @@ export async function requestModeChange(
     if (!entered.ok || !entered.slug) {
       if (entered.statusCode === 401 && entered.error === 'draft.session_required') {
         deps.reportError(draftText('sessionRequired'));
+      } else if (entered.statusCode === 503 && entered.error) {
+        deps.reportError(entered.error);
+        showDraftEnterFailure(entered.error);
       } else {
+        if (entered.statusCode === 503) console.error('[studioDraft] draftEnter 503 had no server msg');
         deps.reportError(`[shell] draftEnter failed: ${entered.statusCode}`);
       }
       return { mode: current };
