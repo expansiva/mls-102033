@@ -34,6 +34,7 @@ import {
 } from '/_102033_/l2/cbe/studioHeader.js';
 import { clientServices, logServices } from '/_102033_/l2/cbe/studioServices.js';
 import { setStudioTailwind } from '/_102033_/l2/cbe/studioTailwind.js';
+import { setStudioAssets } from '/_102033_/l2/cbe/studioAssets.js';
 import { applyRuntimeSplit } from '/_102033_/l2/cbe/studioSplit.js';
 import { getSessionUser } from '/_102033_/l2/shared/sessionUser.js';
 // Runtime services must be DEFINED before the nav3 instances them (the nav3
@@ -73,7 +74,7 @@ export function showRuntimeServices(host: ParentNode): void {
 let tailwindWatchInstalled = false;
 
 /**
- * Follows `data-studio-mode` BOTH ways for the Tailwind JIT.
+ * Follows `data-studio-mode` BOTH ways for the Tailwind JIT and for local media (studioAssets).
  *
  * This structure is built in every desktop session, the client's included, so the trigger cannot be
  * the upgrade itself: what must stay conditional is the JIT DOWNLOAD, not the wiring. The shell
@@ -91,7 +92,12 @@ function watchStudioModeForTailwind(container: HTMLElement): void {
   const shell = container.closest('collab-aura-shell');
   if (!shell) return;
   tailwindWatchInstalled = true;
-  const sync = () => setStudioTailwind(shell.getAttribute('data-studio-mode') === 'true');
+  const sync = () => {
+    const on = shell.getAttribute('data-studio-mode') === 'true';
+    setStudioTailwind(on);
+    // Media uploaded in the studio shows before it is published; off puts the final urls back.
+    setStudioAssets(on);
+  };
   // Only when it is ALREADY on: a first sync in client mode would be a pointless no-op.
   if (shell.getAttribute('data-studio-mode') === 'true') sync();
   new MutationObserver(sync).observe(shell, { attributes: true, attributeFilter: ['data-studio-mode'] });
