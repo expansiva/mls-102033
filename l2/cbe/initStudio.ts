@@ -9,7 +9,7 @@
 // LoadMonaco listener that calls initStudio() on demand.
 
 import type { StudioMls } from './global.js';
-import { activeDraft, readCollabModeNotice, rememberCollabMode } from '/_102033_/l2/cbe/studioDraft.js';
+import { activeDraft, readCollabModeNotice, rememberCollabMode, takeDraftRecreated, type DraftRecreated } from '/_102033_/l2/cbe/studioDraft.js';
 import { applyDraftFiles, beginDraftEntrySeed, completeDraftEntrySeed, requestDraftDiff, type DraftDiffResult } from '/_102033_/l2/cbe/studioDraftFiles.js';
 import { askPreviewTabsUpdate, dropPendingPreviewTabs, holdPreviewTabsUpdate, previewTabsReady, reportPreviewTabsFailure } from '/_102033_/l2/cbe/studioEditSlot.js';
 import { draftL2Targets, publishDraftL2 } from '/_102033_/l2/cbe/studioDraftL2.js';
@@ -49,6 +49,11 @@ function loadMonacoScript(mls: StudioMls): Promise<void> {
 
 /** Loads Monaco and initializes it. Idempotent — safe to call more than once. */
 export async function initStudio(mls: StudioMls): Promise<void> {
+  const slug = activeDraft();
+  if (slug) {
+    const recreated = takeDraftRecreated(slug);
+    if (recreated) showDraftRecreatedNotice(recreated);
+  }
   await loadMonacoScript(mls);
   await mls.editor.InitMonaco();
 }
@@ -217,6 +222,8 @@ async function registerDriverSlots(): Promise<void> {
 const message_en = {
   gitSlotWriteRefused:
     "this project lives on GitHub; the Studio reads its sources from the VM and cannot save changes to it",
+  draftRecreated:
+    "This draft was incompatible with the published version and was recreated from it. Unpublished changes were lost.",
 };
 type MessageType = typeof message_en;
 const messages: Record<string, MessageType> = {
@@ -224,18 +231,44 @@ const messages: Record<string, MessageType> = {
   pt: {
     gitSlotWriteRefused:
       "este projeto vive no GitHub; o Studio lê os fontes da VM e não pode gravar alterações nele",
+    draftRecreated:
+      "Este rascunho estava incompatível com a versão publicada e foi recriado a partir dela. As alterações não publicadas se perderam.",
   },
   es: {
     gitSlotWriteRefused:
       "este proyecto vive en GitHub; el Studio lee sus fuentes de la VM y no puede guardar cambios en él",
+    draftRecreated:
+      "Este borrador era incompatible con la versión publicada y se recreó a partir de ella. Los cambios no publicados se perdieron.",
   },
 };
 /// **collab_i18n_end**
 
-function gitSlotWriteRefusedText(): string {
+function studioText(key: keyof MessageType): string {
   const requested = typeof document !== 'undefined' ? document.documentElement.lang || 'en' : 'en';
   const primary = requested.trim().toLowerCase().split('-')[0];
-  return (messages[primary] ?? messages.en).gitSlotWriteRefused;
+  return (messages[primary] ?? messages.en)[key];
+}
+
+function gitSlotWriteRefusedText(): string {
+  return studioText('gitSlotWriteRefused');
+}
+
+/** Studio is open. The sentence says the draft was recreated and unpublished changes were lost. */
+function showDraftRecreatedNotice(reason: DraftRecreated): void {
+  const text = studioText('draftRecreated');
+  console.warn(`[initStudio] draft recreated (${reason}): ${text}`);
+  const body = typeof document !== 'undefined' ? document.body : null;
+  if (!body || typeof document.querySelector !== 'function') {
+    console.error('[initStudio] draft recreated notice has no document body');
+    return;
+  }
+  document.querySelector('[data-draft-recreated]')?.remove();
+  const el = document.createElement('div');
+  el.setAttribute('data-draft-recreated', reason);
+  el.setAttribute('role', 'status');
+  el.textContent = text;
+  el.style.cssText = 'position:fixed;left:0;right:0;top:66px;z-index:10000;padding:12px 16px;background:#3a2a00;color:#fff;font:14px/1.4 sans-serif;';
+  body.append(el);
 }
 
 function refuseGitSlotWrite(project: number): never {
