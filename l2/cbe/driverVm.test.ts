@@ -541,3 +541,33 @@ test('st49: falha no 2º lote devolve falso e o 2º lote em diante fica pendente
     fetchMock.restore();
   }
 });
+
+test('st80: getContents devolve Blob com os 256 bytes do base64', async () => {
+  const bytes = Uint8Array.from({ length: 256 }, (_, index) => index);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const encoded = btoa(binary);
+  const photo = fileOf('photo', '', 'nochange', '.png');
+  const fetchMock = withFetch(() => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      statusCode: 200,
+      files: [{ shortPath: 'l2/m/photo.png', content: encoded, encoding: 'base64' }],
+    }),
+  }) as Response);
+  try {
+    const DriverVm = await loadDriver();
+    const got = await new DriverVm().getContents(102047, [photo]);
+    assert.equal(got.length, 1);
+    assert.equal(got[0].fileInfo, photo);
+    const body = got[0].content;
+    assert.ok(body instanceof Blob, `expected Blob, got ${typeof body}`);
+    assert.equal(body.size, 256);
+    assert.equal(body.type, 'image/png');
+    const actual = new Uint8Array(await body.arrayBuffer());
+    assert.deepEqual([...actual], [...bytes]);
+  } finally {
+    fetchMock.restore();
+  }
+});

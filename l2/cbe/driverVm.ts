@@ -21,6 +21,8 @@
 // (mls.stor.others.DriverIOBase), so it MUST be imported dynamically, after
 // window.mls is up — never with a static import.
 
+import { mimeOf } from '/_102033_/l2/cbe/studioAssets.js';
+
 const EXEC_URL = '/exec';
 /** Same-origin page that shows one source file — see getUrl. */
 const SOURCE_VIEW_URL = '/cbe/source';
@@ -76,6 +78,15 @@ export function toShortPath(fileInfo: mls.stor.IFileInfoBase): string {
   const extSep = fileInfo.extension.startsWith('.') ? '' : '.';
   const levelPath = fileInfo.level === 0 ? '' : `l${fileInfo.level}/`;
   return `${levelPath}${fileInfo.folder.replace(/\\/gu, '/')}${folderSep}${fileInfo.shortName}${extSep}${fileInfo.extension}`;
+}
+
+/** Inverse of readFilePayload's base64: exact bytes, never a JS string (UTF-8 would stretch byte ≥ 128). */
+function blobFromBase64(encoded: string, extension: string): Blob {
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  const ext = extension.startsWith('.') || extension.length === 0 ? extension : `.${extension}`;
+  return new Blob([bytes], { type: mimeOf(ext) });
 }
 
 async function execAction<T>(action: string, payload: Record<string, unknown>): Promise<T> {
@@ -450,15 +461,18 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     });
     if (rc.statusCode !== 200) throw new Error(`getContents: ${rc.msg || 'error'}`);
 
-    const contents = new Map<string, string | null>();
+    const contents = new Map<string, string | Blob | null>();
     for (const file of rc.files ?? []) {
-      contents.set(file.shortPath, file.encoding === 'base64' ? atob(file.content) : file.content);
+      const decoded = file.encoding === 'base64'
+        ? blobFromBase64(file.content, byShortPath.get(file.shortPath)?.extension ?? '')
+        : file.content;
+      contents.set(file.shortPath, decoded);
     }
     // The cfe matches results by object identity: return the SAME fileInfo it handed us.
     // A file the VM does not have comes back as null — that is "absent", not "failed".
     return [...byShortPath.entries()].map(([shortPath, fileInfo]) => ({
       fileInfo,
-      content: contents.has(shortPath) ? contents.get(shortPath) as string | null : null,
+      content: contents.has(shortPath) ? contents.get(shortPath) as string | Blob | null : null,
     }));
   };
 
