@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   applyDraftFiles,
   beginDraftEntrySeed,
+  canonicalDraftText,
   COLLAB_DRAFT_DISCARDED,
   COLLAB_DRAFT_RECOUNT,
   deletedDraftFile,
@@ -1195,5 +1196,78 @@ test('st69 s1c: with no readable rename origin nothing else is dropped; with a r
     console.info = previousInfo;
     forgetDraftPaths(project, [saved, 'l1/st69/mid.ts', 'l1/st69/other.ts', current]);
     if (host.mls) host.mls.stor = previousStor;
+  }
+});
+
+test('applyDraftFiles accepts a Blob as draft and published text', async () => {
+  const project = 53080;
+  const bytes = Uint8Array.from([0, 65, 0x80, 0x9f, 255, 0xc3, 0xa9]);
+  const latin1 = String.fromCharCode(...bytes); // one char per byte, what atob gives (TextDecoder 'latin1' is windows-1252)
+  const ident = { project, level: 3, folder: 'media', shortName: 'photo', extension: '.png' };
+  const host = globalThis as { mls?: { editor?: unknown; common?: unknown; stor?: unknown }; window?: EventTarget };
+  const previousWindow = host.window;
+  host.window = new EventTarget();
+  const previousEditor = host.mls?.editor;
+  const previousCommon = host.mls?.common;
+  const previousStor = host.mls?.stor;
+  if (!host.mls) host.mls = {};
+  host.mls.common = {
+    crc: {
+      crc32: (value: string) => {
+        let hash = 0;
+        for (const ch of value) hash = (hash * 33 + ch.charCodeAt(0)) >>> 0;
+        return hash;
+      },
+    },
+  };
+  host.mls.stor = {
+    others: {
+      getDefaultDriver: () => ({
+        getContents: async (_project: number, fileInfos: mls.stor.IFileInfo[]) => fileInfos.map((info) => ({
+          fileInfo: info,
+          content: new Blob([bytes]),
+        })),
+      }),
+    },
+  };
+  const row: {
+    versionRef: string;
+    getContent: () => Promise<string>;
+    getValueInfo?: () => Promise<{ content?: string | null; originalCRC?: string } | undefined>;
+  } = {
+    versionRef: 'o',
+    getContent: async () => latin1,
+  };
+  const stored: { [key: string]: typeof row } = { [fileKey(ident)]: row };
+  const errors: string[] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+  try {
+    assert.equal(await canonicalDraftText(latin1), latin1);
+    assert.equal(await canonicalDraftText(new Blob([bytes])), latin1);
+    await applyDraftFiles(project, 'team-53080', {
+      draftDiff: async () => ({
+        head: 'abc',
+        main: 'main1',
+        files: [{ status: 'M', path: 'l3/media/photo.png', sha: 'shaPng' }],
+      }),
+      hasLocalEdit: () => false,
+      addOrUpdateFile: async (info) => ({ versionRef: info.versionRef }),
+      fileKey,
+      files: () => stored,
+    });
+    const crc = draftContentCrc(latin1, '.png');
+    assert.equal(sentCrcOf(ident), crc);
+    const info = await stored[fileKey(ident)].getValueInfo?.();
+    assert.equal(info?.originalCRC, crc);
+    assert.deepEqual(errors, []);
+  } finally {
+    console.error = previousError;
+    host.window = previousWindow;
+    if (host.mls) {
+      host.mls.editor = previousEditor;
+      host.mls.common = previousCommon;
+      host.mls.stor = previousStor;
+    }
   }
 });

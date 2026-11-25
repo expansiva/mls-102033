@@ -786,11 +786,12 @@ function installPublishedCrc(row: DraftStoredRow, crc: string, path: string): vo
     } catch (err) {
       console.error(`[studioDraftFiles] ${path}: ${errorText(err)}`);
     }
-    if (typeof loaded !== 'string' || loaded.length === 0) {
+    const keep = typeof loaded === 'string' || loaded instanceof Blob ? await canonicalDraftText(loaded) : '';
+    if (keep.length === 0) {
       console.error(`[studioDraftFiles] ${path}: published baseline has no draft text to keep`);
       return { content: null, originalCRC: crc };
     }
-    return { content: loaded, originalCRC: crc };
+    return { content: keep, originalCRC: crc };
   };
   pinBase.set(pinned, base ?? null);
   row.getValueInfo = pinned;
@@ -901,13 +902,24 @@ function fileRequest(project: number, loc: ParsedDraftFile): mls.stor.IFileInfo 
   return request as mls.stor.IFileInfo;
 }
 
-function rememberLoadedCrc(project: number, target: SentCrcTarget, loaded: string | Blob | null | undefined): void {
-  if (typeof loaded !== 'string') {
+/** Text form of a loaded body. A string stays; a Blob is its bytes as latin1. */
+export async function canonicalDraftText(body: string | Blob): Promise<string> {
+  if (typeof body === 'string') return body;
+  const bytes = new Uint8Array(await body.arrayBuffer());
+  // Not TextDecoder('latin1'): the web spec maps that label to windows-1252 (byte 0x80 becomes U+20AC).
+  let text = '';
+  for (let at = 0; at < bytes.length; at += 8192) text += String.fromCharCode(...bytes.subarray(at, at + 8192));
+  return text;
+}
+
+async function rememberLoadedCrc(project: number, target: SentCrcTarget, loaded: string | Blob | null | undefined): Promise<void> {
+  if (typeof loaded !== 'string' && !(loaded instanceof Blob)) {
     console.error(`[studioDraftFiles] ${target.path}: draft text is not a string`);
     return;
   }
   try {
-    rememberSentCrc(identityOf(project, target.loc), draftContentCrc(loaded, target.loc.extension));
+    const text = await canonicalDraftText(loaded);
+    rememberSentCrc(identityOf(project, target.loc), draftContentCrc(text, target.loc.extension));
   } catch (err) {
     console.error(`[studioDraftFiles] ${target.path}: ${errorText(err)}`);
   }
@@ -929,7 +941,7 @@ async function seedSentCrcs(project: number, targets: SentCrcTarget[]): Promise<
     const byInfo = new Map<mls.stor.IFileInfo, string | Blob | null>();
     for (const item of loaded ?? []) byInfo.set(item.fileInfo, item.content);
     for (let index = 0; index < batch.length; index++) {
-      rememberLoadedCrc(project, batch[index], byInfo.get(fileInfos[index]));
+      await rememberLoadedCrc(project, batch[index], byInfo.get(fileInfos[index]));
     }
   }
   if (!draftEntrySeedPending()) requestDraftRecount(project);
@@ -978,12 +990,16 @@ async function loadPublishedTexts(
     const byInfo = new Map<mls.stor.IFileInfo, string | Blob | null>();
     for (const item of loaded ?? []) byInfo.set(item.fileInfo, item.content);
     for (let index = 0; index < batch.length; index++) {
-      const text = byInfo.get(fileInfos[index]);
-      if (typeof text !== 'string') {
+      const loaded = byInfo.get(fileInfos[index]);
+      if (typeof loaded !== 'string' && !(loaded instanceof Blob)) {
         console.error(`[studioDraftFiles] ${batch[index].file.path}: published content is missing at ${main}`);
         continue;
       }
-      texts.set(batch[index].file, text);
+      try {
+        texts.set(batch[index].file, await canonicalDraftText(loaded));
+      } catch (err) {
+        console.error(`[studioDraftFiles] ${batch[index].file.path}: ${errorText(err)}`);
+      }
     }
   }
   return texts;
