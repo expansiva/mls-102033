@@ -116,7 +116,8 @@ async function execAction<T>(action: string, payload: Record<string, unknown>): 
  * ceiling leaves margin. A text file whose own body exceeds it is sent as
  * gzip-base64 when that still fits in one request. Past that, the encoded
  * text goes in parts and one setContents that only references the upload.
- * A file above 64 MB is not sent.
+ * Binary base64 does the same, without gzip: parts of the base64 itself.
+ * A file above 64 MB of original bytes is not sent.
  */
 const SET_CONTENTS_MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -227,8 +228,8 @@ function setContentsBodyBytes(
 
 interface IVmUploadFile {
   shortPath: string;
-  encoding: 'gzip-base64' | 'utf8';
-  /** The string the parts are slices of: gzip-base64, or the original text when that encoding does not fit the upload cap. */
+  encoding: 'gzip-base64' | 'utf8' | 'base64';
+  /** The string the parts are slices of: gzip-base64, the original text, or the base64 of a binary file. */
   encoded: string;
   sha256: string;
 }
@@ -242,13 +243,36 @@ function requestBytes(payload: Record<string, unknown>): number {
   return new TextEncoder().encode(JSON.stringify(payload)).length;
 }
 
-/** SHA-256 hex of the file's final bytes (the utf-8 text the server writes). */
-async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  const bytes = new Uint8Array(digest);
+/** SHA-256 hex of these bytes. Binary hashes the decoded bytes, not the base64 text. */
+async function sha256OfBytes(bytes: Uint8Array): Promise<string> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const digest = await crypto.subtle.digest('SHA-256', copy);
+  const hashed = new Uint8Array(digest);
   let hex = '';
-  for (let index = 0; index < bytes.length; index++) hex += bytes[index].toString(16).padStart(2, '0');
+  for (let index = 0; index < hashed.length; index++) hex += hashed[index].toString(16).padStart(2, '0');
   return hex;
+}
+
+/** SHA-256 hex of the utf-8 text the server writes. */
+async function sha256Hex(text: string): Promise<string> {
+  return sha256OfBytes(new TextEncoder().encode(text));
+}
+
+/** Byte length of standard base64, counting padding. This is the original file size, not the JSON size. */
+function base64DecodedLength(encoded: string): number {
+  if (encoded.length === 0) return 0;
+  let padding = 0;
+  if (encoded.endsWith('==')) padding = 2;
+  else if (encoded.endsWith('=')) padding = 1;
+  return Math.floor(encoded.length / 4) * 3 - padding;
+}
+
+function base64ToBytes(encoded: string): Uint8Array {
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes;
 }
 
 function refuseOverLimit(shortPath: string, bytes: number, limit: number): IPreparedFile {
@@ -258,7 +282,8 @@ function refuseOverLimit(shortPath: string, bytes: number, limit: number): IPrep
 /**
  * A utf-8 file whose body alone exceeds the ceiling travels as gzip-base64
  * when the compressed request still fits. When it does not, and the file is
- * within 64 MB, it is marked for parts. Binary base64 is unchanged.
+ * within 64 MB, it is marked for parts. Binary base64 uses the same parts,
+ * without gzip, and the 64 MB ceiling is the decoded byte length.
  */
 async function prepareSetContentsFile(
   project: number,
@@ -266,9 +291,20 @@ async function prepareSetContentsFile(
   comments: string | null,
 ): Promise<IPreparedFile> {
   if (file.encoding !== 'utf8') {
-    const bytes = setContentsBodyBytes(project, [file], [], comments);
-    if (bytes > SET_CONTENTS_MAX_BODY_BYTES) return refuseOverLimit(file.shortPath, bytes, SET_CONTENTS_MAX_BODY_BYTES);
-    return { kind: 'inline', file };
+    if (setContentsBodyBytes(project, [file], [], comments) <= SET_CONTENTS_MAX_BODY_BYTES) return { kind: 'inline', file };
+    const originalBytes = base64DecodedLength(file.content);
+    if (originalBytes > SET_CONTENTS_MAX_FILE_BYTES) return refuseOverLimit(file.shortPath, originalBytes, SET_CONTENTS_MAX_FILE_BYTES);
+    let bytes: Uint8Array;
+    try {
+      bytes = base64ToBytes(file.content);
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      console.error(`setContents: base64 decode failed for ${file.shortPath}: ${why}`);
+      return refuseOverLimit(file.shortPath, originalBytes, SET_CONTENTS_MAX_BODY_BYTES);
+    }
+    if (bytes.length > SET_CONTENTS_MAX_FILE_BYTES) return refuseOverLimit(file.shortPath, bytes.length, SET_CONTENTS_MAX_FILE_BYTES);
+    const sha256 = await sha256OfBytes(bytes);
+    return { kind: 'upload', file: { shortPath: file.shortPath, encoding: 'base64', encoded: file.content, sha256 } };
   }
   const originalBytes = new TextEncoder().encode(file.content).length;
   if (originalBytes > SET_CONTENTS_MAX_FILE_BYTES) return refuseOverLimit(file.shortPath, originalBytes, SET_CONTENTS_MAX_FILE_BYTES);
@@ -651,9 +687,7 @@ export class DriverVm extends mls.stor.others.DriverIOBase {
     if (content === null) return null;
     if (typeof content === 'string') return { shortPath, content, encoding: 'utf8' };
     const buffer = new Uint8Array(await content.arrayBuffer());
-    let binary = '';
-    for (const byte of buffer) binary += String.fromCharCode(byte);
-    return { shortPath, content: btoa(binary), encoding: 'base64' };
+    return { shortPath, content: bytesToBase64(buffer), encoding: 'base64' };
   }
 
   /**

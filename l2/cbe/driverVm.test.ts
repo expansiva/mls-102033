@@ -542,6 +542,94 @@ test('st49: falha no 2º lote devolve falso e o 2º lote em diante fica pendente
   }
 });
 
+/** Bytes that do not repeat, so the base64 is not a special case of zeros. */
+function binaryBytes(size: number): Uint8Array {
+  const bytes = new Uint8Array(size);
+  let seed = 0x9e3779b9;
+  for (let index = 0; index < size; index++) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    bytes[index] = seed & 0xff;
+  }
+  return bytes;
+}
+
+function blobFile(shortName: string, bytes: Uint8Array, extension = '.png'): mls.stor.IFileInfo {
+  return {
+    project: 102047,
+    level: 3,
+    folder: 'assets',
+    shortName,
+    extension,
+    status: 'changed',
+    inLocalStorage: true,
+    getContent: async () => new Blob([bytes]),
+  } as mls.stor.IFileInfo;
+}
+
+test('st81: binário de ~5 MB em base64 sai em partes de até 2 MB e o setContents cita o sha256 dos bytes', async () => {
+  const bytes = binaryBytes(5 * 1024 * 1024);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const fetchMock = withFetch(() => okResponse());
+  try {
+    const DriverVm = await loadDriver();
+    const saved = await new DriverVm().setContents(102047, [blobFile('photo', bytes)], 'save');
+    assert.equal(saved, true);
+    const parts: IPostedBody[] = [];
+    const saves: IPostedBody[] = [];
+    fetchMock.bodies.forEach((body, index) => {
+      const size = new TextEncoder().encode(body).length;
+      assert.ok(size <= MAX_BODY, `pedido ${index + 1} tem ${size} bytes`);
+      const payload = posted(body);
+      if (payload.action === 'setContentsPart') parts.push(payload);
+      else saves.push(payload);
+    });
+    assert.ok(parts.length > 1);
+    assert.equal(saves.length, 1);
+    const file = saves[0].files?.[0];
+    assert.equal(file?.shortPath, 'l3/assets/photo.png');
+    assert.equal(file?.encoding, 'base64');
+    assert.equal(typeof file?.uploadId, 'string');
+    assert.ok(file?.uploadId);
+    assert.equal(file?.content, undefined);
+    assert.equal(file?.sha256, digest);
+    const joined = parts.map((part) => part.data ?? '').join('');
+    assert.equal(createHash('sha256').update(joined).digest('hex') === digest, false);
+    assert.equal(createHash('sha256').update(Buffer.from(atob(joined), 'latin1')).digest('hex'), digest);
+    assert.deepEqual(parts.map((part) => part.index), parts.map((_, index) => index));
+    assert.ok(parts.every((part) => part.uploadId === file?.uploadId && part.total === parts.length));
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test('st81: binário acima de 64 MB é recusado com o limite de 64 MB', { timeout: 180_000 }, async () => {
+  const bytes = binaryBytes(64 * 1024 * 1024 + 1);
+  const errors: unknown[][] = [];
+  const previousError = console.error;
+  console.error = (...args: unknown[]) => {
+    errors.push(args);
+  };
+  const fetchMock = withFetch(() => okResponse());
+  try {
+    const DriverVm = await loadDriver();
+    await assert.rejects(
+      () => new DriverVm().setContents(102047, [blobFile('huge', bytes)], null),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /^setContents: file exceeds the 67108864 byte limit: l3\/assets\/huge\.png \(\d+ bytes\)$/);
+        return true;
+      },
+    );
+    assert.equal(fetchMock.bodies.some((body) => posted(body).action === 'setContentsPart'), false);
+    assert.equal(fetchMock.bodies.some((body) => posted(body).files?.some((file) => file.uploadId)), false);
+    const logged = errors.map((args) => args.join(' ')).join('\n');
+    assert.match(logged, /setContents: file exceeds the 67108864 byte limit: l3\/assets\/huge\.png \(\d+ bytes\)/);
+  } finally {
+    console.error = previousError;
+    fetchMock.restore();
+  }
+});
+
 test('st80: getContents devolve Blob com os 256 bytes do base64', async () => {
   const bytes = Uint8Array.from({ length: 256 }, (_, index) => index);
   let binary = '';
