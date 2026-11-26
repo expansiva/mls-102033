@@ -13,9 +13,15 @@
 // so nothing here copies them. The bridge only points at the roles `#ds-tokens` rewrites, so switching the DS
 // repaints the chrome by itself. `html[data-…]` (0,1,1) wins over the Collab's `:root` / `[data-theme="dark"]`
 // (0,1,0) without `!important`, and the roles' own light/dark pairs carry the theme.
+//
+// The app area is not chrome. `collab-aura-shell .region.content` follows the DS `--page-bg` whenever the DS
+// is on the page, in both modes, under a second mark (`data-aura-app`). The studio columns live in `.layout`
+// and `.body`, so those — and the `--collab-*` variables and the tab border — stay under the chrome mark.
 
 export const CHROME_MARK_ATTR = 'data-aura-chrome';
 export const CHROME_MARK_VALUE = 'ds';
+/** The app area (<html>): set whenever a DS is on the page, studio mode included. */
+export const APP_AREA_MARK_ATTR = 'data-aura-app';
 export const CHROME_STYLE_ID = 'aura-chrome-ds';
 /** The DS stylesheet the bridge depends on (written by bootstrap / designSystemRuntime). */
 export const DS_TOKENS_STYLE_ID = 'ds-tokens';
@@ -39,15 +45,18 @@ export function chromeMarkFor(studioOn: boolean, hasDesignSystem: boolean): stri
 }
 
 const ON = `html[${CHROME_MARK_ATTR}="${CHROME_MARK_VALUE}"]`;
+const APP_ON = `html[${APP_AREA_MARK_ATTR}="${CHROME_MARK_VALUE}"]`;
 
-/** The bridge stylesheet: the Collab variables, plus the shell's own app background and tab border. */
+/** The bridge stylesheet: the Collab chrome under its mark, and the app area under its own. */
 export function collabChromeDsCss(): string {
   const variables = Object.entries(COLLAB_TO_DS_ROLE).map(([name, role]) => `  ${name}: var(--${role});`).join('\n');
   return [
     `${ON} {\n${variables}\n}`,
-    // The shell's fixed cream backgrounds (the app area under a short page) and the tab strip border.
-    `${ON} collab-aura-shell .layout,\n${ON} collab-aura-shell .body,\n${ON} collab-aura-shell .region.content {\n  background: var(--page-bg);\n}`,
+    // Chrome surfaces only, and only outside studio mode. The studio columns live in `.layout` and `.body`.
+    `${ON} collab-aura-shell .layout,\n${ON} collab-aura-shell .body {\n  background: var(--page-bg);\n}`,
     `${ON} collab-aura-shell .nav3-tabs {\n  border-bottom-color: var(--border-subtle);\n}`,
+    // App area in both modes. The mark stays on while a DS is on the page, studio included.
+    `${APP_ON} collab-aura-shell .region.content {\n  background: var(--page-bg);\n}`,
   ].join('\n\n');
 }
 
@@ -79,11 +88,11 @@ export function ensureCollabChromeDsStyle(doc: IChromeDocument | null = defaultD
 /** Marks (or unmarks) <html> for the current studio mode and the DS on the page. */
 export function syncCollabChromeMark(studioOn: boolean, doc: IChromeDocument | null = defaultDocument()): void {
   if (!doc) return;
-  const mark = chromeMarkFor(studioOn, Boolean(doc.getElementById(DS_TOKENS_STYLE_ID)));
-  if (mark) {
-    ensureCollabChromeDsStyle(doc);
-    doc.documentElement.setAttribute(CHROME_MARK_ATTR, mark);
-  } else {
-    doc.documentElement.removeAttribute(CHROME_MARK_ATTR);
-  }
+  const hasDesignSystem = Boolean(doc.getElementById(DS_TOKENS_STYLE_ID));
+  const mark = chromeMarkFor(studioOn, hasDesignSystem);
+  if (hasDesignSystem) ensureCollabChromeDsStyle(doc);
+  if (mark) doc.documentElement.setAttribute(CHROME_MARK_ATTR, mark);
+  else doc.documentElement.removeAttribute(CHROME_MARK_ATTR);
+  if (hasDesignSystem) doc.documentElement.setAttribute(APP_AREA_MARK_ATTR, CHROME_MARK_VALUE);
+  else doc.documentElement.removeAttribute(APP_AREA_MARK_ATTR);
 }
